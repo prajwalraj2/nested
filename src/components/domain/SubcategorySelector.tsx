@@ -140,10 +140,10 @@ function SubcategoryItem({ subcategory, pathPrefix }: {
   return (
     <Link
       href={`${pathPrefix}/${subcategory.slug}`}
-      className="block px-3 py-2 rounded-md hover:bg-accent transition-colors"
+      className="block px-3 py-1 rounded-md hover:bg-accent transition-colors"
       title={subcategory.title}
     >
-      <span className="font-medium text-foreground block truncate">
+      <span className="text-sm font-medium text-foreground block truncate">
         {subcategory.title}
       </span>
     </Link>
