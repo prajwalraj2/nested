@@ -14,13 +14,15 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
-import { usePageSidebarData, type PageSidebarSection, type PageSidebarPage } from '@/hooks/usePageSidebarData';
+import { Skeleton } from '@/components/ui/skeleton';
+import { usePageSidebarDataFromContext } from '@/contexts/PageContextProvider';
+import type { PageSidebarSection, PageSidebarPage } from '@/hooks/usePageContext';
 
 /**
  * PageSidebar Component
  * 
- * Displays page-specific sidebar with sections and pages
- * Used when user is viewing a specific page within a domain
+ * Displays page-specific sidebar with sections and pages.
+ * Used when user is viewing a specific page within a domain.
  */
 export function PageSidebar() {
   const { 
@@ -30,17 +32,84 @@ export function PageSidebar() {
     togglePageExpansion, 
     isCurrentPage, 
     isPageExpanded 
-  } = usePageSidebarData();
+  } = usePageSidebarDataFromContext();
 
   if (loading) {
     return (
       <SidebarContent>
+        {/* Header skeleton */}
         <SidebarGroup>
-          <SidebarGroupLabel>Loading...</SidebarGroupLabel>
+          <SidebarGroupLabel>
+            <Skeleton className="h-3 w-12 bg-muted-foreground/20" />
+          </SidebarGroupLabel>
           <SidebarGroupContent>
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+            <div className="px-2 py-1">
+              <Skeleton className="h-4 w-28 mb-1 bg-muted-foreground/20" />
+              <Skeleton className="h-3 w-20 bg-muted-foreground/15" />
             </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Section 1 skeleton - 8 items */}
+        <SidebarGroup>
+          <SidebarGroupLabel>
+            <Skeleton className="h-3 w-28 bg-muted-foreground/20" />
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                <SidebarMenuItem key={`s1-${i}`}>
+                  <div className="flex items-center gap-2 px-2 py-1.5">
+                    <Skeleton className="h-4 w-4 rounded-sm bg-muted-foreground/20" />
+                    <Skeleton className={`h-4 bg-muted-foreground/15 ${
+                      i % 3 === 0 ? 'w-[100px]' : i % 2 === 0 ? 'w-[140px]' : 'w-[120px]'
+                    }`} />
+                  </div>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Section 2 skeleton - 7 items */}
+        <SidebarGroup>
+          <SidebarGroupLabel>
+            <Skeleton className="h-3 w-24 bg-muted-foreground/20" />
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                <SidebarMenuItem key={`s2-${i}`}>
+                  <div className="flex items-center gap-2 px-2 py-1.5">
+                    <Skeleton className="h-4 w-4 rounded-sm bg-muted-foreground/20" />
+                    <Skeleton className={`h-4 bg-muted-foreground/15 ${
+                      i % 3 === 0 ? 'w-[130px]' : i % 2 === 0 ? 'w-[90px]' : 'w-[110px]'
+                    }`} />
+                  </div>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Section 3 skeleton - 9 items */}
+        <SidebarGroup>
+          <SidebarGroupLabel>
+            <Skeleton className="h-3 w-20 bg-muted-foreground/20" />
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                <SidebarMenuItem key={`s3-${i}`}>
+                  <div className="flex items-center gap-2 px-2 py-1.5">
+                    <Skeleton className="h-4 w-4 rounded-sm bg-muted-foreground/20" />
+                    <Skeleton className={`h-4 bg-muted-foreground/15 ${
+                      i % 3 === 0 ? 'w-[115px]' : i % 2 === 0 ? 'w-[135px]' : 'w-[95px]'
+                    }`} />
+                  </div>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
@@ -48,7 +117,6 @@ export function PageSidebar() {
   }
 
   if (error || !pageData) {
-    console.log('[DEBUG PageSidebar] Error or no data:', { error, pageData });
     return (
       <SidebarContent>
         <SidebarGroup>
@@ -63,8 +131,6 @@ export function PageSidebar() {
     );
   }
 
-  console.log('[DEBUG PageSidebar] Received data:', pageData);
-
   // Sort sections by column and order
   const sortedSections = [...pageData.sections].sort((a, b) => {
     if (a.column !== b.column) {
@@ -72,8 +138,6 @@ export function PageSidebar() {
     }
     return a.order - b.order;
   });
-
-  console.log('[DEBUG PageSidebar] Sorted sections:', sortedSections);
 
   return (
     <SidebarContent>
@@ -124,10 +188,7 @@ function PageSidebarSection({
   isCurrentPage: (url: string) => boolean;
   isPageExpanded: (pageId: string) => boolean;
 }) {
-  console.log('[DEBUG PageSidebarSection]', section.title, 'has', section.pages.length, 'pages');
-  
   if (section.pages.length === 0) {
-    console.log('[DEBUG PageSidebarSection] Returning null for empty section:', section.title);
     return null;
   }
 

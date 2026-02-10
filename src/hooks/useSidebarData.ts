@@ -1,3 +1,17 @@
+// ============================================
+// ⚠️ DEPRECATED - This hook is replaced by usePageContext
+// ============================================
+// This file is kept for reference during migration.
+// The functionality has been moved to usePageContext hook
+// which is available via PageContextProvider.
+//
+// Components should use:
+//   import { useSidebarDataFromContext } from '@/contexts/PageContextProvider'
+// Or for direct access:
+//   import { usePageContext } from '@/hooks/usePageContext'
+//   const { sidebar, toggleDomain, isDomainExpanded, ... } = usePageContext();
+// ============================================
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -62,13 +76,13 @@ export function useSidebarData() {
     async function fetchSidebarData() {
       try {
         setLoading(true);
-        const response = await fetch('/api/sidebar');
+        const response = await fetch('/api/sidebar'); // response is the response from the API in JSON format
         
         if (!response.ok) {
           throw new Error('Failed to fetch sidebar data');
         }
 
-        const result = await response.json();
+        const result = await response.json(); // result is the response from the API in JSON format | Ex: { success: true, domains: [...], categories: [...], message: 'Success' }
         
         if (!result.success) {
           throw new Error(result.message || 'Failed to load sidebar data');
@@ -77,10 +91,10 @@ export function useSidebarData() {
         setData(result);
         setError(null);
       } catch (err) {
-        console.error('Error fetching sidebar data:', err);
+        // console.error('Error fetching sidebar data:', err);
         setError(err instanceof Error ? err.message : 'Unknown error');
         setData(null);
-      } finally {
+      } finally { // finally block is executed regardless of whether the try or catch block is executed
         setLoading(false);
       }
     }

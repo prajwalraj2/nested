@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { exportTableToCsv, exportTableToJson } from '@/lib/table-utils';
+import { exportTableToCsv, exportTableToJson, ensureRowsHaveTargetCountries } from '@/lib/table-utils';
 import type { TableData } from '@/types/table';
 
 /**
@@ -167,13 +167,16 @@ export async function PUT(
     let newData: TableData;
     const currentData = existingTable.data as TableData;
 
+    // Ensure all rows have targetCountries value
+    const rowsWithTargetCountries = ensureRowsHaveTargetCountries(data.rows);
+
     switch (operation) {
       case 'replace':
         // Replace all data
         newData = {
-          rows: data.rows,
+          rows: rowsWithTargetCountries,
           metadata: {
-            totalRows: data.rows.length,
+            totalRows: rowsWithTargetCountries.length,
             lastUpdated: new Date().toISOString(),
             importSource: data.metadata?.importSource || 'api'
           }
@@ -184,9 +187,9 @@ export async function PUT(
         // Append new rows to existing data
         const existingRows = currentData.rows || [];
         newData = {
-          rows: [...existingRows, ...data.rows],
+          rows: [...existingRows, ...rowsWithTargetCountries],
           metadata: {
-            totalRows: existingRows.length + data.rows.length,
+            totalRows: existingRows.length + rowsWithTargetCountries.length,
             lastUpdated: new Date().toISOString(),
             importSource: 'api'
           }

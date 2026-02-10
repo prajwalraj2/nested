@@ -1,7 +1,25 @@
+// ============================================
+// ⚠️ DEPRECATED - This API is replaced by /api/page-context
+// ============================================
+// This file is kept for reference during migration.
+// The functionality has been moved to NavigationService.getBreadcrumbData()
+// and is now part of the unified /api/page-context endpoint.
+//
+// NOTE: This API had an N+1 query problem (loop of Prisma calls).
+// The new NavigationService uses optimized batch queries instead.
+//
+// Components should use:
+//   import { useBreadcrumbDataFromContext } from '@/contexts/PageContextProvider'
+// Instead of:
+//   import { useBreadcrumbData } from '@/hooks/useBreadcrumbData'
+// ============================================
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 /**
+ * @deprecated Use /api/page-context instead
+ * 
  * Breadcrumb Data API Route
  * 
  * GET /api/breadcrumb?path=/domain/webdev/withcode/ytube

@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { CreateTableRequest, TableListResponse } from '@/types/table';
+import { ensureTargetCountriesColumn, ensureRowsHaveTargetCountries } from '@/lib/table-utils';
 
 /**
  * API Routes for Table Management
@@ -154,6 +155,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Ensure targetCountries column exists in schema
+    const schemaWithTargetCountries = ensureTargetCountriesColumn(schema);
+    
+    // Ensure all rows have targetCountries value (default to ALL)
+    const dataWithTargetCountries = data ? {
+      ...data,
+      rows: ensureRowsHaveTargetCountries(data.rows || []),
+    } : { 
+      rows: [], 
+      metadata: { 
+        totalRows: 0, 
+        lastUpdated: new Date().toISOString(),
+        importSource: 'manual'
+      } 
+    };
+
     // Start a transaction to create table and update page
     const result = await prisma.$transaction(async (tx) => {
       // Update page content type to 'table' if it's not already
@@ -169,15 +186,8 @@ export async function POST(request: NextRequest) {
         data: {
           name: name.trim(),
           pageId,
-          schema: JSON.parse(JSON.stringify(schema)),
-          data: JSON.parse(JSON.stringify(data || { 
-            rows: [], 
-            metadata: { 
-              totalRows: 0, 
-              lastUpdated: new Date().toISOString(),
-              importSource: 'manual'
-            } 
-          })),
+          schema: JSON.parse(JSON.stringify(schemaWithTargetCountries)),
+          data: JSON.parse(JSON.stringify(dataWithTargetCountries)),
           settings: JSON.parse(JSON.stringify(settings || {
             pagination: { enabled: true, pageSize: 25, showSizeSelector: true, showInfo: true },
             sorting: { enabled: true, multiSort: false },

@@ -1,3 +1,17 @@
+// ============================================
+// ⚠️ DEPRECATED - This hook is replaced by usePageContext
+// ============================================
+// This file is kept for reference during migration.
+// The functionality has been moved to usePageContext hook
+// which is available via PageContextProvider.
+//
+// Components should use:
+//   import { useBreadcrumbDataFromContext } from '@/contexts/PageContextProvider'
+// Or for direct access:
+//   import { usePageContext } from '@/hooks/usePageContext'
+//   const { breadcrumb } = usePageContext();
+// ============================================
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -24,18 +38,18 @@ export type BreadcrumbData = {
  * Hook to manage breadcrumb data based on current URL path
  */
 export function useBreadcrumbData() {
-  const pathname = usePathname();
-  const [data, setData] = useState<BreadcrumbData>({
+  const pathname = usePathname(); // get the current pathname from the browser
+  const [data, setData] = useState<BreadcrumbData>({ // state to store the breadcrumb data
     breadcrumbs: [],
     shouldCollapse: false,
     visibleItems: null
   });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false); // state to store the loading state (true when fetching data, false when done)
+  const [error, setError] = useState<string | null>(null); // state to store the error state (null when no error, string when error)
 
   useEffect(() => {
     // Only fetch breadcrumbs for domain paths
-    if (!pathname.startsWith('/domain')) {
+    if (!pathname.startsWith('/domain')) { // if the pathname does not start with /domain, set the data to an empty array
       setData({
         breadcrumbs: [],
         shouldCollapse: false,

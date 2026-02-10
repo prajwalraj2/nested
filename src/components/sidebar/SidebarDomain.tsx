@@ -61,15 +61,16 @@ export function SidebarDomain({
               className="flex-shrink-0 p-1 hover:bg-accent/50 rounded-sm ml-1"
             >
               {shouldShowExpanded ? (
-                <ChevronDown className="h-4 w-4" />
+                <ChevronDown className="h-4 w-4 cursor-pointer" />
               ) : (
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-4 w-4 cursor-pointer" />
               )}
             </button>
           )}
         </div>
       </SidebarMenuButton>
 
+      {/* If the domain is expanded, render the pages */}
       {shouldShowExpanded && (
         <SidebarMenuSub>
           <SidebarMenu>

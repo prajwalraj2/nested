@@ -1,8 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ChevronDown } from 'lucide-react';
-import { useHeaderData } from '@/hooks/useHeaderData';
+import { useHeaderDataFromContext } from '@/contexts/PageContextProvider';
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -13,7 +12,7 @@ import {
 } from '@/components/ui/navigation-menu';
 
 export default function AppHeader() {
-  const { data, loading, error } = useHeaderData();
+  const { data, loading, error } = useHeaderDataFromContext();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
@@ -31,7 +30,6 @@ export default function AppHeader() {
             <NavigationMenuItem>
               <NavigationMenuTrigger className="flex items-center space-x-1">
                 <span>Domains</span>
-                
               </NavigationMenuTrigger>
               <NavigationMenuContent>
                 <div className="w-[800px] p-6">

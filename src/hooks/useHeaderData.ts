@@ -1,3 +1,17 @@
+// ============================================
+// ⚠️ DEPRECATED - This hook is replaced by usePageContext
+// ============================================
+// This file is kept for reference during migration.
+// The functionality has been moved to usePageContext hook
+// which is available via PageContextProvider.
+//
+// Components should use:
+//   import { useHeaderDataFromContext } from '@/contexts/PageContextProvider'
+// Or for direct access:
+//   import { usePageContext } from '@/hooks/usePageContext'
+//   const { header } = usePageContext();
+// ============================================
+
 'use client';
 
 import { useState, useEffect } from 'react';

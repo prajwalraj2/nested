@@ -11,6 +11,7 @@ import {
   TableSettings,
   ValidationRule
 } from '@/types/table';
+import { ALL_COUNTRIES } from '@/lib/countries';
 
 /**
  * Utility Functions for Table Management System
@@ -294,6 +295,11 @@ export function transformCsvToTableData(
 ): TableData {
   const [headers, ...rows] = csvData;
   
+  // Check if CSV has targetCountries column (case-insensitive)
+  const targetCountriesHeaderIndex = headers.findIndex(header => 
+    String(header).toLowerCase().replace(/\s/g, '') === 'targetcountries'
+  );
+  
   const transformedRows: TableRow[] = rows.map((row, index) => {
     const tableRow: TableRow = {
       id: `row_${index + 1}_${Date.now()}`,
@@ -310,6 +316,17 @@ export function transformCsvToTableData(
         }
       }
     });
+    
+    // Handle targetCountries column
+    // If CSV has targetCountries column, use its value
+    if (targetCountriesHeaderIndex !== -1) {
+      const targetCountriesValue = row[targetCountriesHeaderIndex];
+      const valueStr = targetCountriesValue ? String(targetCountriesValue).trim() : '';
+      tableRow[TARGET_COUNTRIES_COLUMN_ID] = valueStr || ALL_COUNTRIES;
+    } else {
+      // If CSV doesn't have targetCountries column, default to ALL
+      tableRow[TARGET_COUNTRIES_COLUMN_ID] = ALL_COUNTRIES;
+    }
     
     return tableRow;
   });
@@ -451,4 +468,150 @@ export function exportTableToJson(data: TableData, schema: TableSchema): string 
   };
   
   return JSON.stringify(exportData, null, 2);
+}
+
+// =============================================================================
+// Geo-Targeting / Country Filtering Utilities
+// =============================================================================
+
+/**
+ * The system column ID for target countries
+ * This column is automatically added to all tables for country-based filtering
+ */
+export const TARGET_COUNTRIES_COLUMN_ID = 'targetCountries';
+
+/**
+ * Creates the targetCountries system column definition
+ * This column is:
+ * - Automatically added to all table schemas
+ * - Cannot be removed by admin
+ * - Hidden from public view
+ * - Defaults to "ALL" (visible to everyone)
+ */
+export function createTargetCountriesColumn(): TableColumn {
+  return {
+    id: TARGET_COUNTRIES_COLUMN_ID,
+    name: 'Target Countries',
+    type: 'text',
+    sortable: false,
+    filterable: false,
+    searchable: false,
+    required: false,
+    align: 'left',
+    validation: [],
+    // Custom properties for system columns
+    isSystem: true,      // System column - can't be removed
+    isHidden: true,      // Don't show in public UI
+    defaultValue: ALL_COUNTRIES,
+  } as TableColumn & { isSystem?: boolean; isHidden?: boolean; defaultValue?: string };
+}
+
+/**
+ * Ensures the targetCountries column exists in a table schema
+ * If not present, it's added as the last column
+ * 
+ * @param schema - The table schema to check/modify
+ * @returns The schema with targetCountries column guaranteed
+ */
+export function ensureTargetCountriesColumn(schema: TableSchema): TableSchema {
+  const hasTargetCountries = schema.columns.some(
+    col => col.id === TARGET_COUNTRIES_COLUMN_ID
+  );
+  
+  if (!hasTargetCountries) {
+    return {
+      ...schema,
+      columns: [...schema.columns, createTargetCountriesColumn()],
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  
+  return schema;
+}
+
+/**
+ * Ensures each row has a targetCountries value
+ * If missing or empty, defaults to "ALL"
+ * 
+ * @param rows - Array of table rows
+ * @returns Rows with guaranteed targetCountries values
+ */
+export function ensureRowsHaveTargetCountries(rows: TableRow[]): TableRow[] {
+  return rows.map(row => {
+    const targetCountries = row[TARGET_COUNTRIES_COLUMN_ID];
+    
+    // If missing, empty, or whitespace only, default to ALL
+    if (!targetCountries || String(targetCountries).trim() === '') {
+      return {
+        ...row,
+        [TARGET_COUNTRIES_COLUMN_ID]: ALL_COUNTRIES,
+      };
+    }
+    
+    return row;
+  });
+}
+
+/**
+ * Filters table rows based on user's country
+ * A row is visible if:
+ * - targetCountries is "ALL" or contains "ALL"
+ * - targetCountries contains the user's country code
+ * 
+ * @param rows - Array of table rows
+ * @param userCountry - User's country code (e.g., "IN", "US")
+ * @returns Filtered rows visible to the user
+ */
+export function filterRowsByCountry(rows: TableRow[], userCountry: string): TableRow[] {
+  return rows.filter(row => {
+    const targetCountries = row[TARGET_COUNTRIES_COLUMN_ID];
+    
+    // If no targetCountries, show to everyone (default behavior)
+    if (!targetCountries) {
+      return true;
+    }
+    
+    const targetStr = String(targetCountries).trim().toUpperCase();
+    
+    // If "ALL", show to everyone
+    if (targetStr === ALL_COUNTRIES) {
+      return true;
+    }
+    
+    // Handle comma-separated values: "IN,US,GB"
+    if (targetStr.includes(',')) {
+      const countries = targetStr.split(',').map(c => c.trim());
+      return countries.includes(ALL_COUNTRIES) || countries.includes(userCountry.toUpperCase());
+    }
+    
+    // Single country check
+    return targetStr === userCountry.toUpperCase();
+  });
+}
+
+/**
+ * Removes targetCountries column from schema for public display
+ * The column data is still used for filtering, but shouldn't be shown to users
+ * 
+ * @param schema - The table schema
+ * @returns Schema without the targetCountries column
+ */
+export function getPublicSchema(schema: TableSchema): TableSchema {
+  return {
+    ...schema,
+    columns: schema.columns.filter(col => col.id !== TARGET_COUNTRIES_COLUMN_ID),
+  };
+}
+
+/**
+ * Removes targetCountries field from rows for public display
+ * 
+ * @param rows - Array of table rows
+ * @returns Rows without targetCountries field
+ */
+export function getPublicRows(rows: TableRow[]): TableRow[] {
+  return rows.map(row => {
+    const { [TARGET_COUNTRIES_COLUMN_ID]: _, ...publicRow } = row;
+    return publicRow;
+  });
 }

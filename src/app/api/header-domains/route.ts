@@ -1,8 +1,23 @@
+// ============================================
+// ⚠️ DEPRECATED - This API is replaced by /api/page-context
+// ============================================
+// This file is kept for reference during migration.
+// The functionality has been moved to NavigationService.getHeaderData()
+// and is now part of the unified /api/page-context endpoint.
+//
+// Components should use:
+//   import { useHeaderDataFromContext } from '@/contexts/PageContextProvider'
+// Instead of:
+//   import { useHeaderData } from '@/hooks/useHeaderData'
+// ============================================
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getUserCountryFromRequest, buildCountryFilter } from '@/lib/server-country';
 
 /**
+ * @deprecated Use /api/page-context instead
+ * 
  * Header Domains API Route
  * 
  * GET /api/header-domains

@@ -1,8 +1,23 @@
+// ============================================
+// ⚠️ DEPRECATED - This API is replaced by /api/page-context
+// ============================================
+// This file is kept for reference during migration.
+// The functionality has been moved to NavigationService.getPageContext()
+// and is now part of the unified /api/page-context endpoint.
+//
+// Components should use:
+//   import { usePageSidebarDataFromContext } from '@/contexts/PageContextProvider'
+// Instead of:
+//   import { usePageSidebarData } from '@/hooks/usePageSidebarData'
+// ============================================
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getUserCountryFromRequest, buildCountryFilter, isContentVisibleToUser } from '@/lib/server-country';
 
 /**
+ * @deprecated Use /api/page-context instead
+ * 
  * Page Sidebar Data API Route
  * 
  * GET /api/page-sidebar?domainSlug=gdesign - Fetch pages for direct domain
@@ -87,7 +102,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error fetching page sidebar data:', error);
+    // console.error('Error fetching page sidebar data:', error);
     return NextResponse.json(
       { 
         success: false, 
@@ -128,8 +143,8 @@ async function getDirectDomainSidebar(domainSlug: string, userCountry: string) {
 
   if (!domain) return null;
 
-  console.log(`[DEBUG] Domain found: ${domain.name}, pages count: ${domain.pages.length}`);
-  console.log(`[DEBUG] Pages:`, domain.pages.map(p => ({ title: p.title, slug: p.slug, contentType: p.contentType, sections: p.sections })));
+  // console.log(`[DEBUG] Domain found: ${domain.name}, pages count: ${domain.pages.length}`);
+  // console.log(`[DEBUG] Pages:`, domain.pages.map(p => ({ title: p.title, slug: p.slug, contentType: p.contentType, sections: p.sections })));
 
   // For direct domains, we need to find the main page that has sections
   // Usually this would be the domain's main page or a section_based page
@@ -137,11 +152,11 @@ async function getDirectDomainSidebar(domainSlug: string, userCountry: string) {
     page.sections && Array.isArray(page.sections) && page.sections.length > 0
   );
 
-  console.log(`[DEBUG] Main page with sections:`, mainPage ? mainPage.title : 'None found');
+  // console.log(`[DEBUG] Main page with sections:`, mainPage ? mainPage.title : 'None found');
 
   if (!mainPage) {
     // If no sections defined, return all pages as a single section
-    console.log(`[DEBUG] Creating fallback section with ${domain.pages.length} pages`);
+    // console.log(`[DEBUG] Creating fallback section with ${domain.pages.length} pages`);
     const fallbackData = {
       type: 'direct_domain' as const,
       domain: {
@@ -160,7 +175,7 @@ async function getDirectDomainSidebar(domainSlug: string, userCountry: string) {
         }))
       }]
     };
-    console.log(`[DEBUG] Fallback data:`, JSON.stringify(fallbackData, null, 2));
+    // console.log(`[DEBUG] Fallback data:`, JSON.stringify(fallbackData, null, 2));
     return fallbackData;
   }
 

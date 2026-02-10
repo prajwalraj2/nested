@@ -1,3 +1,17 @@
+// ============================================
+// ⚠️ DEPRECATED - This hook is replaced by usePageContext
+// ============================================
+// This file is kept for reference during migration.
+// The functionality has been moved to usePageContext hook
+// which is available via PageContextProvider.
+//
+// Components should use:
+//   import { usePageSidebarDataFromContext } from '@/contexts/PageContextProvider'
+// Or for direct access:
+//   import { usePageContext } from '@/hooks/usePageContext'
+//   const { pageSidebar, sidebarMode, ... } = usePageContext();
+// ============================================
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -43,7 +57,7 @@ export type SidebarMode = 'domain' | 'page';
  */
 export function usePageSidebarData() {
   const pathname = usePathname();
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('domain');
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('domain'); // state to store the sidebar mode (domain or page) default is 'domain'
   const [pageData, setPageData] = useState<PageSidebarData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +65,9 @@ export function usePageSidebarData() {
 
   // Detect sidebar mode based on current path
   useEffect(() => {
-    const pathSegments = pathname.split('/').filter(Boolean);
+    const pathSegments = pathname.split('/').filter(Boolean); // Eg: /domain/gdesign/ytube -> ['domain', 'gdesign', 'ytube'] -> Explation: split the pathname into an array of segments and filter out any empty segments 
     
-    // Determine if we should show page sidebar or domain sidebar
+    // Determine if we should show page sidebar or domain sidebar -> if the path segments length is greater than 3 and the first segment is 'domain', set the sidebar mode to 'page' else set it to 'domain'
     if (pathSegments.length >= 3 && pathSegments[0] === 'domain') {
       // We're on a specific page: /domain/[slug]/[...pages]
       setSidebarMode('page');
@@ -61,7 +75,7 @@ export function usePageSidebarData() {
       // We're on domain index or root: /domain or /domain/[slug]
       setSidebarMode('domain');
     }
-  }, [pathname]);
+  }, [pathname]); // re-run the effect when the pathname changes
 
   // Fetch page sidebar data when in page mode
   useEffect(() => {
@@ -98,7 +112,7 @@ export function usePageSidebarData() {
         apiUrl += `&pageSlug=${pageSlug}`;
       }
 
-      console.log('[DEBUG Hook] Fetching from API:', apiUrl);
+      // console.log('[DEBUG Hook] Fetching from API:', apiUrl);
 
       const response = await fetch(apiUrl);
       const data = await response.json();
@@ -119,11 +133,11 @@ export function usePageSidebarData() {
           throw new Error(data.message || 'Failed to fetch page sidebar data');
         }
       } else {
-        console.log('[DEBUG Hook] Successfully received data:', data);
+        // console.log('[DEBUG Hook] Successfully received data:', data);
         setPageData(data);
       }
     } catch (err) {
-      console.error('Error fetching page sidebar data:', err);
+      // console.error('Error fetching page sidebar data:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       setPageData(null);
     } finally {

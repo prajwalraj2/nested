@@ -1,8 +1,23 @@
+// ============================================
+// ⚠️ DEPRECATED - This API is replaced by /api/page-context
+// ============================================
+// This file is kept for reference during migration.
+// The functionality has been moved to NavigationService.getSidebarData()
+// and is now part of the unified /api/page-context endpoint.
+//
+// Components should use:
+//   import { useSidebarDataFromContext } from '@/contexts/PageContextProvider'
+// Instead of:
+//   import { useSidebarData } from '@/hooks/useSidebarData'
+// ============================================
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getUserCountryFromRequest, buildCountryFilter, isContentVisibleToUser } from '@/lib/server-country';
 
 /**
+ * @deprecated Use /api/page-context instead
+ * 
  * Sidebar Data API Route
  * 
  * GET /api/sidebar - Fetch all published domains with their page hierarchy
