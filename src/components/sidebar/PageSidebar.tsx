@@ -230,19 +230,6 @@ function PageSidebarItem({
   const isExpanded = isPageExpanded(page.id);
   const shouldShowChevron = page.hasChildren && page.contentType === 'subcategory_list';
 
-  // Get icon based on content type
-  const getPageIcon = (contentType: string): string => {
-    const icons: Record<string, string> = {
-      'table': '📊',
-      'rich_text': '📝',
-      'subcategory_list': '📂',
-      'section_based': '📋',
-      'narrative': '📄',
-      'mixed_content': '🎨'
-    };
-    return icons[contentType] || '📄';
-  };
-
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild className={`
@@ -253,8 +240,8 @@ function PageSidebarItem({
           <Link 
             href={page.url} 
             className="flex items-center gap-2 min-w-0 flex-1"
+            title={page.title}
           >
-            <span className="text-sm">{getPageIcon(page.contentType)}</span>
             <span className="truncate text-sm">{page.title}</span>
           </Link>
           
@@ -286,9 +273,12 @@ function PageSidebarItem({
               <SidebarMenuSubButton asChild className={
                 isCurrentPage(childPage.url) ? 'bg-accent text-accent-foreground' : ''
               }>
-                <Link href={childPage.url} className="flex items-center gap-2">
-                  <span className="text-xs">{getPageIcon(childPage.contentType)}</span>
-                  <span className="text-sm">{childPage.title}</span>
+                <Link 
+                  href={childPage.url} 
+                  className="flex items-center gap-2"
+                  title={childPage.title}
+                >
+                  <span className="truncate text-sm">{childPage.title}</span>
                 </Link>
               </SidebarMenuSubButton>
             </SidebarMenuSubItem>

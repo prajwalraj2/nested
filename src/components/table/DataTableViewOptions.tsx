@@ -40,14 +40,14 @@ export function DataTableViewOptions<TData>({
         <Button
           variant="outline"
           size="sm"
-          className="ml-auto hidden h-8 lg:flex bg-[#3a3a3a] border-gray-600 text-white hover:bg-[#4a4a4a]"
+          className="ml-auto hidden h-8 lg:flex bg-background border-border text-foreground hover:bg-accent"
         >
           <Settings2 /> View
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent 
         align="end" 
-        className="min-w-[200px] bg-[#3a3a3a] border-gray-600"
+        className="min-w-[200px] bg-popover border-border"
       >
         {table
           .getAllColumns()
@@ -63,7 +63,7 @@ export function DataTableViewOptions<TData>({
             return (
               <DropdownMenuCheckboxItem
                 key={column.id}
-                className="text-white hover:bg-[#4a4a4a] focus:bg-[#4a4a4a]"
+                className="text-foreground hover:bg-accent focus:bg-accent"
                 checked={column.getIsVisible()}
                 onCheckedChange={(value) => column.toggleVisibility(!!value)}
               >

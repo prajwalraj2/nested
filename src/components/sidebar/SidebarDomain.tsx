@@ -47,8 +47,8 @@ export function SidebarDomain({
           <Link 
             href={domain.url} 
             className="flex items-center gap-2 min-w-0 flex-1"
+            title={domain.name}
           >
-            {/* <Home className="h-4 w-4 flex-shrink-0" /> */}
             <span className="truncate text-sm">{domain.name}</span>
           </Link>
           
@@ -84,6 +84,7 @@ export function SidebarDomain({
                     <Link 
                       href={page.url} 
                       className="flex items-center gap-2 min-w-0 flex-1"
+                      title={page.title}
                     >
                       <span className="truncate text-sm">{page.title}</span>
                     </Link>

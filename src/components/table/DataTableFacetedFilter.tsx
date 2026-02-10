@@ -47,16 +47,16 @@ export function DataTableFacetedFilter<TData, TValue>({
         <Button 
           variant="outline" 
           size="sm" 
-          className="h-8 border-dashed bg-[#3a3a3a] border-gray-600 text-white hover:bg-[#4a4a4a]"
+          className="h-8 border-dashed bg-background border-border text-foreground hover:bg-accent"
         >
           <PlusCircle className="mr-2 h-4 w-4" />
           {title}
           {selectedValues?.size > 0 && (
             <>
-              <Separator orientation="vertical" className="mx-2 h-4 bg-gray-600" />
+              <Separator orientation="vertical" className="mx-2 h-4 bg-border" />
               <Badge
                 variant="secondary"
-                className="rounded-sm px-1 font-normal lg:hidden bg-blue-600 text-blue-100"
+                className="rounded-sm px-1 font-normal lg:hidden bg-primary text-primary-foreground"
               >
                 {selectedValues.size}
               </Badge>
@@ -64,7 +64,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                 {selectedValues.size > 2 ? (
                   <Badge
                     variant="secondary"
-                    className="rounded-sm px-1 font-normal bg-blue-600 text-blue-100"
+                    className="rounded-sm px-1 font-normal bg-primary text-primary-foreground"
                   >
                     {selectedValues.size} selected
                   </Badge>
@@ -75,7 +75,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                       <Badge
                         variant="secondary"
                         key={option.value}
-                        className="rounded-sm px-1 font-normal bg-blue-600 text-blue-100"
+                        className="rounded-sm px-1 font-normal bg-primary text-primary-foreground"
                       >
                         {option.label}
                       </Badge>
@@ -86,21 +86,21 @@ export function DataTableFacetedFilter<TData, TValue>({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0 bg-[#3a3a3a] border-gray-600" align="start">
-        <Command className="bg-[#3a3a3a]">
+      <PopoverContent className="w-[200px] p-0 bg-popover border-border" align="start">
+        <Command className="bg-popover">
           <CommandInput 
             placeholder={title} 
-            className="bg-[#3a3a3a] text-white border-gray-600"
+            className="bg-popover text-foreground border-border"
           />
           <CommandList>
-            <CommandEmpty className="text-gray-400">No results found.</CommandEmpty>
+            <CommandEmpty className="text-muted-foreground">No results found.</CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
                 const isSelected = selectedValues.has(option.value);
                 return (
                   <CommandItem
                     key={option.value}
-                    className="text-white hover:bg-[#4a4a4a] focus:bg-[#4a4a4a]"
+                    className="text-foreground hover:bg-accent focus:bg-accent"
                     onSelect={() => {
                       if (isSelected) {
                         selectedValues.delete(option.value);
@@ -115,17 +115,17 @@ export function DataTableFacetedFilter<TData, TValue>({
                   >
                     <div
                       className={cn(
-                        'flex h-4 w-4 items-center justify-center rounded-sm border border-gray-600',
+                        'flex h-4 w-4 items-center justify-center rounded-sm border border-border',
                         isSelected
-                          ? 'bg-blue-600 border-blue-600 text-blue-100'
-                          : 'border-gray-600 [&_svg]:invisible'
+                          ? 'bg-primary border-primary text-primary-foreground'
+                          : 'border-border [&_svg]:invisible'
                       )}
                     >
                       <Check className="h-3.5 w-3.5" />
                     </div>
                     <span className="ml-2">{option.label}</span>
                     {facets?.get(option.value) && (
-                      <span className="ml-auto flex h-4 w-4 items-center justify-center font-mono text-xs text-gray-400">
+                      <span className="ml-auto flex h-4 w-4 items-center justify-center font-mono text-xs text-muted-foreground">
                         {facets.get(option.value)}
                       </span>
                     )}
@@ -135,11 +135,11 @@ export function DataTableFacetedFilter<TData, TValue>({
             </CommandGroup>
             {selectedValues.size > 0 && (
               <>
-                <CommandSeparator className="bg-gray-600" />
+                <CommandSeparator className="bg-border" />
                 <CommandGroup>
                   <CommandItem
                     onSelect={() => column?.setFilterValue(undefined)}
-                    className="justify-center text-center text-white hover:bg-[#4a4a4a] focus:bg-[#4a4a4a]"
+                    className="justify-center text-center text-foreground hover:bg-accent focus:bg-accent"
                   >
                     Clear filters
                   </CommandItem>
