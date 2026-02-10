@@ -98,15 +98,15 @@ export function DataTable({
               variant="ghost"
               size="sm"
               onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-              className="flex items-center hover:bg-gray-600 text-color-white"
+              className="flex items-center hover:bg-accent text-foreground"
             >
               <span>{col.name}</span>
               {column.getIsSorted() === "desc" ? (
-                <span className="ml-2 text-blue-400"><ArrowDown /></span>
+                <span className="ml-2 text-primary"><ArrowDown /></span>
               ) : column.getIsSorted() === "asc" ? (
-                <span className="ml-2 text-blue-400"><ArrowUp /></span>
+                <span className="ml-2 text-primary"><ArrowUp /></span>
               ) : (
-                <span className="ml-2 opacity-50"><ChevronsUpDown color="gray" size={16} /></span>
+                <span className="ml-2 opacity-50"><ChevronsUpDown className="text-muted-foreground" size={16} /></span>
               )}
             </Button>
             
@@ -177,7 +177,7 @@ export function DataTable({
     },
     initialState: {
       pagination: {
-        pageSize: 10,
+        pageSize: 25,
       },
     },
   });
@@ -224,7 +224,7 @@ export function DataTable({
             placeholder="Search all columns..."
             value={globalFilter ?? ""}
             onChange={(event) => setGlobalFilter(String(event.target.value))}
-            className="max-w-sm bg-[#3a3a3a] border-gray-600 text-white placeholder:text-gray-400"
+            className="max-w-sm bg-background border-border text-foreground placeholder:text-muted-foreground"
           />
           
           {/* Badge Column Filters */}
@@ -246,7 +246,7 @@ export function DataTable({
                 table.resetColumnFilters();
                 setGlobalFilter('');
               }}
-              className="bg-[#3a3a3a] border-gray-600 text-white hover:bg-[#4a4a4a]"
+              className="bg-background border-border text-foreground hover:bg-accent"
             >
               Reset <X className="ml-1 h-4 w-4" />
             </Button>
@@ -262,31 +262,19 @@ export function DataTable({
       </div>
 
       {/* Table */}
-      <div className="rounded-md border border-gray-600 bg-[#3a3a3a] overflow-auto">
-        <Table 
-          // COLUMN RESIZING STYLES - COMMENTED OUT FOR NOW
-          // style={{ 
-          //   width: table.getTotalSize(),
-          //   tableLayout: 'fixed'
-          // }}
-        >
+      <div className="rounded-md border border-border bg-card overflow-auto">
+        <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow 
                 key={headerGroup.id}
-                className="border-gray-600 hover:bg-[#4a4a4a]"
+                className="border-border hover:bg-accent"
               >
                 {headerGroup.headers.map((header) => {
                   return (
                     <TableHead 
                       key={header.id}
-                      className="text-gray-200 bg-[#4a4a4a] relative"
-                      // COLUMN RESIZING STYLES - COMMENTED OUT FOR NOW
-                      // style={{
-                      //   width: header.getSize(),
-                      //   minWidth: header.column.columnDef.minSize,
-                      //   maxWidth: header.column.columnDef.maxSize,
-                      // }}
+                      className="text-foreground bg-muted/50 relative"
                     >
                       {header.isPlaceholder
                         ? null
@@ -306,18 +294,12 @@ export function DataTable({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="border-gray-600 hover:bg-[#3a3a3a] text-white"
+                  className="border-border hover:bg-accent/50 text-foreground"
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell 
                       key={cell.id}
-                      className="text-gray-100 relative overflow-hidden"
-                      // COLUMN RESIZING STYLES - COMMENTED OUT FOR NOW
-                      // style={{
-                      //   width: cell.column.getSize(),
-                      //   minWidth: cell.column.columnDef.minSize,
-                      //   maxWidth: cell.column.columnDef.maxSize,
-                      // }}
+                      className="text-foreground relative overflow-hidden"
                     >
                       <div className="overflow-hidden">
                         {flexRender(
@@ -333,7 +315,7 @@ export function DataTable({
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="h-24 text-center text-gray-400"
+                  className="h-24 text-center text-muted-foreground"
                 >
                   No results found.
                 </TableCell>
@@ -354,7 +336,7 @@ export function DataTable({
 // Enhanced cell value formatting with interactive elements
 function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?: string): React.JSX.Element {
   if (value === null || value === undefined || value === '') {
-    return <span className="text-gray-500">-</span>;
+    return <span className="text-muted-foreground">-</span>;
   }
 
   switch (type) {
@@ -363,14 +345,14 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
       const displayLink = linkText
         .replace(/^https?:\/\//, '')  // Remove protocol
         .replace(/^www\./, '')        // Remove www
-        .substring(0, 40) + (linkText.length > 40 ? '...' : ''); // Truncate if too long
+        .substring(0, 20) + (linkText.length > 20 ? '...' : ''); // Truncate if too long
       
       return (
         <a 
           href={String(value)} 
           target="_blank" 
           rel="noopener noreferrer"
-          className="text-blue-400 hover:text-blue-300 underline hover:underline-offset-4 transition-all duration-200 max-w-xs block"
+          className="text-primary hover:text-primary/80 underline hover:underline-offset-4 transition-all duration-200 max-w-xs block"
           title={linkText}
         >
           {displayLink}
@@ -381,7 +363,7 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
       return (
         <a 
           href={`mailto:${value}`}
-          className="text-blue-400 hover:text-blue-300 underline hover:underline-offset-4 transition-all duration-200"
+          className="text-primary hover:text-primary/80 underline hover:underline-offset-4 transition-all duration-200"
         >
           {String(value)}
         </a>
@@ -406,7 +388,7 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
     case 'currency':
       const num = parseFloat(value);
       return (
-        <span className="font-medium text-green-400 font-mono">
+        <span className="font-medium text-green-600 dark:text-green-400 font-mono">
           {isNaN(num) ? String(value) : `$${num.toFixed(2)}`}
         </span>
       );
@@ -414,7 +396,7 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
     case 'date':
       const date = new Date(value);
       return (
-        <span className="text-gray-300 font-mono">
+        <span className="text-foreground font-mono">
           {isNaN(date.getTime()) ? String(value) : date.toLocaleDateString()}
         </span>
       );
@@ -422,8 +404,8 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
     case 'boolean':
       return (
         <div className="flex items-center">
-          <span className={`w-2 h-2 rounded-full mr-2 ${value ? 'bg-green-400' : 'bg-red-400'}`}></span>
-          <span className={`font-medium ${value ? 'text-green-400' : 'text-red-400'}`}>
+          <span className={`w-2 h-2 rounded-full mr-2 ${value ? 'bg-green-500' : 'bg-red-500'}`}></span>
+          <span className={`font-medium ${value ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
             {value ? 'Yes' : 'No'}
           </span>
         </div>
@@ -439,17 +421,17 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
               {[1, 2, 3, 4, 5].map((star) => (
                 <span 
                   key={star}
-                  className={`text-sm ${star <= stars ? 'text-yellow-400' : 'text-gray-600'}`}
+                  className={`text-sm ${star <= stars ? 'text-yellow-500' : 'text-muted-foreground/30'}`}
                 >
                   ⭐
                 </span>
               ))}
             </div>
-            <span className="ml-2 text-gray-300 text-sm font-mono">{rating.toFixed(1)}</span>
+            <span className="ml-2 text-foreground text-sm font-mono">{rating.toFixed(1)}</span>
           </div>
         );
       }
-      return <span className="text-gray-300">{String(value)}</span>;
+      return <span className="text-foreground">{String(value)}</span>;
     
     case 'description':
       const text = String(value);
@@ -460,13 +442,13 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
         <div className="max-w-[250px]">
           <Popover>
             <PopoverTrigger asChild>
-              <button className="text-left text-gray-300 hover:text-white transition-colors cursor-pointer w-full">
+              <button className="text-left text-muted-foreground hover:text-foreground transition-colors cursor-pointer w-full">
                 <div className="truncate text-sm leading-5 py-1">{shortText}</div>
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-80 bg-[#2a2a2a] border-gray-600 text-white">
+            <PopoverContent className="w-80 bg-popover border-border text-popover-foreground">
               <div>
-                <p className="text-sm text-gray-300 leading-relaxed">{text}</p>
+                <p className="text-sm leading-relaxed">{text}</p>
               </div>
             </PopoverContent>
           </Popover>
@@ -476,7 +458,7 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
     case 'number':
       const number = parseFloat(value);
       return (
-        <span className="font-medium text-gray-300 font-mono">
+        <span className="font-medium text-foreground font-mono">
           {isNaN(number) ? String(value) : number.toLocaleString()}
         </span>
       );
@@ -485,7 +467,7 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
       return (
         <a 
           href={`tel:${value}`}
-          className="text-blue-400 hover:text-blue-300 underline hover:underline-offset-4 transition-all duration-200 font-mono"
+          className="text-primary hover:text-primary/80 underline hover:underline-offset-4 transition-all duration-200 font-mono"
         >
           {String(value)}
         </a>
@@ -498,7 +480,7 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
         return (
           <div className="max-w-[200px]">
             <span 
-              className="text-gray-300 text-sm block truncate cursor-help" 
+              className="text-foreground text-sm block truncate cursor-help" 
               title={textValue}
             >
               {textValue}
@@ -508,7 +490,7 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
       }
       
       return (
-        <span className="text-gray-300 max-w-xs truncate block" title={textValue}>
+        <span className="text-foreground max-w-xs truncate block" title={textValue}>
           {textValue}
         </span>
       );

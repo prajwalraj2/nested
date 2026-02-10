@@ -598,73 +598,61 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
   // Loading state - with skeleton
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#2f2f2f] text-white">
-        <div className="max-w-6xl mx-auto p-6">
-          {/* Header skeleton */}
-          <div className="mb-8">
-            <div className="flex items-center gap-2 text-sm text-gray-400 mb-4">
-              <span>{domain.name}</span>
-              <span>/</span>
-              <span className="text-white">{page.title}</span>
-            </div>
-            <h1 className="text-3xl font-bold mb-4">{page.title}</h1>
-          </div>
+      <div className="min-h-screen bg-background">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          {/* Header */}
+          <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
+          <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
 
           {/* Table skeleton */}
-          <div className="bg-[#3a3a3a] rounded-lg border border-gray-600 overflow-hidden">
-            {/* Table header skeleton */}
-            <div className="p-4 border-b border-gray-600">
+          <div className="rounded-lg border border-border overflow-hidden">
+            {/* Toolbar skeleton */}
+            <div className="p-4 border-b border-border">
               <div className="flex items-center justify-between">
-                <Skeleton className="h-5 w-48 bg-gray-600/50" />
                 <div className="flex gap-2">
-                  <Skeleton className="h-9 w-[200px] bg-gray-600/50" />
-                  <Skeleton className="h-9 w-24 bg-gray-600/50" />
+                  <Skeleton className="h-9 w-[200px]" />
+                  <Skeleton className="h-9 w-32" />
                 </div>
+                <Skeleton className="h-9 w-20" />
               </div>
             </div>
             
             {/* Table columns header skeleton */}
-            <div className="border-b border-gray-600 bg-[#353535]">
+            <div className="border-b border-border bg-muted/50">
               <div className="flex items-center p-3 gap-4">
-                <Skeleton className="h-4 w-4 bg-gray-600/50" />
-                <Skeleton className="h-4 w-32 bg-gray-600/50" />
-                <Skeleton className="h-4 w-24 bg-gray-600/50" />
-                <Skeleton className="h-4 w-28 bg-gray-600/50" />
-                <Skeleton className="h-4 w-20 bg-gray-600/50" />
-                <Skeleton className="h-4 w-36 bg-gray-600/50" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-4 w-48" />
               </div>
             </div>
             
             {/* Table rows skeleton */}
             {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <div key={i} className="border-b border-gray-700/50 last:border-b-0">
+              <div key={i} className="border-b border-border/50 last:border-b-0">
                 <div className="flex items-center p-3 gap-4">
-                  <Skeleton className="h-4 w-4 bg-gray-600/40" />
-                  <Skeleton className={`h-4 bg-gray-600/40 ${
+                  <Skeleton className={`h-4 ${
                     i % 3 === 0 ? 'w-[140px]' : i % 2 === 0 ? 'w-[180px]' : 'w-[120px]'
                   }`} />
-                  <Skeleton className={`h-4 bg-gray-600/40 ${
-                    i % 3 === 0 ? 'w-[100px]' : i % 2 === 0 ? 'w-[80px]' : 'w-[110px]'
+                  <Skeleton className={`h-4 ${
+                    i % 3 === 0 ? 'w-[160px]' : i % 2 === 0 ? 'w-[200px]' : 'w-[180px]'
                   }`} />
-                  <Skeleton className={`h-4 bg-gray-600/40 ${
-                    i % 3 === 0 ? 'w-[90px]' : i % 2 === 0 ? 'w-[130px]' : 'w-[100px]'
-                  }`} />
-                  <Skeleton className="h-5 w-16 rounded-full bg-gray-600/40" />
-                  <Skeleton className={`h-4 bg-gray-600/40 ${
-                    i % 3 === 0 ? 'w-[160px]' : i % 2 === 0 ? 'w-[120px]' : 'w-[140px]'
+                  <Skeleton className="h-5 w-16 rounded-sm" />
+                  <Skeleton className={`h-4 ${
+                    i % 3 === 0 ? 'w-[200px]' : i % 2 === 0 ? 'w-[160px]' : 'w-[180px]'
                   }`} />
                 </div>
               </div>
             ))}
             
             {/* Pagination skeleton */}
-            <div className="p-4 border-t border-gray-600 bg-[#353535]">
+            <div className="p-4 border-t border-border">
               <div className="flex items-center justify-between">
-                <Skeleton className="h-4 w-32 bg-gray-600/50" />
+                <Skeleton className="h-4 w-32" />
                 <div className="flex items-center gap-2">
-                  <Skeleton className="h-8 w-8 bg-gray-600/50" />
-                  <Skeleton className="h-4 w-20 bg-gray-600/50" />
-                  <Skeleton className="h-8 w-8 bg-gray-600/50" />
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-8 w-8" />
                 </div>
               </div>
             </div>
@@ -677,23 +665,17 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-[#2f2f2f] text-white">
-        <div className="max-w-6xl mx-auto p-6">
-          <div className="mb-8">
-            <div className="flex items-center gap-2 text-sm text-gray-400 mb-4">
-              <span>{domain.name}</span>
-              <span>/</span>
-              <span className="text-white">{page.title}</span>
-            </div>
-            <h1 className="text-3xl font-bold mb-4">{page.title}</h1>
-          </div>
+      <div className="min-h-screen bg-background">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
+          <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
 
-          <div className="bg-[#3a3a3a] rounded-lg p-6 border border-gray-600">
+          <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <div className="text-4xl mb-4">⚠️</div>
-                <h3 className="text-xl font-semibold mb-2">Unable to Load Table</h3>
-                <p className="text-gray-400">{error}</p>
+                <h3 className="text-xl font-semibold text-foreground mb-2">Unable to Load Table</h3>
+                <p className="text-muted-foreground">{error}</p>
               </div>
             </div>
           </div>
@@ -705,23 +687,17 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
   // No table data
   if (!tableData) {
     return (
-      <div className="min-h-screen bg-[#2f2f2f] text-white">
-        <div className="max-w-6xl mx-auto p-6">
-          <div className="mb-8">
-            <div className="flex items-center gap-2 text-sm text-gray-400 mb-4">
-              <span>{domain.name}</span>
-              <span>/</span>
-              <span className="text-white">{page.title}</span>
-            </div>
-            <h1 className="text-3xl font-bold mb-4">{page.title}</h1>
-          </div>
+      <div className="min-h-screen bg-background">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
+          <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
 
-          <div className="bg-[#3a3a3a] rounded-lg p-6 border border-gray-600">
+          <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <div className="text-4xl mb-4">📊</div>
-                <h3 className="text-xl font-semibold mb-2">No Table Data</h3>
-                <p className="text-gray-400">This page doesn't have a table configured yet.</p>
+                <h3 className="text-xl font-semibold text-foreground mb-2">No Table Data</h3>
+                <p className="text-muted-foreground">This page doesn't have a table configured yet.</p>
               </div>
             </div>
           </div>
@@ -731,27 +707,17 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#2f2f2f] text-white">
-      <div className="max-w-6xl mx-auto p-6">
-        {/* Header  Breadcrumb*/}
-        <div className="mb-8">
-          <div className="flex items-center gap-2 text-sm text-gray-400 mb-4">
-            <span>{domain.name}</span>
-            <span>/</span>
-            <span className="text-white">{page.title}</span>
-          </div>
-          
-          <h1 className="text-3xl font-bold mb-4">{page.title}</h1>
-        </div>
+    <div className="min-h-screen bg-background">
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Header */}
+        <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
+        <div className="border-b border-gray-300 mt-1 mb-15" style={{ borderBottomWidth: '1px' }}></div>
 
-        {/* Professional DataTable  from DataTable.tsx */}
+        {/* Professional DataTable from DataTable.tsx */}
         <DataTable
           schema={tableData.schema}
           data={tableData.data}
-          title={tableData.name}
-          description={`${tableData.data.rows.length} rows • ${tableData.schema.columns.length} columns`}
         />
-
       </div>
     </div>
   );

@@ -33,6 +33,13 @@ type Section = {
   pageIds: string[];
 };
 
+type ProcessedSection = {
+  title: string;
+  order: number;
+  column: number;
+  pages: ChildPage[];
+};
+
 // Main Section-Based Layout Component
 export function SectionBasedLayout({ 
   domain, 
@@ -48,44 +55,49 @@ export function SectionBasedLayout({
   const title = page?.title || domain.name;
   const sections: Section[] = page?.sections || [];
   
-  // Organize sections into columns
-  const columns = organizeSectionsIntoColumns(sections, childPages, domain);
+  // Organize sections into rows (grouped by order)
+  const rows = organizeSectionsIntoRows(sections, childPages);
   
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-700">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <h1 className="text-4xl font-bold mb-2">{title}</h1>
-        </div>
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        <h1 className="text-3xl font-bold text-foreground">{title}</h1>
+        <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
       </div>
 
-      {/* Main Content - 3-Column Layout */}
-      <div className="max-w-7xl mx-auto px-6 py-12">
+      {/* Main Content - Row-Based 3-Column Layout */}
+      <div className="max-w-7xl mx-auto px-6 pb-12">
         {sections.length === 0 ? (
           <div className="text-center py-16">
             <div className="text-6xl mb-4">📝</div>
-            <h3 className="text-xl font-semibold mb-2">
+            <h3 className="text-xl font-semibold text-foreground mb-2">
               Sections Coming Soon
             </h3>
-            <p className="text-slate-400">
-              This page's sections are being configured. Create some pages and organize them into sections.
+            <p className="text-muted-foreground">
+              This page&apos;s sections are being configured. Create some pages and organize them into sections.
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {[1, 2, 3].map(columnNumber => (
-              <div key={columnNumber} className="space-y-8">
-                {columns[columnNumber]?.map((section, index) => (
-                  <SectionColumn 
-                    key={`${columnNumber}-${index}`}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-x-8 gap-y-10">
+            {/* Render row by row - sections with same order render together */}
+            {rows.map((row, rowIndex) => (
+              // Each row renders 3 cells (columns 1, 2, 3)
+              [1, 2, 3].map(colNum => {
+                const section = row[colNum];
+                return section ? (
+                  <SectionCell 
+                    key={`row-${rowIndex}-col-${colNum}`}
                     section={section}
                     domain={domain}
                     currentPath={currentPath}
                   />
-                ))}
-              </div>
-            ))}
+                ) : (
+                  // Empty placeholder to maintain grid alignment
+                  <div key={`row-${rowIndex}-col-${colNum}-empty`} />
+                );
+              })
+            )).flat()}
           </div>
         )}
       </div>
@@ -93,20 +105,20 @@ export function SectionBasedLayout({
   );
 }
 
-// Section Column Component
-function SectionColumn({ section, domain, currentPath }: { 
-  section: any;
+// Section Cell Component (renders a single section in the grid)
+function SectionCell({ section, domain, currentPath }: { 
+  section: ProcessedSection;
   domain: Domain;
   currentPath: string;
 }) {
   return (
-    <div className="bg-slate-800/40 rounded-lg border border-slate-700/50 p-6 hover:bg-slate-800/60 hover:border-slate-600/60 transition-all duration-300 shadow-lg hover:shadow-xl">
-      <h2 className="text-xl font-bold text-white mb-6 flex items-center">
-        <span className="mr-3 text-2xl">📁</span>
-        <span className="border-b-2 border-blue-500/60 pb-1">{section.title}</span>
+    <div className="p-4">
+      <h2 className="text-lg font-semibold text-foreground mb-1" title={section.title}>
+        <span className="block truncate">{section.title}</span>
       </h2>
+      <div className="border-b border-gray-300 w-full mt-1 mb-4" style={{ borderBottomWidth: '1px' }}></div>
       
-      <div className="space-y-3">
+      <div className="space-y-1">
         {section.pages.map((page: ChildPage) => (
           <SectionItem 
             key={page.id} 
@@ -118,8 +130,7 @@ function SectionColumn({ section, domain, currentPath }: {
       </div>
       
       {section.pages.length === 0 && (
-        <div className="text-center py-4 text-slate-500">
-          <div className="text-2xl mb-2">📄</div>
+        <div className="text-center py-4 text-muted-foreground">
           <div className="text-sm">No pages in this section</div>
         </div>
       )}
@@ -151,67 +162,59 @@ function SectionItem({ page, domain, currentPath }: {
   };
 
   const pageUrl = buildPageUrl(page, domain, currentPath);
-  
-  // Get icon based on content type
-  const getPageIcon = (contentType: string): string => {
-    const icons: Record<string, string> = {
-      'table': '📊',
-      'rich_text': '📝',
-      'subcategory_list': '📂',
-      'section_based': '📋',
-      'narrative': '📄',
-      'mixed_content': '🎨'
-    };
-    return icons[contentType] || '📄';
-  };
 
   return (
     <Link 
       href={pageUrl} 
-      className="flex items-center space-x-3 py-3 px-4 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-md transition-all duration-200 group"
+      className="block px-3 py-2 text-foreground hover:bg-accent rounded-md transition-colors"
+      title={page.title} // Show full title on hover
     >
-      <span className="text-lg flex-shrink-0 group-hover:scale-110 transition-transform">
-        {getPageIcon(page.contentType)}
-      </span>
-      <div className="flex-1">
-        <div className="text-sm leading-relaxed group-hover:underline font-medium">
-          {page.title}
-        </div>
-        <div className="text-xs text-slate-500">
-          {pageUrl}
-        </div>
-      </div>
+      <span className="text-sm font-medium block truncate">{page.title}</span>
     </Link>
   );
 }
 
-// NEW: Organize sections into 3-column layout
-function organizeSectionsIntoColumns(
+// Organize sections into rows (grouped by order for horizontal alignment)
+function organizeSectionsIntoRows(
   sections: Section[], 
-  childPages: ChildPage[], 
-  domain: Domain
-): { [key: number]: any[] } {
-  const columns: { [key: number]: any[] } = { 1: [], 2: [], 3: [] };
+  childPages: ChildPage[]
+): { [column: number]: ProcessedSection | null }[] {
+  // First, process all sections and group by order
+  const orderGroups: { [order: number]: { [column: number]: ProcessedSection } } = {};
   
-  // Process each section
   sections.forEach(section => {
     // Find pages for this section
     const sectionPages = section.pageIds
       .map(pageId => childPages.find(page => page.id === pageId))
       .filter(Boolean) as ChildPage[];
     
-    // Add section to appropriate column
-    columns[section.column].push({
+    const processedSection: ProcessedSection = {
       title: section.title,
       order: section.order,
+      column: section.column,
       pages: sectionPages
-    });
+    };
+    
+    // Group by order
+    if (!orderGroups[section.order]) {
+      orderGroups[section.order] = {};
+    }
+    orderGroups[section.order][section.column] = processedSection;
   });
   
-  // Sort each column by order
-  Object.keys(columns).forEach(col => {
-    columns[parseInt(col)].sort((a, b) => a.order - b.order);
+  // Convert to sorted array of rows
+  const sortedOrders = Object.keys(orderGroups)
+    .map(Number)
+    .sort((a, b) => a - b);
+  
+  // Create rows array where each row has columns 1, 2, 3 (or null if empty)
+  const rows = sortedOrders.map(order => {
+    return {
+      1: orderGroups[order][1] || null,
+      2: orderGroups[order][2] || null,
+      3: orderGroups[order][3] || null
+    };
   });
   
-  return columns;
+  return rows;
 }

@@ -22,46 +22,79 @@ export const dynamic = 'force-dynamic';
 // Data Organization Helper
 // ============================================
 
-type ColumnData = {
-  [key: number]: {
-    category: CategoryFull | { name: string; slug: string; icon: string; description: string };
-    domains: DomainWithCategory[];
-  }[];
+type CategoryGroup = {
+  category: CategoryFull | { name: string; slug: string; icon: string; description: string; columnPosition?: number; categoryOrder?: number };
+  domains: DomainWithCategory[];
 };
 
-function organizeDomainsIntoColumns(
+type RowData = {
+  [column: number]: CategoryGroup | null;
+};
+
+function organizeDomainsIntoRows(
   domains: DomainWithCategory[],
   categories: CategoryFull[]
-): ColumnData {
-  const columnData: ColumnData = { 1: [], 2: [], 3: [] };
-  
-  // Add all categories to their respective columns
+): RowData[] {
+  // Group categories by their categoryOrder (row) and columnPosition
+  const orderGroups: { [order: number]: { [column: number]: CategoryGroup } } = {};
+
+  // Process all categories
   categories.forEach(category => {
     const categoryDomains = domains
       .filter(domain => domain.category?.id === category.id)
       .sort((a, b) => a.orderInCategory - b.orderInCategory);
-    
-    columnData[category.columnPosition].push({
+
+    // Skip empty categories
+    if (categoryDomains.length === 0) return;
+
+    const categoryGroup: CategoryGroup = {
       category,
       domains: categoryDomains,
-    });
+    };
+
+    // Group by categoryOrder (row)
+    const order = category.categoryOrder;
+    if (!orderGroups[order]) {
+      orderGroups[order] = {};
+    }
+    orderGroups[order][category.columnPosition] = categoryGroup;
   });
 
-  // Add uncategorized domains to column 1
+  // Handle uncategorized domains - add to a special row at the end
   const uncategorizedDomains = domains.filter(domain => !domain.category);
   if (uncategorizedDomains.length > 0) {
-    columnData[1].push({
+    const maxOrder = Math.max(...Object.keys(orderGroups).map(Number), 0);
+    const uncategorizedOrder = maxOrder + 1;
+    
+    if (!orderGroups[uncategorizedOrder]) {
+      orderGroups[uncategorizedOrder] = {};
+    }
+    orderGroups[uncategorizedOrder][1] = {
       category: {
         name: 'Other Domains',
         slug: 'other',
         icon: '📂',
         description: 'Miscellaneous domains',
+        columnPosition: 1,
+        categoryOrder: uncategorizedOrder,
       },
       domains: uncategorizedDomains,
-    });
+    };
   }
 
-  return columnData;
+  // Convert to sorted array of rows
+  const sortedOrders = Object.keys(orderGroups)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  // Create rows array where each row has columns 1, 2, 3 (or null if empty)
+  const rows = sortedOrders.map(order => ({
+    1: orderGroups[order][1] || null,
+    2: orderGroups[order][2] || null,
+    3: orderGroups[order][3] || null,
+  }));
+
+  return rows;
 }
 
 // ============================================
@@ -70,33 +103,42 @@ function organizeDomainsIntoColumns(
 
 export default async function DomainIndexPage() {
   const userCountry = await getUserCountryFromCookies();
-  
+
   // Fetch data using services (parallel execution)
   const [domains, categories] = await Promise.all([
     DomainService.getAll(userCountry),
     CategoryService.getActive(),
   ]);
 
-  // Organize domains by category and column
-  const columnData = organizeDomainsIntoColumns(domains, categories);
+  // Organize domains into rows (grouped by categoryOrder for alignment)
+  const rows = organizeDomainsIntoRows(domains, categories);
 
   return (
     <div className="min-h-screen bg-background">
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* 3-Column Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {[1, 2, 3].map(columnNumber => (
-            <div key={columnNumber} className="space-y-6">
-              {columnData[columnNumber].map((categoryGroup, index) => (
-                <CategoryCard 
-                  key={categoryGroup.category.slug || `uncategorized-${index}`}
-                  category={categoryGroup.category}
+        {/* Page Heading */}
+        <h1 className="text-3xl font-bold text-foreground">Domains</h1>
+        <div className="border-b border-gray-300 w-full mt-1 mb-8" style={{ borderBottomWidth: '1px' }}></div>
+        
+        {/* 3-Column Grid Layout - Row-based rendering for alignment */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-x-6 gap-y-10">
+          {/* Render row by row - categories with same order render together */}
+          {rows.map((row, rowIndex) => (
+            // Each row renders 3 cells (columns 1, 2, 3)
+            [1, 2, 3].map(colNum => {
+              const categoryGroup = row[colNum];
+              return categoryGroup ? (
+                <CategoryCell
+                  key={`row-${rowIndex}-col-${colNum}`}
                   domains={categoryGroup.domains}
                 />
-              ))}
-            </div>
-          ))}
+              ) : (
+                // Empty placeholder to maintain grid alignment
+                <div key={`row-${rowIndex}-col-${colNum}-empty`} />
+              );
+            })
+          )).flat()}
         </div>
 
         {/* Empty State */}
@@ -117,45 +159,43 @@ export default async function DomainIndexPage() {
 }
 
 // ============================================
-// Category Card Component (No header, just domains list)
+// Category Cell Component (Renders domains for a category in a grid cell)
 // ============================================
 
-type CategoryCardProps = {
-  category: CategoryFull | { name: string; slug: string; icon: string; description: string };
+type CategoryCellProps = {
   domains: DomainWithCategory[];
 };
 
-function CategoryCard({ category, domains }: CategoryCardProps) {
+function CategoryCell({ domains }: CategoryCellProps) {
   if (domains.length === 0) return null;
-  
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {domains.map((domain) => (
-        <DomainCard key={domain.id} domain={domain} />
+        <DomainItem key={domain.id} domain={domain} />
       ))}
     </div>
   );
 }
 
 // ============================================
-// Domain Card Component (Compact with shadcn)
+// Domain Item Component (Compact with text truncation)
 // ============================================
 
-type DomainCardProps = {
+type DomainItemProps = {
   domain: DomainWithCategory;
 };
 
-function DomainCard({ domain }: DomainCardProps) {
+function DomainItem({ domain }: DomainItemProps) {
   return (
-    <Link 
+    <Link
       href={`/domain/${domain.slug}`}
-      className="block"
+      className="block px-3 py-2 rounded-md hover:bg-accent transition-colors"
+      title={domain.name} // Show full name on hover
     >
-      <div className="px-3 py-2 rounded-md hover:bg-accent transition-colors cursor-pointer">
-        <span className="font-medium text-foreground">
-          {domain.name}
-        </span>
-      </div>
+      <span className="font-medium text-foreground block truncate">
+        {domain.name}
+      </span>
     </Link>
   );
 }
