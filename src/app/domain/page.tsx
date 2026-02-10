@@ -190,10 +190,10 @@ function DomainItem({ domain }: DomainItemProps) {
   return (
     <Link
       href={`/domain/${domain.slug}`}
-      className="block px-3 py-2 rounded-md hover:bg-accent transition-colors"
+      className="block px-3 py-1 rounded-md hover:bg-accent transition-colors"
       title={domain.name} // Show full name on hover
     >
-      <span className="font-medium text-foreground block truncate">
+      <span className="text-sm font-medium text-foreground block truncate">
         {domain.name}
       </span>
     </Link>

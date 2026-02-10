@@ -116,7 +116,7 @@ function SectionCell({ section, domain, currentPath }: {
       <h2 className="text-lg font-semibold text-foreground mb-1" title={section.title}>
         <span className="block truncate">{section.title}</span>
       </h2>
-      <div className="border-b border-gray-300 w-full mt-1 mb-4" style={{ borderBottomWidth: '1px' }}></div>
+      <div className="border-b border-gray-300 w-full mt-1 mb-2" style={{ borderBottomWidth: '1px' }}></div>
       
       <div className="space-y-1">
         {section.pages.map((page: ChildPage) => (
@@ -166,7 +166,7 @@ function SectionItem({ page, domain, currentPath }: {
   return (
     <Link 
       href={pageUrl} 
-      className="block px-3 py-2 text-foreground hover:bg-accent rounded-md transition-colors"
+      className="block  pl-1 pr-3 py-1 text-foreground hover:bg-accent rounded-md transition-colors"
       title={page.title} // Show full title on hover
     >
       <span className="text-sm font-medium block truncate">{page.title}</span>

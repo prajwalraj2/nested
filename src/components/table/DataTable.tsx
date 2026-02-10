@@ -442,7 +442,7 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
         <div className="max-w-[250px]">
           <Popover>
             <PopoverTrigger asChild>
-              <button className="text-left text-muted-foreground hover:text-foreground transition-colors cursor-pointer w-full">
+              <button className="text-left text-foreground hover:text-foreground transition-colors cursor-pointer w-full">
                 <div className="truncate text-sm leading-5 py-1">{shortText}</div>
               </button>
             </PopoverTrigger>

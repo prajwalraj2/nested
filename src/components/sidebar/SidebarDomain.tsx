@@ -49,7 +49,7 @@ export function SidebarDomain({
             className="flex items-center gap-2 min-w-0 flex-1"
             title={domain.name}
           >
-            <span className="truncate text-sm">{domain.name}</span>
+            <span className="truncate text-sm font-medium">{domain.name}</span>
           </Link>
           
           {shouldShowChevron && (
@@ -86,7 +86,7 @@ export function SidebarDomain({
                       className="flex items-center gap-2 min-w-0 flex-1"
                       title={page.title}
                     >
-                      <span className="truncate text-sm">{page.title}</span>
+                      <span className="truncate text-sm font-medium">{page.title}</span>
                     </Link>
                   </div>
                 </SidebarMenuButton>
