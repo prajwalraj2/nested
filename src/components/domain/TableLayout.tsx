@@ -4,6 +4,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { DataTable } from '@/components/table/DataTable';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { TableSchema, TableData, ColumnType } from '@/types/table';
 
 type Domain = {
@@ -594,11 +595,12 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
 
 
   
-  // Loading state
+  // Loading state - with skeleton
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#2f2f2f] text-white">
         <div className="max-w-6xl mx-auto p-6">
+          {/* Header skeleton */}
           <div className="mb-8">
             <div className="flex items-center gap-2 text-sm text-gray-400 mb-4">
               <span>{domain.name}</span>
@@ -608,11 +610,62 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
             <h1 className="text-3xl font-bold mb-4">{page.title}</h1>
           </div>
 
-          <div className="bg-[#3a3a3a] rounded-lg p-6 border border-gray-600">
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                <p className="text-gray-400">Loading table data...</p>
+          {/* Table skeleton */}
+          <div className="bg-[#3a3a3a] rounded-lg border border-gray-600 overflow-hidden">
+            {/* Table header skeleton */}
+            <div className="p-4 border-b border-gray-600">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-5 w-48 bg-gray-600/50" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-9 w-[200px] bg-gray-600/50" />
+                  <Skeleton className="h-9 w-24 bg-gray-600/50" />
+                </div>
+              </div>
+            </div>
+            
+            {/* Table columns header skeleton */}
+            <div className="border-b border-gray-600 bg-[#353535]">
+              <div className="flex items-center p-3 gap-4">
+                <Skeleton className="h-4 w-4 bg-gray-600/50" />
+                <Skeleton className="h-4 w-32 bg-gray-600/50" />
+                <Skeleton className="h-4 w-24 bg-gray-600/50" />
+                <Skeleton className="h-4 w-28 bg-gray-600/50" />
+                <Skeleton className="h-4 w-20 bg-gray-600/50" />
+                <Skeleton className="h-4 w-36 bg-gray-600/50" />
+              </div>
+            </div>
+            
+            {/* Table rows skeleton */}
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+              <div key={i} className="border-b border-gray-700/50 last:border-b-0">
+                <div className="flex items-center p-3 gap-4">
+                  <Skeleton className="h-4 w-4 bg-gray-600/40" />
+                  <Skeleton className={`h-4 bg-gray-600/40 ${
+                    i % 3 === 0 ? 'w-[140px]' : i % 2 === 0 ? 'w-[180px]' : 'w-[120px]'
+                  }`} />
+                  <Skeleton className={`h-4 bg-gray-600/40 ${
+                    i % 3 === 0 ? 'w-[100px]' : i % 2 === 0 ? 'w-[80px]' : 'w-[110px]'
+                  }`} />
+                  <Skeleton className={`h-4 bg-gray-600/40 ${
+                    i % 3 === 0 ? 'w-[90px]' : i % 2 === 0 ? 'w-[130px]' : 'w-[100px]'
+                  }`} />
+                  <Skeleton className="h-5 w-16 rounded-full bg-gray-600/40" />
+                  <Skeleton className={`h-4 bg-gray-600/40 ${
+                    i % 3 === 0 ? 'w-[160px]' : i % 2 === 0 ? 'w-[120px]' : 'w-[140px]'
+                  }`} />
+                </div>
+              </div>
+            ))}
+            
+            {/* Pagination skeleton */}
+            <div className="p-4 border-t border-gray-600 bg-[#353535]">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-4 w-32 bg-gray-600/50" />
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-8 w-8 bg-gray-600/50" />
+                  <Skeleton className="h-4 w-20 bg-gray-600/50" />
+                  <Skeleton className="h-8 w-8 bg-gray-600/50" />
+                </div>
               </div>
             </div>
           </div>

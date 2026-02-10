@@ -14,9 +14,14 @@
  * - useSidebarData
  * - usePageSidebarData
  * - useBreadcrumbData
+ * 
+ * SMART FETCHING:
+ * - Static data (header, sidebar) → Fetched ONCE on mount
+ * - Page sidebar → Fetched only when mode changes OR domain/parent changes
+ * - Breadcrumb → Derived from URL (no fetch needed)
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 
 // ============================================
@@ -222,42 +227,328 @@ function formatSlugToTitle(slug: string): string {
 }
 
 // ============================================
+// Helper: Extract domain and parent page from path
+// Accounts for pageType (direct vs hierarchical)
+// ============================================
+
+interface PathInfo {
+  domainSlug: string | null;
+  segments: string[];
+}
+
+function getPathSegments(pathname: string): PathInfo {
+  const segments = pathname.split('/').filter(Boolean);
+  // /domain/gdesign/ytube → ['domain', 'gdesign', 'ytube']
+  
+  if (segments.length < 2 || segments[0] !== 'domain') {
+    return { domainSlug: null, segments };
+  }
+  
+  return { domainSlug: segments[1], segments };
+}
+
+/**
+ * Determine sidebar mode based on domain's pageType
+ * 
+ * Direct domains:
+ *   - /domain/gdesign (2 segments) → domain mode
+ *   - /domain/gdesign/ytube (3+ segments) → page mode
+ * 
+ * Hierarchical domains:
+ *   - /domain/webdev (2 segments) → domain mode
+ *   - /domain/webdev/withcode (3 segments) → STILL domain mode (viewing subcategory)
+ *   - /domain/webdev/withcode/ytube (4+ segments) → page mode
+ */
+function calculateSidebarMode(
+  segments: string[],
+  pageType: 'direct' | 'hierarchical' | null
+): SidebarMode {
+  if (segments.length < 2 || segments[0] !== 'domain') {
+    return 'domain';
+  }
+
+  if (pageType === 'direct') {
+    // For direct domains: page mode at 3+ segments
+    return segments.length >= 3 ? 'page' : 'domain';
+  } else if (pageType === 'hierarchical') {
+    // For hierarchical domains: page mode at 4+ segments
+    return segments.length >= 4 ? 'page' : 'domain';
+  }
+  
+  // Default: use direct logic if pageType unknown
+  return segments.length >= 3 ? 'page' : 'domain';
+}
+
+/**
+ * Get the "parent context" for determining if we need to refetch page sidebar
+ * 
+ * Direct domains: parent = domainSlug (same domain = same pages)
+ * Hierarchical domains: parent = first-level page slug (same subcategory = same pages)
+ */
+function getParentContext(
+  segments: string[],
+  pageType: 'direct' | 'hierarchical' | null
+): string | null {
+  if (segments.length < 2 || segments[0] !== 'domain') {
+    return null;
+  }
+
+  const domainSlug = segments[1];
+
+  if (pageType === 'direct') {
+    // For direct domains: parent context is the domain itself
+    return domainSlug;
+  } else if (pageType === 'hierarchical') {
+    // For hierarchical domains: parent context is the first-level page
+    return segments.length >= 3 ? `${domainSlug}/${segments[2]}` : domainSlug;
+  }
+  
+  return domainSlug;
+}
+
+// ============================================
 // Main Hook
 // ============================================
 
 export function usePageContext() {
   const pathname = usePathname();
   
-  // Combined state
-  const [data, setData] = useState<PageContextData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ============================================
+  // STATIC DATA - Fetched ONCE on mount
+  // ============================================
+  const [staticData, setStaticData] = useState<{
+    header: HeaderData;
+    sidebar: SidebarData;
+  } | null>(null);
+  const [staticLoading, setStaticLoading] = useState(true);
+  const [staticError, setStaticError] = useState<string | null>(null);
+  
+  // ============================================
+  // DYNAMIC DATA - Fetched when needed
+  // ============================================
+  const [pageSidebar, setPageSidebar] = useState<PageSidebarData | null>(null);
+  const [pageSidebarLoading, setPageSidebarLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState<{
+    id: string;
+    title: string;
+    contentType: string;
+  } | undefined>(undefined);
+
+  // ============================================
+  // TRACKING REFS - To detect real changes
+  // ============================================
+  const prevModeRef = useRef<SidebarMode>('domain');
+  const prevParentContextRef = useRef<string | null>(null);
+  const staticDataFetchedRef = useRef(false);
 
   // UI state for sidebars (preserved from old hooks)
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
   const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
 
-  // Derived sidebar mode
-  const sidebarMode = useMemo<SidebarMode>(() => {
-    const pathSegments = pathname.split('/').filter(Boolean);
-    if (pathSegments.length >= 3 && pathSegments[0] === 'domain') {
-      return 'page';
-    }
-    return 'domain';
-  }, [pathname]);
+  // ============================================
+  // Get current domain's pageType from cached sidebar data
+  // ============================================
+  
+  // Memoize path segments to prevent infinite re-renders
+  // (arrays are compared by reference, so we need stable references)
+  const pathInfo = useMemo(() => getPathSegments(pathname), [pathname]);
+  const { domainSlug, segments } = pathInfo;
+  
+  // Also memoize segments as a string for dependency tracking
+  const segmentsKey = useMemo(() => segments.join('/'), [segments]);
+  
+  const currentDomainPageType = useMemo<'direct' | 'hierarchical' | null>(() => {
+    if (!staticData || !domainSlug) return null;
+    
+    const domain = staticData.sidebar.domains.find(d => d.slug === domainSlug);
+    return (domain?.pageType as 'direct' | 'hierarchical') || null;
+  }, [staticData, domainSlug]);
 
-  // Fetch data
-  const fetchPageContext = useCallback(async () => {
-    // Skip fetch for non-domain paths that don't need full context
+  // ============================================
+  // Derived sidebar mode - NOW accounts for pageType!
+  // ============================================
+  const sidebarMode = useMemo<SidebarMode>(() => {
+    return calculateSidebarMode(segments, currentDomainPageType);
+  }, [segments, currentDomainPageType]);
+
+  // ============================================
+  // FETCH STATIC DATA (header + sidebar) - ONCE
+  // ============================================
+  useEffect(() => {
+    // Only fetch once
+    if (staticDataFetchedRef.current) return;
+    
+    // Skip for non-domain paths
     if (!pathname.startsWith('/domain') && pathname !== '/') {
-      setData(null);
-      setLoading(false);
+      setStaticLoading(false);
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    async function fetchStaticData() {
+      setStaticLoading(true);
+      setStaticError(null);
 
+      try {
+        // Fetch with a simple path to get static data
+        const response = await fetch(`/api/page-context?path=/domain`);
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || 'Failed to fetch static context');
+        }
+
+        setStaticData({
+          header: result.header || { columnData: { 1: [], 2: [], 3: [] }, totalDomains: 0, totalCategories: 0 },
+          sidebar: result.sidebar || { domains: [], categories: [] },
+        });
+        
+        staticDataFetchedRef.current = true;
+      } catch (err) {
+        console.error('Error fetching static context:', err);
+        setStaticError(err instanceof Error ? err.message : 'Unknown error');
+        
+        // Set fallback data
+        setStaticData({
+          header: { columnData: { 1: [], 2: [], 3: [] }, totalDomains: 0, totalCategories: 0 },
+          sidebar: { domains: [], categories: [] },
+        });
+      } finally {
+        setStaticLoading(false);
+      }
+    }
+
+    fetchStaticData();
+  }, []); // Empty dependency - fetch ONCE on mount
+
+  // ============================================
+  // FETCH PAGE SIDEBAR - Only when needed
+  // ============================================
+  useEffect(() => {
+    // Wait for static data to be loaded (we need pageType info)
+    if (!staticData) return;
+    
+    // Get current parent context based on domain type
+    const currentParentContext = getParentContext(segments, currentDomainPageType);
+    
+    // Detect what changed
+    const modeChanged = sidebarMode !== prevModeRef.current;
+    const parentContextChanged = currentParentContext !== prevParentContextRef.current;
+    
+    // Update refs for next comparison
+    prevModeRef.current = sidebarMode;
+    prevParentContextRef.current = currentParentContext;
+
+    // If in domain mode, clear page sidebar
+    if (sidebarMode === 'domain') {
+      if (pageSidebar !== null) {
+        setPageSidebar(null);
+        setCurrentPage(undefined);
+      }
+      return;
+    }
+
+    // If in page mode, check if we need to fetch
+    if (sidebarMode === 'page') {
+      // Only fetch if:
+      // 1. Mode just changed to 'page' (entering page mode)
+      // 2. OR parent context changed (different domain for direct, different subcategory for hierarchical)
+      const needsFetch = modeChanged || parentContextChanged;
+      
+      if (needsFetch && domainSlug) {
+        // For hierarchical domains, we need to pass the first-level page slug
+        const pageSlugForApi = currentDomainPageType === 'hierarchical' && segments.length >= 3
+          ? segments[2] // e.g., 'withcode' from /domain/webdev/withcode/ytube
+          : null;
+        
+        fetchPageSidebarData(domainSlug, pageSlugForApi);
+      }
+    }
+  }, [pathname, sidebarMode, staticData, currentDomainPageType, segmentsKey, domainSlug]);
+
+  // ============================================
+  // Page Sidebar Fetch Function
+  // ============================================
+  const fetchPageSidebarData = async (domainSlug: string, firstLevelPageSlug: string | null) => {
+    setPageSidebarLoading(true);
+
+    try {
+      // Build API URL
+      // For direct domains: /api/page-context?path=/domain/gdesign/ytube
+      // For hierarchical domains: /api/page-context?path=/domain/webdev/withcode
+      let apiUrl = `/api/page-context?path=/domain/${domainSlug}`;
+      if (firstLevelPageSlug) {
+        apiUrl += `/${firstLevelPageSlug}`;
+      } else if (currentDomainPageType === 'direct' && segments.length >= 3) {
+        // For direct domains, include any page slug to trigger pageSidebar
+        apiUrl += `/${segments[2]}`;
+      }
+
+      const response = await fetch(apiUrl);
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to fetch page sidebar');
+      }
+
+      setPageSidebar(result.pageSidebar || null);
+      setCurrentPage(result.currentPage);
+    } catch (err) {
+      console.error('Error fetching page sidebar:', err);
+      setPageSidebar(null);
+    } finally {
+      setPageSidebarLoading(false);
+    }
+  };
+
+  // ============================================
+  // UPDATE CURRENT PAGE INFO - When switching pages within same parent
+  // (For updating breadcrumb data without refetching sidebar)
+  // ============================================
+  useEffect(() => {
+    // Only update current page info if we're in page mode, have static data, and pageSidebar
+    if (sidebarMode !== 'page' || !staticData || !pageSidebar) return;
+    
+    // Find current page in pageSidebar sections
+    const lastSlug = segments[segments.length - 1];
+    
+    for (const section of pageSidebar.sections) {
+      for (const page of section.pages) {
+        if (page.slug === lastSlug) {
+          setCurrentPage({
+            id: page.id,
+            title: page.title,
+            contentType: page.contentType,
+          });
+          return;
+        }
+        // Check children too
+        for (const child of page.children || []) {
+          if (child.slug === lastSlug) {
+            setCurrentPage({
+              id: child.id,
+              title: child.title,
+              contentType: child.contentType,
+            });
+            return;
+          }
+        }
+      }
+    }
+  }, [pathname, sidebarMode, staticData, pageSidebar, segmentsKey]);
+
+  // ============================================
+  // Combined loading state
+  // ============================================
+  const loading = staticLoading || pageSidebarLoading;
+  const error = staticError;
+
+  // ============================================
+  // Refetch function (for manual refresh)
+  // ============================================
+  const refetch = useCallback(async () => {
+    staticDataFetchedRef.current = false;
+    setStaticLoading(true);
+    
     try {
       const response = await fetch(`/api/page-context?path=${encodeURIComponent(pathname)}`);
       const result = await response.json();
@@ -266,37 +557,20 @@ export function usePageContext() {
         throw new Error(result.message || 'Failed to fetch page context');
       }
 
-      // Process breadcrumb data
-      const breadcrumbData = processBreadcrumbs(result.breadcrumb?.items || []);
-
-      setData({
+      setStaticData({
         header: result.header || { columnData: { 1: [], 2: [], 3: [] }, totalDomains: 0, totalCategories: 0 },
         sidebar: result.sidebar || { domains: [], categories: [] },
-        pageSidebar: result.pageSidebar,
-        breadcrumb: breadcrumbData,
-        currentPage: result.currentPage,
       });
-    } catch (err) {
-      console.error('Error fetching page context:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setPageSidebar(result.pageSidebar || null);
+      setCurrentPage(result.currentPage);
       
-      // Set fallback data
-      setData({
-        header: { columnData: { 1: [], 2: [], 3: [] }, totalDomains: 0, totalCategories: 0 },
-        sidebar: { domains: [], categories: [] },
-        pageSidebar: null,
-        breadcrumb: createFallbackBreadcrumbs(pathname),
-        currentPage: undefined,
-      });
+      staticDataFetchedRef.current = true;
+    } catch (err) {
+      console.error('Error refetching page context:', err);
     } finally {
-      setLoading(false);
+      setStaticLoading(false);
     }
   }, [pathname]);
-
-  // Fetch on mount and when pathname changes
-  useEffect(() => {
-    fetchPageContext();
-  }, [fetchPageContext]);
 
   // ============================================
   // Sidebar State Helpers (preserved from useSidebarData)
@@ -344,6 +618,32 @@ export function usePageContext() {
   }, [isCurrentPage]);
 
   // ============================================
+  // Get current domain info from sidebar data
+  // ============================================
+  const currentDomain = useMemo(() => {
+    if (!staticData || !domainSlug) return null;
+    const domain = staticData.sidebar.domains.find(d => d.slug === domainSlug);
+    if (!domain) return null;
+    return {
+      id: domain.id,
+      name: domain.name,
+      slug: domain.slug,
+      pageType: domain.pageType,
+    };
+  }, [staticData, domainSlug]);
+
+  // ============================================
+  // Construct combined data for backwards compatibility
+  // ============================================
+  const data: PageContextData | null = staticData ? {
+    header: staticData.header,
+    sidebar: staticData.sidebar,
+    pageSidebar: pageSidebar,
+    breadcrumb: { items: [], shouldCollapse: false, visibleItems: null }, // Breadcrumb is now client-derived
+    currentPage: currentPage,
+  } : null;
+
+  // ============================================
   // Return Values
   // ============================================
 
@@ -356,11 +656,12 @@ export function usePageContext() {
     sidebarMode,
 
     // Individual data sections (for backwards compatibility)
-    header: data?.header || { columnData: { 1: [], 2: [], 3: [] }, totalDomains: 0, totalCategories: 0 },
-    sidebar: data?.sidebar || { domains: [], categories: [] },
-    pageSidebar: data?.pageSidebar,
-    breadcrumb: data?.breadcrumb || { items: [], shouldCollapse: false, visibleItems: null },
-    currentPage: data?.currentPage,
+    header: staticData?.header || { columnData: { 1: [], 2: [], 3: [] }, totalDomains: 0, totalCategories: 0 },
+    sidebar: staticData?.sidebar || { domains: [], categories: [] },
+    pageSidebar: pageSidebar,
+    breadcrumb: { items: [], shouldCollapse: false, visibleItems: null }, // Breadcrumb is now client-derived
+    currentPage: currentPage,
+    currentDomain: currentDomain, // For breadcrumb and other components
 
     // Sidebar UI state
     expandedDomains,
@@ -377,7 +678,7 @@ export function usePageContext() {
     isDomainCurrent,
     
     // Refresh function
-    refetch: fetchPageContext,
+    refetch,
   };
 }
 

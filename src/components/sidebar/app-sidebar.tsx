@@ -1,6 +1,7 @@
 'use client';
 
-import { ChevronUp, User2, Loader2 } from "lucide-react"
+import { ChevronUp, User2 } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Sidebar,
   SidebarContent,
@@ -42,12 +43,47 @@ export default function AppSidebar() {
           <SidebarGroup>
             <SidebarGroupLabel>Domains</SidebarGroupLabel>
             <SidebarGroupContent>
-              {/* Loading */}
+              {/* Loading Skeleton - grouped like actual domains */}
               {loading && (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="ml-2 text-sm text-muted-foreground">Loading...</span>
-                </div>
+                <SidebarMenu>
+                  {/* Group 1 - 5 items */}
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <SidebarMenuItem key={`g1-${i}`}>
+                      <div className="flex items-center gap-2 px-2 py-1.5">
+                        <Skeleton className="h-5 w-5 rounded-sm bg-muted-foreground/20" />
+                        <Skeleton className={`h-4 bg-muted-foreground/15 ${
+                          i % 3 === 0 ? 'w-[110px]' : i % 2 === 0 ? 'w-[140px]' : 'w-[125px]'
+                        }`} />
+                      </div>
+                    </SidebarMenuItem>
+                  ))}
+                  {/* Spacing between groups */}
+                  <div className="h-4" />
+                  {/* Group 2 - 5 items */}
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <SidebarMenuItem key={`g2-${i}`}>
+                      <div className="flex items-center gap-2 px-2 py-1.5">
+                        <Skeleton className="h-5 w-5 rounded-sm bg-muted-foreground/20" />
+                        <Skeleton className={`h-4 bg-muted-foreground/15 ${
+                          i % 3 === 0 ? 'w-[130px]' : i % 2 === 0 ? 'w-[100px]' : 'w-[115px]'
+                        }`} />
+                      </div>
+                    </SidebarMenuItem>
+                  ))}
+                  {/* Spacing between groups */}
+                  <div className="h-4" />
+                  {/* Group 3 - 5 items */}
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <SidebarMenuItem key={`g3-${i}`}>
+                      <div className="flex items-center gap-2 px-2 py-1.5">
+                        <Skeleton className="h-5 w-5 rounded-sm bg-muted-foreground/20" />
+                        <Skeleton className={`h-4 bg-muted-foreground/15 ${
+                          i % 3 === 0 ? 'w-[120px]' : i % 2 === 0 ? 'w-[135px]' : 'w-[105px]'
+                        }`} />
+                      </div>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
               )}
 
               {/* Error */}
@@ -90,8 +126,8 @@ export default function AppSidebar() {
                 </SidebarMenu>
               )}
 
-              {/* No data */}
-              {data && data.domains && data.domains.length === 0 && (
+              {/* No data - only show when not loading and data is empty */}
+              {!loading && data && data.domains && data.domains.length === 0 && (
                 <div className="px-2 py-4 text-sm text-muted-foreground">
                   No domains available
                 </div>

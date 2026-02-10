@@ -56,6 +56,12 @@ type PageContextValue = {
     title: string;
     contentType: string;
   };
+  currentDomain?: {
+    id: string;
+    name: string;
+    slug: string;
+    pageType: string;
+  } | null;
 
   // Sidebar UI state
   expandedDomains: Set<string>;
