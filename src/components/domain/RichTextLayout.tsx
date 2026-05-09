@@ -53,10 +53,10 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
             <div className="py-12 text-center">
               <div className="text-6xl mb-4">📝</div>
               <h2 className="text-xl font-semibold text-foreground mb-3">
-                No Content Yet
+                Data Coming Soon
               </h2>
               <p className="text-muted-foreground max-w-md mx-auto">
-                This page doesn&apos;t have any content configured yet.
+                We are working on getting the right data.
               </p>
             </div>
           )}
