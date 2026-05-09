@@ -673,9 +673,8 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="text-4xl mb-4">⚠️</div>
-                <h3 className="text-xl font-semibold text-foreground mb-2">Unable to Load Table</h3>
-                <p className="text-muted-foreground">{error}</p>
+                <h3 className="text-xl font-semibold text-foreground mb-2">Data Coming Soon</h3>
+                <p className="text-muted-foreground">We are working on getting Data.</p>
               </div>
             </div>
           </div>
