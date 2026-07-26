@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 
 /**
@@ -22,6 +23,10 @@ type RouteParams = {
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    // Layer 2 of defence in depth — see src/lib/api-auth.ts for the reasoning.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
 
     const domain = await prisma.domain.findUnique({
@@ -103,6 +108,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
  */
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    // Reject non-admins before reading the body or touching the database.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
     const body = await request.json();
 
@@ -272,6 +281,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
  */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    // The single most destructive endpoint in the app: the transaction below deletes
+    // every ContentBlock, then every Page, then the Domain itself. Guard first.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
 
     // Check if domain exists and get page count
@@ -351,6 +365,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
  */
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    // This handler can publish/unpublish a domain and rewrite its targetCountries —
+    // i.e. change what the public sees. Admins only.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
     const body = await request.json();
 

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+// Replaces the old inline `auth()` check. The shared guard fixes two flaws that the
+// hand-rolled version had in every route: it returned 403 even when nobody was logged
+// in (that is a 401), and it never checked `isActive`, so a soft-deleted admin kept
+// working access until their 24-hour JWT expired.
+import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 
 /**
@@ -18,11 +22,9 @@ import { prisma } from '@/lib/prisma';
  */
 export async function GET() {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
 
     const categories = await prisma.domainCategory.findMany({
       include: {
@@ -85,11 +87,9 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
 
     // Parse request body
     const body = await request.json();

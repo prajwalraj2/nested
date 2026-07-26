@@ -16,26 +16,68 @@
 
 ## 📊 Summary Table
 
-| # | Finding | Severity | Type | Effort |
-|---|---------|----------|------|--------|
-| 1 | `/api/admin/*` routes mostly unauthenticated | 🔴 **Critical** | Security | 1–2 hrs |
-| 2 | Stored XSS via unauthenticated rich-text write | 🔴 **Critical** | Security | 2–3 hrs |
-| 3 | Migration drift — `targetCountries` has no migration | 🔴 **Critical** | Data / Deploy | 30 min |
-| 4 | Branch hygiene — 15 merged branches, stale local refs | 🟡 Medium | Workflow | 20 min |
-| 5 | Cache tags defined but never invalidated | 🟠 **High** | Correctness | 2–3 hrs |
-| 6 | `new PrismaClient()` in rich-text routes | 🟡 Medium | Resource leak | 10 min |
-| 7 | Dead breadcrumb work on every request | 🟡 Medium | Performance | 30 min |
-| 8 | `revalidate` + `force-dynamic` contradiction | 🟡 Medium | Clarity | 5 min |
-| 9 | Deprecated APIs/hooks still shipping + type coupling | 🟡 Medium | Tech debt | 1–2 hrs |
-| 10 | `console.log` in hot render paths | 🟢 Low | Hygiene | 15 min |
-| 11 | DB write during page render (`getOrCreateMainPage`) | 🟢 Low | Design smell | 1 hr |
-| 12 | `/api/debug/cache-test` open in production | 🟢 Low | Info leak | 5 min |
-| 13 | No `robots.txt` / `sitemap.xml` (404s in Vercel logs) | 🟢 Low | SEO | 30 min |
-| 14 | **Every page shares one title** — no per-page metadata | 🟠 **High** | SEO / Growth | 2 hrs (A) |
+Tick the **Done** box when a finding is fully implemented, verified, and merged.
+Partially-done findings show which sub-items are complete.
+
+| Done | # | Finding | Severity | Type | Effort |
+|:---:|---|---------|----------|------|--------|
+| [x] | 1 | `/api/admin/*` routes mostly unauthenticated | 🔴 **Critical** | Security | 1–2 hrs |
+| [ ] | 2 | Stored XSS via unauthenticated rich-text write | 🔴 **Critical** | Security | 2–3 hrs |
+| [ ] | 3 | Migration drift — `targetCountries` has no migration | 🔴 **Critical** | Data / Deploy | 30 min |
+| [ ] | 4 | Branch hygiene — 15 merged branches, stale local refs | 🟡 Medium | Workflow | 20 min |
+| [ ] | 5 | Cache tags defined but never invalidated | 🟠 **High** | Correctness | 2–3 hrs |
+| [ ] | 6 | `new PrismaClient()` in rich-text routes | 🟡 Medium | Resource leak | 10 min |
+| [ ] | 7 | Dead breadcrumb work on every request | 🟡 Medium | Performance | 30 min |
+| [ ] | 8 | `revalidate` + `force-dynamic` contradiction | 🟡 Medium | Clarity | 5 min |
+| [ ] | 9 | Deprecated APIs/hooks still shipping + type coupling | 🟡 Medium | Tech debt | 1–2 hrs |
+| [ ] | 10 | `console.log` in hot render paths | 🟢 Low | Hygiene | 15 min |
+| [ ] | 11 | DB write during page render (`getOrCreateMainPage`) | 🟢 Low | Design smell | 1 hr |
+| [ ] | 12 | `/api/debug/cache-test` open in production | 🟢 Low | Info leak | 5 min |
+| [ ] | 13 | No `robots.txt` / `sitemap.xml` (404s in Vercel logs) | 🟢 Low | SEO | 30 min |
+| [ ] | 14 | **Every page shares one title** — no per-page metadata | 🟠 **High** | SEO / Growth | 2 hrs (A) |
+| ~ | 15 | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects | 🟡 Medium | Correctness / Perf | 1–2 hrs |
+
+**Sub-items:**
+
+| Done | Item | Notes |
+|:---:|---|---|
+| [ ] | 15.1 `Vary: Cookie` kills the CDN cache | Phase B |
+| [ ] | 15.2 Country cookie never refreshed | Phase B |
+| [x] | 15.3 Cookie dropped on early returns | Shipped with #1 |
+| [ ] | 15.4 `noindex` for geo-restricted pages | Ships with #14 / SEO-A |
 
 ---
 
-## 🔴 1. Most `/api/admin/*` Routes Are Completely Unauthenticated
+## ✅ 1. Most `/api/admin/*` Routes Are Completely Unauthenticated
+
+**Status:** **[x] DONE** — Phase A commit 1 on `dev-3.0`. Shipped together with #15.3.
+
+<details>
+<summary><strong>What was actually built</strong> (click to expand)</summary>
+
+| File | Change |
+|---|---|
+| `src/lib/api-auth.ts` | **New.** `requireAdmin()` returning a discriminated union — `{ ok: true, session }` or `{ ok: false, response }`. |
+| `src/middleware.ts` | Rewritten. Now matches `/api/admin` as well as `/admin`; returns JSON 401/403 for APIs; every exit path carries the country cookie. |
+| 9 unguarded route files | `requireAdmin()` added to every handler. |
+| 5 already-guarded route files | Refactored onto the same helper. |
+
+**36 handlers across 14 files — all guarded.** Verified: handler count == guard count per file.
+
+The refactor also fixed two latent bugs in the 5 files that *were* protected: their
+inline `if (!session?.user?.isAdmin)` returned **403 to anonymous callers** (should be
+401), and **never checked `isActive`** — so a soft-deleted admin kept full access until
+their 24-hour JWT expired.
+
+Deviation from the plan below: `requireAdmin()` returns a **tagged object**, not
+`NextResponse | null`. The handlers need the session (`createdBy`, self-protection
+checks), and returning it from the guard means they never call `auth()` twice.
+
+**Verified:** `tsc --noEmit` clean · `npm run build` passes · all admin endpoints 401
+when unauthenticated across GET/PUT/PATCH/DELETE · public routes unaffected ·
+`set-cookie: user-country` present on the 307 redirect, the 200 page, and the 401.
+
+</details>
 
 **Severity:** Critical — unauthenticated destructive writes from the public internet.
 
@@ -74,7 +116,8 @@ route file calls `auth()` itself — and most don't.
 | `api/admin/rich-text/route.ts` | GET, POST | ❌ **NONE** |
 | `api/admin/rich-text/[pageId]/route.ts` | GET, PUT, DELETE | ❌ **NONE** |
 
-**8 of 14 admin route files are open.** What an anonymous request can do today:
+**9 of the 14 admin route files are open** (36 handlers total across all 14).
+What an anonymous request can do today:
 
 - `DELETE /api/admin/domains/{id}` → deletes a domain **and every page inside it**
   (transaction deletes all `ContentBlock`s, then all `Page`s, then the `Domain`)
@@ -1174,37 +1217,291 @@ Stated plainly so the outcome matches the expectation.
 
 ---
 
+## 🟡 15. Geo Implementation — What's Intentional vs What's Broken
+
+**Severity:** Medium. Three real defects, plus two behaviours that look like bugs but
+are deliberate product decisions and must **not** be "fixed".
+
+### 📌 Product intent (recorded — read this before changing any geo code)
+
+`targetCountries` exists for **relevance, not access control**. Nothing is being
+protected or hidden for security reasons; the goal is that each visitor sees the
+resources that are useful *in their market*.
+
+Canonical examples, in the owner's words:
+
+| Content | `targetCountries` | Why |
+|---|---|---|
+| Ecommerce domain → "Ecommerce Websites" table → an Indian store | `IN` | Only useful to Indian visitors |
+| Same table → an American store | `US` | Only useful to US visitors |
+| Graphic Design domain → "Tools" table → Photoshop | `ALL` | Universal — everyone uses it |
+
+**Two consequences that follow from "relevance, not restriction":**
+
+1. **It is safe for the client to specify its own country** (e.g. as a URL query
+   param). Someone hand-editing `country=IN` just sees Indian rows. There is no
+   privilege escalation and no data they shouldn't have. This is what makes the CDN
+   fix in 15.1 possible — do not "harden" it later on principle.
+2. **Geo filtering is applied at three levels**, and they behave very differently:
+
+| Level | Code | On mismatch | Notes |
+|---|---|---|---|
+| Table row | `filterRowsByCountry()` | Row omitted, **page still renders 200** | The primary use case |
+| Page | `buildCountryFilter()` in `getByPath` | `notFound()` → **404** | Used in practice |
+| Domain | `isContentVisibleToUser()` | `notFound()` → **404** | Used in practice |
+
+---
+
+### ✅ Intentional — do not change
+
+**No country switcher.** Deliberate: the owner wants each visitor to feel the site was
+built for their country, so the country is detected and never offered as a choice.
+
+> ⚠️ **This raises the stakes on 15.2.** With a switcher, a bad detection is a
+> two-click annoyance. Without one, re-detection is the *only* correction mechanism a
+> user has — so per-request detection stops being an optimisation and becomes the
+> safety net.
+
+**`DEFAULT_COUNTRY = 'US'` for unsupported countries.** Deliberate: only
+`IN`, `US`, `GB`, `AU`, `CA` are supported today; more will be added progressively.
+Everyone else should see **ALL + US**.
+
+**Already implemented correctly — no code change needed:**
+
+```typescript
+buildCountryFilter('US')          → OR: [ has 'ALL', has 'US' ]   // ALL + US ✅
+filterRowsByCountry(rows, 'US')   → 'ALL' ✅  'US' ✅  'IN' ❌      // ALL + US ✅
+```
+
+A German visitor gets universal resources plus the US set. Flagged here only so a
+future reader doesn't mistake it for an oversight.
+
+---
+
+### 15.1 `Vary: Cookie` makes the page-context CDN cache useless
+
+**Priority:** Medium — performance, not correctness. Current behaviour is *safe*,
+just wasteful.
+
+`src/app/api/page-context/route.ts:44-45` sets:
+
+```typescript
+...getCacheHeaders(0, CACHE_DURATIONS.MEDIUM, CACHE_DURATIONS.LONG),  // s-maxage=60
+'Vary': 'Cookie',
+```
+
+`s-maxage=60` asks Vercel's CDN to store the response and serve it from the edge for
+60s without running the function. `Vary: Cookie` is there for correctness — navigation
+differs by country (domain/page-level targeting is real), so the cache must not serve
+one country's sidebar to another.
+
+**The problem:** `Vary: Cookie` keys the cache on the **entire** `Cookie` header:
+
+```
+Cookie: user-country=IN; authjs.session-token=eyJhbGciOiJkaXIi…; _ga=GA1.1.882471.17
+```
+
+Session tokens and analytics IDs are unique per visitor, so **every visitor produces a
+unique cache key**. The CDN stores a separate private copy for each person and never
+reuses one. The cache is correct and never hits — every request still executes the
+function and queries Postgres.
+
+**Fix — move the only meaningful variable into the URL:**
+
+```
+/api/page-context?path=/domain&country=IN   ← one copy, shared by all Indian visitors
+/api/page-context?path=/domain&country=US   ← one copy, shared by all US visitors
+```
+
+```typescript
+// route.ts — prefer the explicit param, fall back to the cookie
+const userCountry = searchParams.get('country') ?? getUserCountryFromRequest(request)
+// …and DELETE the 'Vary': 'Cookie' header — the URL now distinguishes the variants
+```
+
+```typescript
+// usePageContext.ts — useUserCountry() already reads the cookie
+fetch(`/api/page-context?path=/domain&country=${userCountry}`)
+```
+
+Cache key space becomes 5 countries × N paths, each shared by many users.
+**The cookie itself stays** — it remains how the detected country is stored; the client
+merely reads it and forwards the value.
+
+---
+
+### 15.2 The country cookie is set once and never refreshed
+
+`src/middleware.ts:18-37`:
+
+```typescript
+const existingCountry = request.cookies.get('user-country')?.value
+if (!existingCountry) {
+  // …set cookie with maxAge: 60 * 60 * 24 * 365   ← ONE YEAR
+}
+```
+
+Whatever country a visitor is assigned on their **first ever request** is frozen for a
+year. If detection was wrong (VPN, corporate proxy, carrier routing), and there's no
+switcher, the user is stuck with the wrong market's content and **no recourse at all**.
+
+**Re-detecting on every request is free.** Two reasons:
+1. `x-vercel-ip-country` is derived from the IP at the Vercel edge and is **already
+   present on every request** — no API call, no lookup, no added latency.
+2. The middleware **already runs on every request** (the matcher covers everything
+   except `/api/auth`, static assets, and images). The `if (!existingCountry)` guard
+   was never a performance measure.
+
+**Fix:**
+
+```typescript
+const headerCountry = request.headers.get('x-vercel-ip-country')   // null in local dev
+const existing = request.cookies.get('user-country')?.value
+
+if (headerCountry) {
+  const detected = SUPPORTED_COUNTRIES.includes(headerCountry) ? headerCountry : DEFAULT_COUNTRY
+  if (existing !== detected) {
+    // Write ONLY when it changed. Set-Cookie on a response makes it uncacheable by
+    // CDNs, which would work against 15.1.
+    response.cookies.set('user-country', detected, { maxAge: 60 * 60 * 24 * 30, /* 30d */ })
+  }
+} else if (!existing) {
+  // No geo header (local dev) and no cookie yet → seed the default.
+  // The `else if` is deliberate: it leaves a manually-set cookie alone when no header
+  // is present, so `user-country=IN` can be hand-set locally to test the Indian view.
+  response.cookies.set('user-country', DEFAULT_COUNTRY, { maxAge: 60 * 60 * 24 * 30 })
+}
+```
+
+`maxAge` matters much less once re-detection is in place, since it self-corrects.
+30 days is a reasonable value.
+
+---
+
+### ✅ 15.3 The country cookie is silently dropped on every early return
+
+**Status:** **[x] DONE** — shipped with #1. The `withCountry()` helper in
+`src/middleware.ts` now wraps every `return`. Verified: `set-cookie: user-country`
+appears on the 307 `/admin` redirect, on a normal 200 page load, and on the new 401.
+
+The original bug, kept here because the *shape* of it is worth remembering:
+
+```typescript
+let response = NextResponse.next()                    // ① create a response object
+
+if (!existingCountry) {
+  response.cookies.set('user-country', 'IN', {...})   // ② Set-Cookie attached to ①
+}
+
+if (pathname.startsWith('/admin')) {
+  const session = await auth()
+  if (!session) return NextResponse.redirect(loginUrl) // ③ a BRAND NEW object — ① discarded
+}
+
+return response                                        // ④ only reached if nothing redirected
+```
+
+Line ③ returns a different object, so the `Set-Cookie` from ② never reaches the
+browser. Affects the `/login` redirect, the `/unauthorized` redirect, and the
+logged-in-admin-bounced-off-`/login` redirect.
+
+Impact today is small — it self-heals on the next non-redirecting request:
+
+| Request | Result |
+|---|---|
+| `GET /admin` (no cookie, not logged in) | Redirect returned → **no cookie set** |
+| `GET /login` (browser follows) | No redirect → `response` returned → **cookie set here** |
+
+It matters because **#1 adds more early returns** (401 JSON for `/api/admin/*`), each
+another path that drops the cookie. Restructure so every exit carries it:
+
+```typescript
+// Decide the cookie ONCE, up front
+const countryCookie = resolveCountryCookie(request)   // string | null
+
+// Stamp it onto WHATEVER response we end up returning
+const withCountry = (res: NextResponse) => {
+  if (countryCookie) res.cookies.set('user-country', countryCookie, { /* … */ })
+  return res
+}
+
+if (isAdminApi)  return withCountry(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+if (isAdminPage) return withCountry(NextResponse.redirect(loginUrl))
+return withCountry(NextResponse.next())
+```
+
+Adding a branch later can no longer reintroduce the bug.
+
+---
+
+### 15.4 Page/Domain-level geo needs `noindex` — confirmed, not theoretical
+
+Because domain- and page-level targeting **is** used, this sequence is live:
+
+1. A page targeted `["US"]` → Googlebot crawls from a US IP → resolves to `US` →
+   sees the page → **indexes it**
+2. An Indian user finds it in Google, clicks → `getByPath` filters it out →
+   `notFound()` → **404**
+3. Google sees an indexed URL failing for most visitors → **soft 404**, a quality
+   penalty
+
+So the `robots: { index: false, follow: true }` guard in **#14 / SEO-A is required**,
+not optional, and the sitemap must apply the same `targetCountries: ['ALL']` filter.
+
+Pages targeted `["IN"]` are naturally safe — Googlebot resolves to `US`, gets a 404
+during crawl, and never indexes them.
+
+---
+
+### ✅ Verified safe — geo never leaks through a cache
+
+Checked explicitly, because this would have been the worst possible bug:
+
+- `TableService.getPublicTable` uses React `cache()` **only** — request-scoped, keyed
+  on `(pageId, userCountry)`. No `unstable_cache`, so nothing survives the request.
+- `/api/domain/tables/by-page/[pageId]` sets **no cache headers** — table data is
+  never held by the CDN.
+
+An Indian visitor's rows can never be served to an American from cache. Preserve this
+property in any future caching work: **never wrap row-filtered table data in
+`unstable_cache` unless the country is part of the cache key.**
+
+---
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on **`dev-3.0`** (branched from `master` @ `c4ff8d8`), one PR per
 phase, merged to `master` → auto-deploys to `atno.io`.
 
 ### Phase A — Security + SEO foundation (in progress)
-| Commit | Item | Notes |
-|---|---|---|
-| 1 | **#1** Lock down `/api/admin/*` | `lib/api-auth.ts` + widened middleware + `requireAdmin()` on all 14 routes |
-| 2 | **#13** `robots.ts` | With the `VERCEL_ENV` preview guard. *After* #1 — don't signpost `/admin` while it's open. |
-| 3 | **#14** SEO-A: `metadataBase` + `generateMetadata` + OG tags | Includes the `robots: { index: false }` guard for geo-restricted pages |
-| 4 | **#13** `sitemap.ts` | `targetCountries: ['ALL']` only. Worth crawling now that titles are unique. |
+| Done | Commit | Item | Notes |
+|:---:|---|---|---|
+| [x] | 1 | **#1** Lock down `/api/admin/*` **+ #15.3** | `lib/api-auth.ts` + widened middleware + `requireAdmin()` on all 14 routes (36 handlers). Restructures middleware so every exit path carries the country cookie. |
+| [ ] | 2 | **#13** `robots.ts` | With the `VERCEL_ENV` preview guard. *After* #1 — don't signpost `/admin` while it's open. |
+| [ ] | 3 | **#14** SEO-A: `metadataBase` + `generateMetadata` + OG tags | Includes the `robots: { index: false }` guard for geo-restricted pages |
+| [ ] | 4 | **#13** `sitemap.ts` | `targetCountries: ['ALL']` only. Worth crawling now that titles are unique. |
 
 ### Phase B — Correctness
-5. **#3** Generate the missing `targetCountries` migration → `migrate resolve --applied`
-6. **#2** DOMPurify sanitization on rich-text write
-7. **#5** Wire up `revalidateTag` on all mutations
-8. **#6** Fix the two `new PrismaClient()` instances + add the lint rule
+- [ ] 5. **#3** Generate the missing `targetCountries` migration → `migrate resolve --applied`
+- [ ] 6. **#15.2** Re-detect country every request + 30-day `maxAge` (with the local-dev guard)
+- [ ] 7. **#2** DOMPurify sanitization on rich-text write
+- [ ] 8. **#5** Wire up `revalidateTag` on all mutations
+- [ ] 9. **#6** Fix the two `new PrismaClient()` instances + add the lint rule
+      *(both call sites already carry a `TODO(#6)` comment — deliberately left for this step)*
+- [ ] 10. **#15.1** Country in the URL for `/api/page-context`, drop `Vary: Cookie`
 
 ### Phase C — Cleanup
-9. **#9** Repoint the two type imports, then delete the 8 deprecated files
-10. **#7** Make server breadcrumb work opt-in; dedupe the double `getByPath`
-11. **#10** Strip debug logs and the 500-line comment block
-12. **#8** Remove the contradictory `revalidate` export; correct the plan doc
-13. **#4** Delete the 15 merged branches
+- [ ] 11. **#9** Repoint the two type imports, then delete the 8 deprecated files
+- [ ] 12. **#7** Make server breadcrumb work opt-in; dedupe the double `getByPath`
+- [ ] 13. **#10** Strip debug logs and the 500-line comment block
+- [ ] 14. **#8** Remove the contradictory `revalidate` export; correct the plan doc
+- [ ] 15. **#4** Delete the 15 merged branches
 
 ### Phase D — Polish
-14. **#14** SEO-B: JSON-LD `BreadcrumbList`, `next/image`, real page content
-15. **#11** Make the render path read-only; add the `__main__` invariant + health check
-16. **#12** Gate or delete `/api/debug/cache-test`
-17. Remaining Step 7: error boundaries, structured error responses, rate limiting
+- [ ] 16. **#14** SEO-B: JSON-LD `BreadcrumbList`, `next/image`, real page content
+- [ ] 17. **#11** Make the render path read-only; add the `__main__` invariant + health check
+- [ ] 18. **#12** Gate or delete `/api/debug/cache-test`
+- [ ] 19. Remaining Step 7: error boundaries, structured error responses, rate limiting
 
 ### Open decisions
 - **Geo strategy** — Option A chosen for now (#14). Revisit if non-US organic traffic
@@ -1243,3 +1540,4 @@ Worth stating plainly, so refactoring doesn't undo it:
 
 *Full-codebase audit, July 25 2026. Findings verified against production `master` @ `c4ff8d8`.*
 *Revision 2 (July 26): corrected finding #4; added #14 (SEO) with the geo decision record.*
+*Revision 3 (July 26): added Done checkboxes throughout; marked #1 and #15.3 complete.*

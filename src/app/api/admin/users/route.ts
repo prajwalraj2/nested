@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
+// Shared admin guard — replaces the old inline `auth()` check.
+// `requireAdmin()` also hands back the verified session, which POST needs below to
+// record WHO created a new admin account (`createdBy`).
+import { requireAdmin } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
 import { PasswordUtils } from '@/lib/password'
 import { z } from 'zod'
@@ -25,11 +28,9 @@ const querySchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin()
+    if (!guard.ok) return guard.response
 
     // Parse query parameters
     const url = new URL(request.url)
@@ -111,11 +112,9 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin()
+    if (!guard.ok) return guard.response
 
     const body = await request.json()
     const { email, name, password, isAdmin } = createUserSchema.parse(body)
@@ -152,7 +151,10 @@ export async function POST(request: NextRequest) {
         password: hashedPassword,
         isAdmin,
         isActive: true,
-        createdBy: session.user.id
+        // Audit trail: which admin created this account.
+        // `guard.session` is only reachable after the `!guard.ok` early return above,
+        // so TypeScript knows it is defined here — no null check needed.
+        createdBy: guard.session.user.id
       },
       select: {
         id: true,

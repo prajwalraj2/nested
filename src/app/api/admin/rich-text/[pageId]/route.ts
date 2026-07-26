@@ -2,7 +2,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 
+// TODO(#6): replace with the shared singleton — `import { prisma } from '@/lib/prisma'`.
+// Creating a client here spawns a new connection pool per serverless instance and
+// leaks one on every dev hot-reload. Left as-is so this commit stays purely about auth.
 const prisma = new PrismaClient();
 
 interface RouteParams {
@@ -21,6 +25,10 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
+    // Layer 2 of defence in depth — see src/lib/api-auth.ts.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { pageId } = await params;
 
     // Fetch page with rich text content
@@ -87,6 +95,15 @@ export async function PUT(
   { params }: RouteParams
 ) {
   try {
+    // ⚠️ THE MOST IMPORTANT GUARD IN THIS COMMIT.
+    // This endpoint stores raw `htmlContent` that RichTextLayout.tsx renders with
+    // dangerouslySetInnerHTML to every public visitor. Unauthenticated, it was a
+    // stored-XSS → full-site-takeover chain (finding #2): an anonymous request could
+    // plant <script> on any page, which would then execute in an admin's browser on
+    // our own origin, with access to every other (then-unguarded) admin API.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { pageId } = await params;
     const body = await request.json();
     const { htmlContent, title } = body;
@@ -174,6 +191,10 @@ export async function DELETE(
   { params }: RouteParams
 ) {
   try {
+    // Destructive: removes the page's rich text content entirely.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { pageId } = await params;
 
     // Check if rich text content exists

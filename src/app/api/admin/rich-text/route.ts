@@ -2,7 +2,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 
+// TODO(#6): replace with the shared singleton — `import { prisma } from '@/lib/prisma'`.
+// Creating a client here spawns a new connection pool per serverless instance and
+// leaks one on every dev hot-reload. Left as-is so this commit stays purely about auth.
 const prisma = new PrismaClient();
 
 /**
@@ -16,6 +20,10 @@ const prisma = new PrismaClient();
  */
 export async function GET(request: NextRequest) {
   try {
+    // Layer 2 of defence in depth — see src/lib/api-auth.ts.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const searchParams = request.nextUrl.searchParams;
     const domainId = searchParams.get('domainId');
 
@@ -79,6 +87,13 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    // ⚠️ This writes raw `htmlContent`, which RichTextLayout.tsx later renders with
+    // dangerouslySetInnerHTML on a PUBLIC page. Unauthenticated, that was a stored-XSS
+    // hole (finding #2): anyone could inject <script> into any page. This guard closes
+    // it. Sanitising the HTML on write is still planned as defence in depth.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const body = await request.json();
     const { pageId, htmlContent, title } = body;
 

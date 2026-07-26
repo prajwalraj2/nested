@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 import { exportTableToCsv, exportTableToJson, ensureRowsHaveTargetCountries } from '@/lib/table-utils';
 import type { TableData } from '@/types/table';
 
@@ -30,6 +31,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Layer 2 of defence in depth — see src/lib/api-auth.ts.
+    // This can export an ENTIRE table as CSV/JSON, unfiltered and including the
+    // hidden targetCountries column. It was a full data-dump endpoint for anyone.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const awaitedParams = await params;
     const tableId = awaitedParams.id;
     const { searchParams } = new URL(request.url);
@@ -133,6 +140,10 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // operation: 'replace' overwrites EVERY row in the table. Guard first.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const awaitedParams = await params;
     const tableId = awaitedParams.id;
     const body = await request.json();
@@ -246,6 +257,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Clears every row in the table. Guard first.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const awaitedParams = await params;
     const tableId = awaitedParams.id;
 

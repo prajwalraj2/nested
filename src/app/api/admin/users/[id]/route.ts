@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
+// Shared admin guard — replaces the old inline `auth()` check.
+// `requireAdmin()` also returns the verified session, which the self-protection checks
+// below need ("you cannot deactivate / demote / delete your own account").
+import { requireAdmin } from '@/lib/api-auth'
 import { prisma } from '@/lib/prisma'
 import { PasswordUtils } from '@/lib/password'
 import { z } from 'zod'
@@ -26,11 +29,9 @@ export async function GET(
   { params }: PageParams
 ) {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin()
+    if (!guard.ok) return guard.response
 
     const { id } = await params
 
@@ -79,11 +80,9 @@ export async function PUT(
   { params }: PageParams
 ) {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin()
+    if (!guard.ok) return guard.response
 
     const { id } = await params
     const body = await request.json()
@@ -98,8 +97,10 @@ export async function PUT(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Prevent users from deactivating themselves
-    if (session.user.id === id && updates.isActive === false) {
+    // Prevent users from deactivating themselves.
+    // `guard.session` is safe to read here: the `!guard.ok` early return above narrowed
+    // the union, so TypeScript knows the session exists.
+    if (guard.session.user.id === id && updates.isActive === false) {
       return NextResponse.json(
         { error: 'You cannot deactivate your own account' },
         { status: 400 }
@@ -107,7 +108,7 @@ export async function PUT(
     }
 
     // Prevent users from removing their own admin status
-    if (session.user.id === id && updates.isAdmin === false) {
+    if (guard.session.user.id === id && updates.isAdmin === false) {
       return NextResponse.json(
         { error: 'You cannot remove your own admin privileges' },
         { status: 400 }
@@ -195,11 +196,9 @@ export async function DELETE(
   { params }: PageParams
 ) {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin()
+    if (!guard.ok) return guard.response
 
     const { id } = await params
     const url = new URL(request.url)
@@ -215,7 +214,7 @@ export async function DELETE(
     }
 
     // Prevent users from deleting themselves
-    if (session.user.id === id) {
+    if (guard.session.user.id === id) {
       return NextResponse.json(
         { error: 'You cannot delete your own account' },
         { status: 400 }
