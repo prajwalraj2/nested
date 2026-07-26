@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 import type { CreateTableRequest, TableListResponse } from '@/types/table';
 import { ensureTargetCountriesColumn, ensureRowsHaveTargetCountries } from '@/lib/table-utils';
 
@@ -27,6 +28,13 @@ import { ensureTargetCountriesColumn, ensureRowsHaveTargetCountries } from '@/li
  */
 export async function GET(request: NextRequest) {
   try {
+    // Layer 2 of defence in depth — see src/lib/api-auth.ts.
+    // This endpoint returns RAW table data, including the hidden `targetCountries`
+    // column that getPublicSchema()/getPublicRows() strip from the public API.
+    // Without a guard it leaked every country's rows to anyone who asked.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const pageSize = parseInt(searchParams.get('pageSize') || '25');
@@ -111,6 +119,11 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Creates a table AND flips the page's contentType to 'table' — a real content
+    // mutation. Guard before reading the body.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const body = await request.json() as CreateTableRequest;
     const { name, pageId, schema, data, settings } = body;
 

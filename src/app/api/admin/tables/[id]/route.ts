@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 import type { UpdateTableRequest } from '@/types/table';
 
 /**
@@ -29,6 +30,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Layer 2 of defence in depth — see src/lib/api-auth.ts.
+    // Returns the raw table including the hidden targetCountries column.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const awaitedParams = await params;
     const tableId = awaitedParams.id;
 
@@ -83,6 +89,10 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Rewrites a table's schema/data/settings. Guard before reading the body.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const awaitedParams = await params;
     const tableId = awaitedParams.id;
     const body = await request.json() as Partial<UpdateTableRequest>;
@@ -175,6 +185,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Destructive: deletes the table and can reset the page's contentType.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const awaitedParams = await params;
     const tableId = awaitedParams.id;
     const { searchParams } = new URL(request.url);

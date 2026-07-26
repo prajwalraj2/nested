@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 
 /**
  * Individual Category API Routes
@@ -20,6 +21,10 @@ type RouteParams = {
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    // Layer 2 of defence in depth — see src/lib/api-auth.ts for the reasoning.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
 
     const category = await prisma.domainCategory.findUnique({
@@ -91,6 +96,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
  */
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    // Reject non-admins before reading the body or touching the database.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
     const body = await request.json();
 
@@ -220,6 +229,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
  */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    // Destructive: removes a category that domains may still reference. Admins only.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
 
     // Check if category exists

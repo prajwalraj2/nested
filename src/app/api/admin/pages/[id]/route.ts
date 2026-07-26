@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 
 /**
@@ -22,6 +23,12 @@ type RouteParams = {
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    // Layer 2 of defence in depth. The middleware already blocks non-admins from
+    // every /api/admin/* path, but this per-route guard keeps the endpoint safe on
+    // its own if the middleware matcher is ever changed. See src/lib/api-auth.ts.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
 
     const page = await prisma.page.findUnique({
@@ -128,6 +135,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
  */
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    // Reject non-admins before reading the body or touching the database.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
     const body = await request.json();
 
@@ -281,6 +292,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
  */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    // The most dangerous handler in this file: it deletes the page AND every
+    // descendant page beneath it. Guard first, before anything else runs.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
 
     // Check if page exists

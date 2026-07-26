@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+// Shared admin guard — replaces the old inline `auth()` check.
+// See src/lib/api-auth.ts for the 401-vs-403 and isActive reasoning.
+import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 
@@ -29,11 +31,9 @@ import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
  */
 export async function GET(request: NextRequest) {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
 
     const { searchParams } = new URL(request.url);
     const domainId = searchParams.get('domain');
@@ -120,11 +120,9 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check admin authentication
-    const session = await auth()
-    if (!session?.user?.isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
-    }
+    // Admin-only. See src/lib/api-auth.ts for why this is duplicated in the middleware.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
 
     const body = await request.json();
     

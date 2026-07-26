@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAdmin } from '@/lib/api-auth';
 
 /**
  * API Route for Sections Management
@@ -35,6 +36,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Layer 2 of defence in depth — see src/lib/api-auth.ts for the reasoning.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const awaitedParams = await params;
     const pageId = awaitedParams.id;
 
@@ -105,6 +110,10 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Rewrites the page's whole 3-column section layout, i.e. what visitors see.
+    const guard = await requireAdmin();
+    if (!guard.ok) return guard.response;
+
     const awaitedParams = await params;
     const pageId = awaitedParams.id;
 
