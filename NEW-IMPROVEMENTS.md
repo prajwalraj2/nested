@@ -33,7 +33,7 @@ Partially-done findings show which sub-items are complete.
 | [ ] | 10 | `console.log` in hot render paths | 🟢 Low | Hygiene | 15 min |
 | [ ] | 11 | DB write during page render (`getOrCreateMainPage`) | 🟢 Low | Design smell | 1 hr |
 | [ ] | 12 | `/api/debug/cache-test` open in production | 🟢 Low | Info leak | 5 min |
-| [ ] | 13 | No `robots.txt` / `sitemap.xml` (404s in Vercel logs) | 🟢 Low | SEO | 30 min |
+| ~ | 13 | No `robots.txt` / `sitemap.xml` (404s in Vercel logs) | 🟢 Low | SEO | 30 min |
 | [ ] | 14 | **Every page shares one title** — no per-page metadata | 🟠 **High** | SEO / Growth | 2 hrs (A) |
 | ~ | 15 | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects | 🟡 Medium | Correctness / Perf | 1–2 hrs |
 
@@ -41,6 +41,10 @@ Partially-done findings show which sub-items are complete.
 
 | Done | Item | Notes |
 |:---:|---|---|
+| [x] | 13.1 `robots.ts` | Phase A commit 2 |
+| [x] | 14.A0 Root `/` redirect 307 → 308 | Shipped with commit 2 |
+| [ ] | 13.2 `sitemap.ts` | Phase A commit 4 |
+| [ ] | 13.3 Canonicalise `nested-two.vercel.app` | Partly handled by `metadataBase` in commit 3 |
 | [ ] | 15.1 `Vary: Cookie` kills the CDN cache | Phase B |
 | [ ] | 15.2 Country cookie never refreshed | Phase B |
 | [x] | 15.3 Cookie dropped on early returns | Shipped with #1 |
@@ -822,23 +826,80 @@ crawlable and indexable today.
 
 `MASTER-TASK-LIST.md` Task 7.5 already tracks the sitemap; both belong together.
 
-### Fix — `src/app/robots.ts`
+### ✅ Fix — `src/app/robots.ts` — **[x] DONE** (Phase A commit 2)
 
-```typescript
-import type { MetadataRoute } from 'next'
+Shipped output, verified from the build artifact (`.next/server/app/robots.txt.body`):
 
-export default function robots(): MetadataRoute.Robots {
-  const baseUrl = 'https://atno.io'
-  return {
-    rules: [{
-      userAgent: '*',
-      allow: '/',
-      disallow: ['/admin', '/api/', '/login', '/unauthorized'],
-    }],
-    sitemap: `${baseUrl}/sitemap.xml`,
-  }
-}
 ```
+User-Agent: *
+Allow: /api/domain/
+Allow: /api/page-context
+Disallow: /admin
+Disallow: /api/
+Disallow: /login
+Disallow: /unauthorized
+Disallow: /header1
+
+Host: https://atno.io
+Sitemap: https://atno.io/sitemap.xml
+```
+
+Preview builds (`VERCEL_ENV !== 'production'`) correctly emit only:
+
+```
+User-Agent: *
+Disallow: /
+```
+
+> ⚠️ **Two corrections to the plan this section originally contained.** The original
+> draft was `disallow: ['/admin', '/api/', '/login', '/unauthorized']` with a blanket
+> `allow: '/'`. Do not copy that version — it was wrong in a way that would have
+> *damaged* SEO:
+>
+> **1. A blanket `Disallow: /api/` hides table content from Google.** Googlebot renders
+> JavaScript, but it re-checks `robots.txt` for every subresource it fetches during
+> rendering. Two **public** endpoints are fetched client-side:
+>
+> | Endpoint | Called from | What breaks if blocked |
+> |---|---|---|
+> | `/api/domain/tables/by-page/[pageId]` | `TableLayout.tsx:51` | **The entire contents of every `table` page.** The rows *are* the content — Google would see an empty shell. |
+> | `/api/page-context` | `usePageContext.ts:393,553` | Sidebar + header nav → Googlebot can't follow internal links to deeper pages. |
+>
+> Hence the two `Allow:` lines. Google resolves Allow/Disallow conflicts by
+> **longest matching path**, not file order: `/api/domain/` (12 chars) beats `/api/`
+> (5 chars). Next.js emits `Allow` before `Disallow` anyway, which also satisfies
+> simpler first-match crawlers.
+>
+> **2. `/header1` was missing from the list.** `src/app/header1/page.tsx` is the stock
+> shadcn/Radix `NavigationMenu` demo — placeholder copy ("Alert Dialog", "Hover Card")
+> and dead links to `/docs/primitives/*` — and it is **live and crawlable on
+> `atno.io`**. Blocked here as a stopgap; it should be **deleted** (added to Phase C).
+
+**Design note — blanket-block plus whitelist, not an itemised list.** `Disallow: /api/`
+means a route added next month is private by default. Itemising the current routes
+instead would mean every new endpoint is crawlable until someone remembers to add it.
+
+**Also deliberately blocked:** `/login` — the middleware appends `?callbackUrl=…` on
+every redirect, so without this a crawler can burn budget on dozens of URLs that all
+render the same form.
+
+> ⚠️ **`Sitemap:` currently points at a 404** — `sitemap.ts` is commit 4. Consequence
+> is one "Sitemap could not be read" warning in Search Console, which clears itself.
+> Included now on purpose: crawlers re-read `robots.txt` roughly daily, so a line
+> that's briefly wrong beats one we forget to add.
+
+**Two things `robots.txt` does *not* do** — both worth internalising, because it's easy
+to assume otherwise:
+
+1. **It is not security.** It's a voluntary request. A malicious scraper ignores it.
+   And it's a *public file*, so everything listed above is now advertised. That is
+   precisely why #1 had to ship first — publishing "the admin panel is at `/admin`" is
+   fine once those routes are 401-guarded, and would have been an invitation before.
+2. **`Disallow` is not `noindex`.** If another site links to a blocked URL, Google can
+   still list the bare URL with no snippet — it sees the link, just not the content.
+   Keeping something genuinely *out* of the index needs `robots: { index: false }` in
+   page metadata, which is a different mechanism (#14 / SEO-A, for geo-restricted
+   pages).
 
 ### Fix — `src/app/sitemap.ts`
 
@@ -957,6 +1018,41 @@ much as fixing this one thing.**
 ---
 
 ### SEO-A — the core fix (~2 hrs, most of the value)
+
+#### ✅ A0. Root redirect: 307 → 308 — **[x] DONE** (shipped with commit 2)
+
+`src/app/page.tsx` used `redirect("/domain")`, which emits **307 Temporary**. Changed to
+`permanentRedirect("/domain")` → **308 Permanent**.
+
+Why it matters: a 307 tells Google "`/` is still the real URL, it's just borrowing
+`/domain` for now" — so `/` stays in the index and the ranking value from links pointing
+at `atno.io` (the URL people actually type and link to) stays attached to a URL that
+renders nothing. A 308 consolidates those signals onto `/domain`.
+
+Verified against a running production build:
+
+```
+HTTP/1.1 308 Permanent Redirect
+location: /domain
+```
+
+> ⚠️ **This is a one-way door for returning visitors.** Browsers cache 301/308
+> **indefinitely** — that is what "permanent" means — and a 307 is not cached this way.
+> If a real landing page is ever built at `/`, every visitor who hit this redirect even
+> once will still be bounced to `/domain`, because their browser stops asking the
+> server. **You cannot fix that server-side.** The response also carries
+> `Cache-Control: s-maxage=31536000`, so the CDN holds it for a year too — though that
+> part *can* be cleared by a redeploy.
+>
+> Acceptable now, since `/` has no content and no plan for any. **Revisit before
+> putting anything at `/`:** switch back to `redirect()` first and accept the weaker
+> SEO signal in exchange for staying reversible.
+
+**Better long-term:** no redirect at all — serve the domain listing at `/` directly, or
+rewrite to it (a rewrite keeps the URL as `/` in both the address bar and the index,
+unlike a redirect). Then the root URL is itself the indexed page and no authority is
+handed off. Larger change — it touches how the whole `/domain/...` tree is addressed —
+so it is not folded in here.
 
 #### A1. Per-page metadata
 
@@ -1477,7 +1573,7 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 | Done | Commit | Item | Notes |
 |:---:|---|---|---|
 | [x] | 1 | **#1** Lock down `/api/admin/*` **+ #15.3** | `lib/api-auth.ts` + widened middleware + `requireAdmin()` on all 14 routes (36 handlers). Restructures middleware so every exit path carries the country cookie. |
-| [ ] | 2 | **#13** `robots.ts` | With the `VERCEL_ENV` preview guard. *After* #1 — don't signpost `/admin` while it's open. |
+| [x] | 2 | **#13** `robots.ts` | With the `VERCEL_ENV` preview guard. *After* #1 — don't signpost `/admin` while it's open. Corrected the planned disallow list: `/api/` needed two `Allow` exceptions or table content would be hidden from Google. |
 | [ ] | 3 | **#14** SEO-A: `metadataBase` + `generateMetadata` + OG tags | Includes the `robots: { index: false }` guard for geo-restricted pages |
 | [ ] | 4 | **#13** `sitemap.ts` | `targetCountries: ['ALL']` only. Worth crawling now that titles are unique. |
 
@@ -1494,6 +1590,10 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 - [ ] 11. **#9** Repoint the two type imports, then delete the 8 deprecated files
 - [ ] 12. **#7** Make server breadcrumb work opt-in; dedupe the double `getByPath`
 - [ ] 13. **#10** Strip debug logs and the 500-line comment block
+- [ ] 13b. **Delete `src/app/header1/page.tsx`** — the stock shadcn `NavigationMenu`
+      demo, currently live and crawlable on `atno.io`. Blocked in `robots.ts` as a
+      stopgap, but it still ships in the bundle and anyone with the URL can reach it.
+      Check nothing imports from it first.
 - [ ] 14. **#8** Remove the contradictory `revalidate` export; correct the plan doc
 - [ ] 15. **#4** Delete the 15 merged branches
 
@@ -1541,3 +1641,6 @@ Worth stating plainly, so refactoring doesn't undo it:
 *Full-codebase audit, July 25 2026. Findings verified against production `master` @ `c4ff8d8`.*
 *Revision 2 (July 26): corrected finding #4; added #14 (SEO) with the geo decision record.*
 *Revision 3 (July 26): added Done checkboxes throughout; marked #1 and #15.3 complete.*
+*Revision 4 (July 26): #13 `robots.ts` shipped; corrected the planned `/api/` disallow
+list (it would have hidden table content from Google); logged `/header1` for deletion;
+root `/` redirect changed 307 → 308 (#14 A0).*
