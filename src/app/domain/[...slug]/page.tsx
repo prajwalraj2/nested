@@ -218,7 +218,7 @@ function buildPageDescription(
   switch (page.contentType) {
     case 'table':
       return truncate(
-        `${pageTitle} in ${domainName} — a curated, comparable list of options on ATNO.`
+        `${pageTitle} in ${domainName} - a curated, comparable list of options on ATNO.`
       );
     case 'section_based':
     case 'subcategory_list':
