@@ -34,7 +34,7 @@ Partially-done findings show which sub-items are complete.
 | [ ] | 11 | DB write during page render (`getOrCreateMainPage`) | 🟢 Low | Design smell | 1 hr |
 | [ ] | 12 | `/api/debug/cache-test` open in production | 🟢 Low | Info leak | 5 min |
 | ~ | 13 | No `robots.txt` / `sitemap.xml` (404s in Vercel logs) | 🟢 Low | SEO | 30 min |
-| [ ] | 14 | **Every page shares one title** — no per-page metadata | 🟠 **High** | SEO / Growth | 2 hrs (A) |
+| ~ | 14 | **Every page shares one title** — no per-page metadata | 🟠 **High** | SEO / Growth | 2 hrs (A) |
 | ~ | 15 | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects | 🟡 Medium | Correctness / Perf | 1–2 hrs |
 
 **Sub-items:**
@@ -43,6 +43,14 @@ Partially-done findings show which sub-items are complete.
 |:---:|---|---|
 | [x] | 13.1 `robots.ts` | Phase A commit 2 |
 | [x] | 14.A0 Root `/` redirect 307 → 308 | Shipped with commit 2 |
+| [x] | 14.A1 Per-page `generateMetadata` | Phase A commit 3 |
+| [x] | 14.A2 `metadataBase` / canonical origin | Phase A commit 3 |
+| [x] | 14.A3 Open Graph + Twitter cards | Phase A commit 3 — no image yet, card is `summary` |
+| [x] | 14.A4 Brand favicons + static OG share image | Phase A commit 4 — card is now `summary_large_image` |
+| [x] | 14.A5 `/domain` title made brand-led | `/` redirects here, so it's the de-facto homepage |
+| [ ] | 14.A6 Per-page generated OG cards | `opengraph-image.tsx` + `ImageResponse`. One line in `buildOpenGraph` to switch |
+| [ ] | 14.A7 `manifest.ts` for Android / PWA install | The favicon.io `site.webmanifest` has empty `name` fields |
+| [ ] | 14.B SEO-B backlog (JSON-LD, `next/image`, content) | Phase D |
 | [ ] | 13.2 `sitemap.ts` | Phase A commit 4 |
 | [ ] | 13.3 Canonicalise `nested-two.vercel.app` | Partly handled by `metadataBase` in commit 3 |
 | [ ] | 15.1 `Vary: Cookie` kills the CDN cache | Phase B |
@@ -1017,7 +1025,244 @@ much as fixing this one thing.**
 
 ---
 
-### SEO-A — the core fix (~2 hrs, most of the value)
+### ✅ SEO-A — the core fix — **[x] DONE** (Phase A commit 3)
+
+Verified by reading the rendered `<head>` of a running production build, not by
+inspecting the source. Sample:
+
+| URL | `<title>` | canonical |
+|---|---|---|
+| `/domain` | `Domains · ATNO` | `https://atno.io/domain` |
+| `/domain/gdesign` | `Graphic Designing · ATNO` | `https://atno.io/domain/gdesign` |
+| `/domain/aimldl/ytube` | `YouTube Channels · AI \| ML \| DL [ Traditional ] · ATNO` | `https://atno.io/domain/aimldl/ytube` |
+| `/login` | `ATNO — Domain Explorer` *(layout default)* | *(none — correct)* |
+
+Full tag set now emitted on every public page: `title`, `description`, `canonical`,
+`og:title`, `og:description`, `og:url`, `og:site_name`, `og:locale`, `og:type`,
+`twitter:card`, `twitter:title`, `twitter:description`.
+
+New shared module **`src/lib/seo.ts`**: `SITE_NAME`, `SITE_URL`, `TITLE_SEPARATOR`,
+`stripEmoji`, `truncate`, `htmlToText`, `isGloballyIndexable`, `buildOpenGraph`,
+`buildTwitter`. `sitemap.ts` (commit 4) reuses it.
+
+---
+
+#### ⚠️ Three things the plan got wrong — found only by inspecting the output
+
+**1. Next.js merges metadata SHALLOWLY. A page's `openGraph` REPLACES the layout's.**
+
+This is the one that would have shipped broken. The plan had the layout declare
+`type`/`siteName`/`locale` once, with pages adding only `title`/`description`/`url`.
+That does **not** merge — the page's object replaces the layout's wholesale:
+
+```
+Expected: og:title, og:description, og:url, og:site_name, og:locale, og:type
+Actual:   og:title, og:description, og:url          ← the other three silently gone
+```
+
+Losing `og:site_name` removes the "ATNO" brand line from every WhatsApp / LinkedIn /
+Slack preview — precisely the thing A3 exists to add. Fix: `buildOpenGraph()` and
+`buildTwitter()` in `src/lib/seo.ts` construct the complete object, and all three
+call sites go through them. A page can no longer partially specify one.
+
+**Generalisable lesson:** metadata correctness is not visible in the source. Read the
+rendered `<head>`.
+
+**2. `|` is unusable as a title separator — 6 domain names already contain pipes.**
+
+```
+🌻 AI | ML | DL [ Traditional ]     🥽 AR | VR | MR | XR Developer
+🌎 Gaming | E-Sports               👨‍💻 Cybersecurity | Hacking
+🍪 Logo | Brand Designing          🧑‍💻 Entrepreneurship | Startup
+```
+
+plus page titles like `Languages | Libraries | Frameworks` and
+`Local Businesses | Business Directories`. With the conventional `%s | ATNO`
+template the first one renders `AI | ML | DL [ Traditional ] | ATNO` — the structural
+separator is indistinguishable from content. Now `·` (U+00B7), verified absent from
+every domain name and 500 page titles.
+
+**3. The emoji regex needed far wider ranges than drafted.**
+
+The drafted `[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]` misses `▶️` — that's U+25B6 in
+**Geometric Shapes** (U+25A0–U+25FF), nowhere near the emoji planes — so
+`▶️ YouTuber` would have become `▶ YouTuber`. Also missing: ZWJ (U+200D) for
+sequences like `👨‍💻 Cybersecurity`, and variation selectors (U+FE0F).
+
+`\p{Extended_Pictographic}` would be the correct tool but needs `target: ES2018`;
+`tsconfig.json` is on **ES2017**, so the ranges are enumerated explicitly instead.
+Verified against **all 34 real domain names** — every one strips correctly.
+
+One deliberate non-removal: keycaps. `Step 1️⃣ Setup` → `Step 1 Setup`, not
+`Step Setup`. The digit carries meaning.
+
+---
+
+#### 📊 Reality check — there is currently NO geo-restricted content
+
+Queried directly against production data:
+
+```
+Domains with targetCountries != ["ALL"]  →  0
+Pages   with targetCountries != ["ALL"]  →  0
+```
+
+> ⚠️ **Correction to #15.4**, which claimed page/domain-level geo was "confirmed, not
+> theoretical". The *capability* is real and live — the admin UI accepts
+> `targetCountries` when creating a domain or page — but **no row currently uses it**.
+> Even `🛍️ Dropshipping [Indian]` is targeted `ALL`; its India-specific content lives
+> at the **table-row** level, which per the geo decision record has no SEO cost at all.
+>
+> Consequences:
+> - The `robots: { index: false }` guard is **a no-op today**. It is still correct to
+>   have — it applies automatically the moment someone sets a country in the admin UI,
+>   which is exactly when it would otherwise be forgotten.
+> - **Option A is currently free, not a compromise.** Nothing is being withheld from
+>   the index, because nothing is geo-restricted at a level that affects URLs.
+> - Verified instead by unit-checking `isGloballyIndexable()` across all combinations
+>   (ALL/ALL, ALL/US, US/ALL, empty, undefined) rather than against live data.
+
+---
+
+#### ✅ A4. Brand icons + share image — **[x] DONE** (Phase A commit 4)
+
+**The tab icon was Vercel's.** `src/app/favicon.ico` was still the stock
+`create-next-app` file — a black circle with a white triangle — and had been
+`atno.io`'s tab icon since day one. Confirmed by converting the `.ico` and looking
+at it.
+
+**Installed:**
+
+| Path | Source | Purpose |
+|---|---|---|
+| `src/app/favicon.ico` | `favicon-black-disc` | Tab icon. File convention → hashed URL |
+| `src/app/apple-icon.png` | `favicon-black-disc` (180×180) | iOS "Add to Home Screen" |
+| `public/icon-light.png` | `favicon-black-glyph` → 192×192 | `prefers-color-scheme: light` |
+| `public/icon-dark.png` | `only-icon-whitecolor-transparent` → 192×192 | `prefers-color-scheme: dark` |
+| `public/og-image.png` | horizontal logo → 1200×630 | Open Graph + Twitter card |
+
+Rendered `<head>`, verified against a running production build:
+
+```html
+<link rel="icon" href="/favicon.ico?favicon.864a0c81.ico" sizes="48x48" type="image/x-icon"/>
+<link rel="icon" href="/icon-light.png" sizes="192x192" media="(prefers-color-scheme: light)"/>
+<link rel="icon" href="/icon-dark.png"  sizes="192x192" media="(prefers-color-scheme: dark)"/>
+<link rel="apple-touch-icon" href="/apple-icon.png" sizes="180x180"/>
+```
+
+All five assets return 200. `twitter:card` upgraded `summary` → `summary_large_image`.
+
+**Why two icon variants.** Read from the alpha channel rather than assumed:
+
+| Set | Corner | Artwork | Light tab strip | Dark tab strip |
+|---|---|---|---|---|
+| `favicon-black-disc` | transparent | black disc, **white** mark | ✅ | ✅ white mark shows |
+| `favicon-black-glyph` | transparent | **black** mark, no disc | ✅ crisp | ❌ near-invisible |
+
+`black-glyph` is the sharper icon but disappears on Chrome's dark tab strip
+(`#35363a`). Hence the `media` split, with `black-disc` as the `.ico` fallback for
+anything that ignores `media` — it is self-contained and legible either way.
+
+> ⚠️ **`icons.apple` must be declared explicitly even though
+> `src/app/apple-icon.png` exists.** Defining any `icons` object in metadata
+> **suppresses** the file-convention `<link rel="apple-touch-icon">` — while
+> inconsistently leaving the `favicon.ico` tag in place. The file is still built and
+> still served at `/apple-icon.png`, but nothing in the HTML points at it, so iOS
+> falls back to a page screenshot on "Add to Home Screen".
+>
+> Same lesson as the `openGraph` shallow-merge trap: **once you take manual control
+> of a metadata field, you own all of it.** Both were found by diffing the rendered
+> `<head>` against the build output.
+
+**Share image — static, deliberately.** One 1200×630 card for the whole site.
+1200×630 is the OG recommendation (1.91:1) and X's `summary_large_image` wants 2:1 —
+close enough that one image serves both. The source horizontal logo was already
+**exactly 2:1**, cropped to its ink bounding box and centred on white at 62% width,
+so the margins are intentional. **42 KB**, down from the 662 KB original — preview
+crawlers fetch this synchronously and some (WhatsApp) abandon slow images.
+
+**Per-page generated cards remain open (A5).** `src/app/opengraph-image.tsx` with
+`ImageResponse` would draw each page's own title into its card, so sharing
+`/domain/gdesign/ytube` shows "YouTube Channel — Graphic Designing". Much stronger
+for a directory that grows by being shared. Static shipped first because the hard
+part of this feature is platform caching, not the image — and that is now proven
+end-to-end. Switching over is one line in `buildOpenGraph`.
+
+**Can OG and Twitter use different images?** Yes — `openGraph.images` and
+`twitter.images` are independent, and X reads `twitter:image` first while everything
+else reads `og:image`. Both point at the same file here on purpose: two images means
+two things to keep in sync for no benefit. Only worth diverging for a deliberately
+square X card.
+
+> ⚠️ **Link previews are cached per URL, per platform, and mostly cannot be purged.**
+> After deploying, `atno.io` may show the old preview for days. That is not a bug.
+>
+> | Platform | Behaviour |
+> |---|---|
+> | WhatsApp | Effectively permanent per URL |
+> | Teams | Aggressive; no public purge tool |
+> | X | Card Validator retired; self-clears in days |
+> | LinkedIn | [Post Inspector](https://www.linkedin.com/post-inspector/) forces a refresh |
+> | Facebook | Sharing Debugger forces a refresh |
+>
+> To see the real result immediately, test a cache-busting URL: `atno.io/?v=2` is a
+> completely different URL to every one of these.
+
+**Teams mystery solved.** The square thumbnail was the *favicon* — Teams falls back
+to the site icon when there is no `og:image`. So it was showing Vercel's triangle.
+
+#### ✅ A5. `/domain` title is now brand-led — **[x] DONE**
+
+`/` 308-redirects to `/domain`, and every crawler and preview bot follows redirects.
+So `/domain` is the de-facto homepage — the most-typed, most-linked, most-pasted URL
+on the site — and `Domains · ATNO` described it mechanically while saying nothing
+about what ATNO *is*.
+
+```
+before:  Domains · ATNO                                    (14 chars)
+after:   ATNO — Curated Tools & Resources, by Domain        (43 chars)
+```
+
+Uses `title: { absolute: … }` to bypass the `%s · ATNO` template, which would
+otherwise append a second "ATNO". Every other page keeps the template, where a
+trailing brand is correct.
+
+> ⚠️ `og:title` does **not** pass through the title template — that applies only to
+> `metadata.title`. Without setting it explicitly, search would have shown the full
+> brand-led title while chat previews showed a bare "Domains".
+
+#### 🗂️ Design assets consolidated
+
+`favicon_io (1)`, `favicon_io (2)` and `atno logo images` (30 files, 4.9 MB) were
+sitting untracked in the repo root with spaces and parentheses in their names.
+Now `design/favicon-black-disc/`, `design/favicon-black-glyph/`, `design/logo/` —
+committed, so the source artwork is versioned with the project.
+
+---
+
+#### 📏 Open item — some generated titles exceed Google's display budget
+
+Longest titles across all pages (Google shows ~60 characters):
+
+```
+85  Local LLM Runners (The Infrastructure) · Gen AI & AI Agents ( Code & No-Code ) · ATNO
+82  Specific YouTube Playlists | Videos · Gen AI & AI Agents ( Code & No-Code ) · ATNO
+79  Collaborate with Influencers | Content Creators · Social Media Marketing · ATNO
+77  APIs Available for Blockchain Projects · Blockchain & Web3 Development · ATNO
+```
+
+Not a defect and **not fixed in code**: the page title — the part that matters most —
+comes first, so truncation eats the domain and brand, which is the right thing to lose.
+No ranking penalty; only the visible snippet is shortened.
+
+The real fix is **content, not code**: shorter domain names.
+`Gen AI & AI Agents ( Code & No-Code )` is 37 characters, much of it punctuation, and
+it prefixes every title in that domain. Truncating in code would just discard keywords.
+**Your call** — flagged, not actioned.
+
+---
+
+### SEO-A — original plan (for reference)
 
 #### ✅ A0. Root redirect: 307 → 308 — **[x] DONE** (shipped with commit 2)
 
@@ -1574,8 +1819,9 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 |:---:|---|---|---|
 | [x] | 1 | **#1** Lock down `/api/admin/*` **+ #15.3** | `lib/api-auth.ts` + widened middleware + `requireAdmin()` on all 14 routes (36 handlers). Restructures middleware so every exit path carries the country cookie. |
 | [x] | 2 | **#13** `robots.ts` | With the `VERCEL_ENV` preview guard. *After* #1 — don't signpost `/admin` while it's open. Corrected the planned disallow list: `/api/` needed two `Allow` exceptions or table content would be hidden from Google. |
-| [ ] | 3 | **#14** SEO-A: `metadataBase` + `generateMetadata` + OG tags | Includes the `robots: { index: false }` guard for geo-restricted pages |
-| [ ] | 4 | **#13** `sitemap.ts` | `targetCountries: ['ALL']` only. Worth crawling now that titles are unique. |
+| [x] | 3 | **#14** SEO-A: `metadataBase` + `generateMetadata` + OG tags | New `src/lib/seo.ts`. Includes the `robots: { index: false }` guard for geo-restricted pages (a no-op today — no such content exists). Found and fixed three plan errors; see the SEO-A section. |
+| [x] | 4 | **#14** A4/A5: brand favicons, static OG card, brand-led `/domain` title | Replaced the stock Vercel favicon. Light/dark icon variants. `design/` folder for source artwork. |
+| [ ] | 5 | **#13** `sitemap.ts` | `targetCountries: ['ALL']` only. Worth crawling now that titles are unique. |
 
 ### Phase B — Correctness
 - [ ] 5. **#3** Generate the missing `targetCountries` migration → `migrate resolve --applied`
@@ -1644,3 +1890,13 @@ Worth stating plainly, so refactoring doesn't undo it:
 *Revision 4 (July 26): #13 `robots.ts` shipped; corrected the planned `/api/` disallow
 list (it would have hidden table content from Google); logged `/header1` for deletion;
 root `/` redirect changed 307 → 308 (#14 A0).*
+*Revision 6 (July 27): brand favicons installed (the tab icon was still Vercel's),
+static 1200×630 OG card, `twitter:card` → `summary_large_image`, `/domain` title made
+brand-led, design assets consolidated into `design/`. Documented two Next.js metadata
+traps found by reading the rendered head: `openGraph` is replaced not merged, and
+declaring `icons` suppresses the file-convention `apple-touch-icon` tag.*
+*Revision 5 (July 27): #14 SEO-A shipped (`src/lib/seo.ts` + per-page metadata + OG).
+Corrected three plan errors — Next.js replaces rather than merges `openGraph`, `|` is
+unusable as a title separator, and the emoji regex needed wider ranges. Corrected
+#15.4: page/domain-level geo targeting is supported but **currently unused** (0 rows),
+so the `noindex` guard is a no-op today and Option A costs nothing.*
