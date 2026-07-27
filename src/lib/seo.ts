@@ -69,7 +69,7 @@ export const OG_IMAGE = {
   url: '/og-image.png',
   width: 1200,
   height: 630,
-  alt: `${SITE_NAME} — curated tools and resources, organised by domain`,
+  alt: `${SITE_NAME} - curated tools and resources, organised by domain`,
 } as const
 
 /**

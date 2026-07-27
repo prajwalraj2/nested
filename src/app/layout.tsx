@@ -55,7 +55,7 @@ export const metadata: Metadata = {
    * Hacking"). See TITLE_SEPARATOR in src/lib/seo.ts.
    */
   title: {
-    default: `${SITE_NAME} — Domain Explorer`,
+    default: `${SITE_NAME} - Domain Explorer`,
     template: `%s${TITLE_SEPARATOR}${SITE_NAME}`,
   },
 
@@ -78,13 +78,13 @@ export const metadata: Metadata = {
    * every page emits the full set. See the comment on the helper.
    */
   openGraph: buildOpenGraph({
-    title: `${SITE_NAME} — Domain Explorer`,
+    title: `${SITE_NAME} - Domain Explorer`,
     description: 'Explore specialized domains and discover unique opportunities',
     url: '/',
   }),
 
   twitter: buildTwitter({
-    title: `${SITE_NAME} — Domain Explorer`,
+    title: `${SITE_NAME} - Domain Explorer`,
     description: 'Explore specialized domains and discover unique opportunities',
   }),
 

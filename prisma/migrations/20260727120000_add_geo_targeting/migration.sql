@@ -1,0 +1,53 @@
+-- Geo-targeting: add `targetCountries` to Domain and Page.
+--
+-- ============================================================================
+-- WHY THIS MIGRATION IS BEING WRITTEN BY HAND, LONG AFTER THE FACT
+-- ============================================================================
+-- The geo-targeting feature (Feb 2026) was applied to the live database with
+-- `prisma db push`, which changes the database WITHOUT recording a migration.
+-- So the columns exist in production, but no migration creates them: the last
+-- recorded migration is 20250910093410_simplify.
+--
+-- Consequence before this file existed: `prisma migrate deploy` against a fresh
+-- database produced a schema with NO targetCountries columns. Because
+-- `buildCountryFilter()` (src/lib/server-country.ts) is injected into
+-- essentially every read query, DomainService / PageService / NavigationService
+-- would all throw and the entire public site would return 500. That broke
+-- teammate onboarding, CI, staging, and disaster recovery.
+--
+-- ============================================================================
+-- THIS FILE IS MARKED `--applied` ON EXISTING DATABASES, NOT EXECUTED
+-- ============================================================================
+-- Production and the rehearsal branch already HAVE these columns. Running this
+-- SQL there would fail with "column already exists". It is registered via
+--     npx prisma migrate resolve --applied 20260727120000_add_geo_targeting
+-- which writes a row into _prisma_migrations and executes nothing.
+--
+-- It runs for real only on a genuinely new database.
+--
+-- ============================================================================
+-- THE SQL MATCHES WHAT IS PHYSICALLY IN THE DATABASE
+-- ============================================================================
+-- Read from information_schema on a copy of production before writing this:
+--
+--   table   column           udt_name  is_nullable  column_default
+--   Domain  targetCountries  _text     YES          ARRAY['ALL'::text]
+--   Page    targetCountries  _text     YES          ARRAY['ALL'::text]
+--
+-- Two details that had to be right, or a fresh database would drift from
+-- production forever:
+--
+--   1. NO `NOT NULL`. `is_nullable` is YES. Prisma models a scalar list
+--      (`String[]`) as a nullable Postgres array and treats SQL NULL as an
+--      empty list, so it never emits NOT NULL for one. Adding it here would
+--      make new databases stricter than production.
+--
+--   2. `TEXT[] DEFAULT ARRAY['ALL']::TEXT[]` — the explicit `::TEXT[]` cast is
+--      how Postgres stores and reports the default (`ARRAY['ALL'::text]`), and
+--      is what Prisma generates for `@default(["ALL"])`.
+
+-- AlterTable
+ALTER TABLE "Domain" ADD COLUMN     "targetCountries" TEXT[] DEFAULT ARRAY['ALL']::TEXT[];
+
+-- AlterTable
+ALTER TABLE "Page" ADD COLUMN     "targetCountries" TEXT[] DEFAULT ARRAY['ALL']::TEXT[];
