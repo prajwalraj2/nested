@@ -4,9 +4,11 @@
 // Uses Services Layer for data fetching
 // Includes ISR for optimal performance
 
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getUserCountryFromCookies } from '@/lib/server-country';
 import { DomainService, CategoryService, type DomainWithCategory, type CategoryFull } from '@/services';
+import { buildOpenGraph, buildTwitter, SITE_NAME } from '@/lib/seo';
 
 // ============================================
 // ISR Configuration
@@ -17,6 +19,59 @@ export const revalidate = 60;
 
 /** Force dynamic rendering due to geo-targeting (cookie-based) */
 export const dynamic = 'force-dynamic';
+
+// ============================================
+// Metadata
+// ============================================
+
+/**
+ * Static metadata — this is a single, fixed page, so there's nothing to compute
+ * per-request and no need for `generateMetadata`.
+ *
+ * This is the site's real landing page: `/` issues a 308 redirect here, so this is
+ * the URL Google indexes and the one inbound links to `atno.io` consolidate onto.
+ */
+const DESCRIPTION =
+  'Browse every domain on ATNO — curated tools, resources and channels across design, development, AI, ecommerce and more.';
+
+/**
+ * Used for both the `<title>` and the Open Graph / Twitter title, so the search
+ * result and the chat-app link preview say the same thing.
+ *
+ * Note `og:title` does NOT go through the layout's `%s · ATNO` template — that
+ * only applies to `metadata.title`. Without spelling it out here, previews would
+ * have shown a bare "Domains" while search showed the full brand-led title.
+ */
+const TITLE = `${SITE_NAME} — Curated Tools & Resources, by Domain`;
+
+export const metadata: Metadata = {
+  /**
+   * ⚠️ `absolute` — this bypasses the `%s · ATNO` template in src/app/layout.tsx.
+   *
+   * WHY THIS PAGE IS SPECIAL: `/` issues a 308 permanent redirect here, and every
+   * search crawler and link-preview bot follows redirects. So `/domain` is the
+   * de-facto homepage — the URL people type, link to, and paste into chat.
+   *
+   * Through the template it would render as `Domains · ATNO`, which describes the
+   * page mechanically and says nothing about what ATNO is. For the site's single
+   * most-linked URL, the brand and the value proposition should lead. Every OTHER
+   * page keeps the template, where a trailing brand is exactly right.
+   *
+   * Written out in full rather than `Domains` + template so there is only one
+   * "ATNO" in the string — the template would otherwise append a second one.
+   */
+  title: { absolute: TITLE },
+  description: DESCRIPTION,
+  alternates: {
+    // Relative on purpose: `metadataBase` in the root layout expands it to
+    // https://atno.io/domain, so both production hostnames emit the same canonical.
+    canonical: '/domain',
+  },
+  // Via the builders, not inline: Next.js replaces (does not merge) the layout's
+  // openGraph/twitter objects, so any field omitted here would be dropped entirely.
+  openGraph: buildOpenGraph({ title: TITLE, description: DESCRIPTION, url: '/domain' }),
+  twitter: buildTwitter({ title: TITLE, description: DESCRIPTION }),
+};
 
 // ============================================
 // Data Organization Helper
