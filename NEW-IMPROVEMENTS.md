@@ -33,7 +33,7 @@ Partially-done findings show which sub-items are complete.
 | [ ] | 10 | `console.log` in hot render paths | 🟢 Low | Hygiene | 15 min |
 | [ ] | 11 | DB write during page render (`getOrCreateMainPage`) | 🟢 Low | Design smell | 1 hr |
 | [ ] | 12 | `/api/debug/cache-test` open in production | 🟢 Low | Info leak | 5 min |
-| ~ | 13 | No `robots.txt` / `sitemap.xml` (404s in Vercel logs) | 🟢 Low | SEO | 30 min |
+| [x] | 13 | No `robots.txt` / `sitemap.xml` (404s in Vercel logs) | 🟢 Low | SEO | 30 min |
 | ~ | 14 | **Every page shares one title** — no per-page metadata | 🟠 **High** | SEO / Growth | 2 hrs (A) |
 | ~ | 15 | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects | 🟡 Medium | Correctness / Perf | 1–2 hrs |
 
@@ -51,7 +51,7 @@ Partially-done findings show which sub-items are complete.
 | [ ] | 14.A6 Per-page generated OG cards | `opengraph-image.tsx` + `ImageResponse`. One line in `buildOpenGraph` to switch |
 | [ ] | 14.A7 `manifest.ts` for Android / PWA install | The favicon.io `site.webmanifest` has empty `name` fields |
 | [ ] | 14.B SEO-B backlog (JSON-LD, `next/image`, content) | Phase D |
-| [ ] | 13.2 `sitemap.ts` | Phase A commit 4 |
+| [x] | 13.2 `sitemap.ts` | Phase A commit 5 — 1198 URLs, depth up to 4 |
 | [ ] | 13.3 Canonicalise `nested-two.vercel.app` | Partly handled by `metadataBase` in commit 3 |
 | [ ] | 15.1 `Vary: Cookie` kills the CDN cache | Phase B |
 | [ ] | 15.2 Country cookie never refreshed | Phase B |
@@ -909,7 +909,74 @@ to assume otherwise:
    page metadata, which is a different mechanism (#14 / SEO-A, for geo-restricted
    pages).
 
-### Fix — `src/app/sitemap.ts`
+### ✅ Fix — `src/app/sitemap.ts` — **[x] DONE** (Phase A commit 5)
+
+**1198 URLs.** Verified against a running production build: no `__main__` leaked, no
+duplicates, and every one of 20 sampled URLs (deepest first) returned **200**.
+
+```
+depth 1:   34   /domain/webdev
+depth 2:  712   /domain/webdev/withcode
+depth 3:  382   /domain/webdev/withcode/definingservices
+depth 4:   69   /domain/webdev/withcode/definingservices/portfoliowebsite
+```
+
+> ⚠️ **The planned query would have produced a sitemap that was 39% broken links.**
+> It selected all pages and emitted `/domain/${d.slug}/${p.slug}` — flattening every
+> page to depth 2. That is correct only for the 712 depth-2 URLs; the 382 depth-3 and
+> 69 depth-4 URLs — **451 of 1163 page URLs** — would have 404'd. Pages sharing a slug
+> under different parents would also have collided into duplicate entries.
+>
+> A sitemap full of 404s is **worse than no sitemap**: it teaches Google the site is
+> unreliable and wastes the crawl budget you were trying to direct.
+>
+> `buildPagePath()` walks the `parentId` chain upward in memory (one query per domain,
+> zero per page — a query per parent would be a textbook N+1 on 1163 pages), mirroring
+> the traversal in `PageService.getByPath`.
+
+**Two correctness details that only show up at depth:**
+
+- **A page is only public if its ENTIRE ancestor chain is `ALL`-targeted.** When a
+  parent is missing from the filtered set, `buildPagePath` returns `null` and the page
+  is dropped. `PageService.getByPath` applies the same country filter and then walks
+  segment by segment — so an invisible intermediate page makes its children 404 even
+  when the children themselves are global. A naive filter checking only the page's own
+  `targetCountries` would list URLs that cannot be reached.
+- **Cycle guard.** `parentId` is a plain self-relation with no constraint preventing a
+  page being its own ancestor. One corrupt row would spin the traversal forever and
+  hang `next build`. A `Set` of visited ids bounds it.
+
+**`export const revalidate = 3600`.** Without this, Next renders the sitemap once at
+build time and serves that snapshot forever — silently omitting every domain and page
+added through the admin panel since the last deploy. The query is also wrapped in
+`try/catch` returning the single static entry, because `revalidate` means this runs
+during `next build`: an unreachable database would otherwise fail the whole deploy.
+
+**Three fields deliberately omitted:**
+
+| Field | Why |
+|---|---|
+| `lastModified` | **Cannot be computed honestly.** `Page` and `Domain` have only `createdAt` — no `updatedAt`. Using `createdAt` would assert "unchanged since creation", false for any edited page. Google ignores `lastmod` **across the entire sitemap** once it judges the values unreliable, so a wrong date is strictly worse than none. |
+| `changeFrequency` | Google's documentation states it ignores this. |
+| `priority` | Likewise ignored. |
+
+Both `changeFrequency` and `priority` were in the plan below. Omitted for the same
+reason meta keywords were rejected: **a tag the major engines ignore is not harmless
+extra signal, it is noise that implies a control you do not have.**
+
+> **TODO(Phase B):** add `updatedAt DateTime @updatedAt` to `Page` and `Domain`, then
+> populate `lastModified`. Worth pairing with finding #3, which already involves
+> writing a migration. Note `ContentBlock`, `Table` and `RichTextContent` already have
+> `updatedAt` — but `section_based` pages store their layout in `Page.sections`, a JSON
+> column with no timestamp, so editing one leaves every existing date untouched. A
+> partial derivation would still be wrong, just less visibly.
+
+**Scale:** the protocol caps one file at 50,000 URLs / 50 MB. At 1198 a single file is
+correct; `generateSitemaps()` splits it if the catalogue ever approaches the limit.
+
+---
+
+### Original plan (for reference — see the corrections above)
 
 ```typescript
 import type { MetadataRoute } from 'next'
@@ -1401,6 +1468,37 @@ See #13 — including the `VERCEL_ENV` preview guard and the sitemap's
 
 ---
 
+### ❌ Decided against — `<meta name="keywords">`
+
+**Not added, deliberately.** Recorded so it isn't revisited.
+
+Google announced in **September 2009** that it does not use the keywords meta tag for
+ranking, and has reconfirmed it repeatedly. Bing says the same — and has gone further,
+describing it as something it may read as a **spam signal**, so stuffing it can count
+against you. Only Yandex is reported to still give it any weight.
+
+There is also a non-technical cost: it is public. Anyone can `view-source` and read
+exactly which terms you are targeting.
+
+For the record, had we added it: `keywords: ['a', 'b']` in any `Metadata` object →
+`<meta name="keywords" content="a,b">`. Root layout for site-wide, or per-page in
+`generateMetadata`. Per-page would be the only defensible form — one static list across
+1198 pages says nothing — but the value is zero either way.
+
+**What replaced it.** Search engines moved from keyword *declarations* to keyword
+*evidence*:
+
+| Signal | Status | Where we stand |
+|---|---|---|
+| `<title>` | Strongest on-page factor | ✅ #14 SEO-A |
+| Real body text | What Google actually reads | ⚠️ **The genuine gap** — mostly link lists |
+| `<h1>` / headings | Strong | ✅ Already present |
+| JSON-LD structured data | Enables rich results | ❌ Open — SEO-B below |
+| Internal links + sitemap | Discovery + importance | ✅ #13 |
+| `<meta keywords>` | **Ignored since 2009** | ❌ Not adding |
+
+The same reasoning retired `changeFrequency` and `priority` from `sitemap.ts`.
+
 ### SEO-B — later, lower priority
 
 | Item | Why | Note |
@@ -1821,10 +1919,12 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 | [x] | 2 | **#13** `robots.ts` | With the `VERCEL_ENV` preview guard. *After* #1 — don't signpost `/admin` while it's open. Corrected the planned disallow list: `/api/` needed two `Allow` exceptions or table content would be hidden from Google. |
 | [x] | 3 | **#14** SEO-A: `metadataBase` + `generateMetadata` + OG tags | New `src/lib/seo.ts`. Includes the `robots: { index: false }` guard for geo-restricted pages (a no-op today — no such content exists). Found and fixed three plan errors; see the SEO-A section. |
 | [x] | 4 | **#14** A4/A5: brand favicons, static OG card, brand-led `/domain` title | Replaced the stock Vercel favicon. Light/dark icon variants. `design/` folder for source artwork. |
-| [ ] | 5 | **#13** `sitemap.ts` | `targetCountries: ['ALL']` only. Worth crawling now that titles are unique. |
+| [x] | 5 | **#13** `sitemap.ts` | 1198 URLs, `ALL`-targeted only, parent-chain traversal for depths 2–4. **Phase A complete.** |
 
 ### Phase B — Correctness
 - [ ] 5. **#3** Generate the missing `targetCountries` migration → `migrate resolve --applied`
+      **+ add `updatedAt DateTime @updatedAt` to `Page` and `Domain`** in the same
+      migration, so `sitemap.ts` can populate `lastModified` (see #13).
 - [ ] 6. **#15.2** Re-detect country every request + 30-day `maxAge` (with the local-dev guard)
 - [ ] 7. **#2** DOMPurify sanitization on rich-text write
 - [ ] 8. **#5** Wire up `revalidateTag` on all mutations
@@ -1890,6 +1990,11 @@ Worth stating plainly, so refactoring doesn't undo it:
 *Revision 4 (July 26): #13 `robots.ts` shipped; corrected the planned `/api/` disallow
 list (it would have hidden table content from Google); logged `/header1` for deletion;
 root `/` redirect changed 307 → 308 (#14 A0).*
+*Revision 7 (July 27): `sitemap.ts` shipped — 1198 URLs with parent-chain traversal.
+**Phase A complete.** The planned flat query would have made 39% of entries 404.
+`lastModified` omitted because `Page`/`Domain` have no `updatedAt` (added to Phase B).
+Recorded the decision NOT to add `<meta keywords>`, and dropped `changeFrequency` /
+`priority` for the same reason.*
 *Revision 6 (July 27): brand favicons installed (the tab icon was still Vercel's),
 static 1200×630 OG card, `twitter:card` → `summary_large_image`, `/domain` title made
 brand-led, design assets consolidated into `design/`. Documented two Next.js metadata
