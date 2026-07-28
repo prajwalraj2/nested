@@ -55,7 +55,14 @@ model Domain {
   
   pages     Page[]
   createdAt DateTime @default(now())
-  
+
+  // Last time this row changed. Prisma sets it automatically on every update.
+  // Added so src/app/sitemap.ts can emit an honest <lastmod> — without it the
+  // sitemap had to omit lastModified entirely, because using createdAt would
+  // claim every page was unchanged since creation. Google ignores lastmod across
+  // an entire sitemap once it decides the values are unreliable.
+  updatedAt DateTime @updatedAt @default(now())
+
   @@index([categoryId, orderInCategory])
 }
 
@@ -91,6 +98,9 @@ model Page {
 
   order      Int      @default(0)
   createdAt  DateTime @default(now())
+
+  // See the note on Domain.updatedAt — same purpose, same reasoning.
+  updatedAt  DateTime @updatedAt @default(now())
 
   @@index([domainId, parentId, slug])
 }

@@ -53,11 +53,65 @@ export const revalidate = 3600
  */
 const MAIN_PAGE_SLUG = '__main__'
 
-/** The shape we need for path building — a subset of the Page row. */
+/**
+ * The shape we need per page: enough to build the URL, plus every timestamp that
+ * could represent "this URL's content changed".
+ */
 type PageNode = {
   id: string
   slug: string
   parentId: string | null
+  updatedAt: Date
+  table: { updatedAt: Date } | null
+  richTextContent: { updatedAt: Date } | null
+}
+
+/**
+ * The honest `lastmod` for a page URL.
+ * ============================================================================
+ *
+ * WHY THIS IS NOT JUST `page.updatedAt`
+ * -------------------------------------
+ * A URL, from a crawler's point of view, is simply *what it renders*.
+ * `/domain/gdesign/ytube` renders a table of YouTube channels — so if those rows
+ * change, that URL changed, no matter which database table the bytes came from.
+ *
+ * Our schema splits one page across several rows, which is good normalisation but
+ * means `Page.updatedAt` alone answers the wrong question. Measured against real
+ * data, 91.7% of pages keep their content in a CHILD row:
+ *
+ *   contentType         count    content lives in
+ *   ------------------  -----    ----------------------------------------
+ *   table                 666    Table.data          (own row, own updatedAt)
+ *   rich_text             418    RichTextContent     (own row, own updatedAt)
+ *   subcategory_list       74    the child Page rows themselves
+ *   section_based           5    Page.sections       (SAME row - fine)
+ *
+ * ⚠️ And it was already wrong, not merely wrong in theory: every one of the 651
+ * table pages and 415 rich-text pages had a child timestamp NEWER than its page
+ * timestamp — by up to 147 days. Emitting `Page.updatedAt` would have told Google
+ * that 1066 URLs last changed up to five months before they actually did.
+ *
+ * That is not "understating freshness in the safe direction". Systematically wrong
+ * `lastmod` values are precisely what makes Google discard the field for an entire
+ * sitemap — the failure this column was added to avoid.
+ *
+ * So: take the newest of every timestamp that contributes to what the URL renders.
+ */
+function pageLastModified(page: PageNode): Date {
+  const candidates: Date[] = [page.updatedAt]
+
+  // Table pages: the rows ARE the content. TableEditor writes to Table.data, which
+  // never touches the Page row.
+  if (page.table) candidates.push(page.table.updatedAt)
+
+  // Rich-text pages: same story via HtmlEditor -> RichTextContent.htmlContent.
+  if (page.richTextContent) candidates.push(page.richTextContent.updatedAt)
+
+  // `section_based` needs nothing extra — its layout lives in Page.sections, on the
+  // Page row itself, so Page.updatedAt already moves when it is edited.
+
+  return new Date(Math.max(...candidates.map((d) => d.getTime())))
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -80,19 +134,55 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       },
       select: {
         slug: true,
+        updatedAt: true,
         pages: {
           // Same filter one level down. Note this also removes pages from the set
           // used for path building below, which is intentional — see buildPagePath.
           where: { targetCountries: { has: ALL_COUNTRIES } },
-          select: { id: true, slug: true, parentId: true },
+          select: {
+            id: true,
+            slug: true,
+            parentId: true,
+            updatedAt: true,
+            // Both one-to-one relations, fetched so pageLastModified() can take the
+            // newest timestamp. Still one query per domain — Prisma resolves these
+            // as joins, not as a query per page, so this is not an N+1.
+            table: { select: { updatedAt: true } },
+            richTextContent: { select: { updatedAt: true } },
+          },
         },
       },
       orderBy: { slug: 'asc' },
     })
 
     for (const domain of domains) {
+      // ----------------------------------------------------------------------
       // The domain's own root URL, e.g. /domain/gdesign
-      entries.push({ url: `${SITE_URL}/domain/${domain.slug}` })
+      // ----------------------------------------------------------------------
+      // What this URL renders depends on the domain's type (see
+      // src/app/domain/[...slug]/page.tsx):
+      //
+      //   pageType 'direct'       -> SectionBasedLayout for the __main__ page
+      //   pageType 'hierarchical' -> SubcategorySelector, a list of child pages
+      //
+      // Either way the domain row alone is not the full picture. For a direct
+      // domain the visible content is __main__'s, so include its timestamps.
+      const mainPage = domain.pages.find((p) => p.slug === MAIN_PAGE_SLUG)
+
+      const domainLastModified = mainPage
+        ? new Date(Math.max(domain.updatedAt.getTime(), pageLastModified(mainPage).getTime()))
+        : domain.updatedAt
+
+      // ⚠️ Deliberately NOT the newest of every descendant page. For a hierarchical
+      // domain the root lists its children, so a child's TITLE changing does alter
+      // this page — but a child's table CONTENTS changing does not, and rolling all
+      // of that up would inflate this date on almost every edit anywhere in the
+      // domain. Overstating freshness is the failure mode Google penalises; the
+      // child page has its own accurate entry a few lines below.
+      entries.push({
+        url: `${SITE_URL}/domain/${domain.slug}`,
+        lastModified: domainLastModified,
+      })
 
       // Index this domain's pages by id so the parent chain can be walked in
       // memory. One query per domain, zero queries per page — walking parents with
@@ -111,8 +201,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         // null means the page is not reachable — see buildPagePath.
         if (!path) continue
 
-        entries.push({ url: `${SITE_URL}/domain/${domain.slug}/${path}` })
+        entries.push({
+          url: `${SITE_URL}/domain/${domain.slug}/${path}`,
+          lastModified: pageLastModified(page),
+        })
       }
+    }
+
+    // Give /domain a date too. It has no row of its own — it renders the LIST of
+    // every domain — so the newest domain timestamp is the honest answer: adding,
+    // renaming or unpublishing a domain genuinely changes what that page shows.
+    //
+    // Set here rather than at the declaration above because the static entry has to
+    // survive the database being unreachable (see the catch below). If the query
+    // fails we simply ship /domain with no date, which is correct.
+    if (domains.length > 0) {
+      entries[0].lastModified = domains.reduce<Date>(
+        (newest, d) => (d.updatedAt > newest ? d.updatedAt : newest),
+        domains[0].updatedAt
+      )
     }
   } catch (error) {
     // A sitemap is a nice-to-have; a failed deploy is not. `revalidate` above means
@@ -199,32 +306,56 @@ function buildPagePath(
 
 /**
  * ---------------------------------------------------------------------------
- * THREE THINGS DELIBERATELY OMITTED
+ * ON `lastModified` — now emitted, but it took a schema change
+ * ---------------------------------------------------------------------------
+ * This field was originally omitted, because it could not be computed honestly:
+ * `Page` and `Domain` had only `createdAt`. Using that would assert "unchanged
+ * since creation", false for any edited row — and Google's documented behaviour is
+ * to ignore `lastmod` across an ENTIRE sitemap once it judges the values
+ * unreliable. A wrong date is strictly worse than no date.
+ *
+ * Migration `20260727140000_add_updated_at` added the column. One detail there
+ * matters here: `ADD COLUMN ... DEFAULT CURRENT_TIMESTAMP` would have stamped all
+ * 1229 existing rows with the same instant, telling Google the whole site changed
+ * at once — the very unreliability we were avoiding. The migration therefore
+ * backfills from `createdAt`, which for an unedited row genuinely IS its
+ * last-modified time. The result is a real spread of dates (Sep 2025 – Mar 2026)
+ * instead of one artificial spike.
+ *
+ * `Page.updatedAt` alone is NOT sufficient — see `pageLastModified()` above, which
+ * takes the newest of the page and its content rows. 91.7% of pages keep their
+ * content in a child row, so this is the common case, not an edge case.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠️ READ THIS WHEN ADDING A NEW CONTENT TYPE
+ * ---------------------------------------------------------------------------
+ * If a future `contentType` stores its content in a NEW table (the way `table` and
+ * `rich_text` do), you must add that relation to the `select` above and to
+ * `pageLastModified()`. Otherwise pages of that type silently report a stale
+ * `lastmod` — which is how this file was wrong the first time.
+ *
+ * A more durable alternative, worth doing if a third or fourth content table
+ * appears: make `Page.updatedAt` mean "this page's content changed" by touching the
+ * parent row whenever a child is written. Either explicitly —
+ *
+ *     await prisma.page.update({ where: { id: pageId }, data: {} })   // bumps @updatedAt
+ *
+ * — from every mutation route, or automatically via a Prisma Client extension that
+ * intercepts writes to any model with a `pageId`. Then this file reads one field
+ * again, and nothing here needs touching when a content type is added.
+ *
+ * That is the better data model (a meaningful `Page.updatedAt` also serves the admin
+ * UI and cache invalidation), but it requires either discipline at every write site
+ * or non-obvious client magic. With exactly two content tables, reading both here is
+ * simpler and cannot be forgotten at write time. Revisit at three.
+ *
+ * ---------------------------------------------------------------------------
+ * TWO THINGS STILL DELIBERATELY OMITTED
  * ---------------------------------------------------------------------------
  *
- * 1. `lastModified` — because we CANNOT compute it honestly.
+ * 1. `changeFrequency` — Google's documentation states it ignores this value.
  *
- *    `Page` and `Domain` have only `createdAt`; neither has an `updatedAt` column.
- *    Using `createdAt` would assert "this page has not changed since it was
- *    created", which is false for every page that has ever been edited.
- *
- *    That matters more than it sounds: Google's documented behaviour is to ignore
- *    `lastmod` entirely — across the whole sitemap — once it decides the values are
- *    unreliable. A wrong date is strictly worse than no date.
- *
- *    (`ContentBlock`, `Table` and `RichTextContent` DO have `updatedAt`, so a
- *    partial value could be derived for some content types. But `section_based`
- *    pages store their layout in `Page.sections`, a JSON column with no timestamp,
- *    so editing one would leave every available date untouched — the result would
- *    still be wrong, just less obviously.)
- *
- *    TODO(Phase B): add `updatedAt DateTime @updatedAt` to `Page` and `Domain`,
- *    then populate this field. Worth pairing with finding #3, since that work
- *    already involves writing a migration.
- *
- * 2. `changeFrequency` — Google's documentation states it ignores this value.
- *
- * 3. `priority` — likewise ignored. Both were in the original plan for this file;
+ * 2. `priority` — likewise ignored. Both were in the original plan for this file;
  *    both are omitted for the same reason meta keywords were rejected. A tag the
  *    major engines ignore is not "harmless extra signal", it is noise that implies
  *    a control you do not actually have.
