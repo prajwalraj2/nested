@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import type { SidebarPage } from '@/hooks/useSidebarData';
+// Repointed from the deprecated `useSidebarData` hook — see the note in
+// SidebarDomain.tsx. The type declaration is identical in both files.
+import type { SidebarPage } from '@/hooks/usePageContext';
 
 interface SidebarPageProps {
   page: SidebarPage;

@@ -110,8 +110,7 @@ const NAVIGATION_ITEMS = [
 export function AdminSidebar() {
   // Get current pathname to highlight active navigation item
   const pathname = usePathname();
-  console.log("pathname", pathname);
-  
+
   // Group navigation items by section for better organization
   const structureItems = NAVIGATION_ITEMS.filter(item => item.section === 'structure');
   const contentItems = NAVIGATION_ITEMS.filter(item => item.section === 'content'); 

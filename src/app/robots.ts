@@ -116,11 +116,14 @@ export default function robots(): MetadataRoute.Robots {
           // API route added next month is private by default instead of
           // accidentally crawlable because nobody remembered to add it here.
           //
-          // This covers: /api/admin/* (now 401-guarded anyway), /api/auth/*
-          // (NextAuth's sign-in handlers), /api/debug/cache-test (finding #12,
-          // still open), and the four deprecated endpoints from finding #9
-          // (/api/sidebar, /api/header-domains, /api/breadcrumb,
-          // /api/page-sidebar) which are slated for deletion.
+          // This covers /api/admin/* (401-guarded since finding #1) and /api/auth/*
+          // (NextAuth's sign-in handlers).
+          //
+          // It USED to also cover /api/debug/cache-test and four deprecated endpoints
+          // (/api/sidebar, /api/header-domains, /api/breadcrumb, /api/page-sidebar).
+          // All five have since been deleted in Phase C, so this line now protects
+          // fewer things than it did — which is the point of a blanket block: the
+          // guarantee holds without maintenance as routes come and go.
           //
           // Note the trailing slash: '/api/' does not match the bare path '/api',
           // but nothing is served there, so it doesn't matter.
@@ -135,14 +138,11 @@ export default function robots(): MetadataRoute.Robots {
           // The "you're not an admin" page. Reachable only via redirect.
           '/unauthorized',
 
-          // ⚠️ src/app/header1/page.tsx — the stock shadcn/Radix NavigationMenu
-          // demo, still deployed. It contains placeholder copy ("Alert Dialog",
-          // "Hover Card") and dead links to /docs/primitives/*. Indexing boilerplate
-          // component-library text under your own domain is a thin-content signal.
-          //
-          // TODO: delete the page. Blocking it here is a stopgap — the page still
-          // ships in the bundle and is still reachable by anyone with the URL.
-          '/header1',
+          // NOTE: '/header1' used to be listed here — the stock shadcn/Radix
+          // NavigationMenu demo page, which was live and crawlable. It has now been
+          // DELETED rather than merely blocked, so the entry was removed: a Disallow
+          // for a path that returns 404 is dead weight, and worse, it advertises a URL
+          // that no longer exists. Blocking was always a stopgap; deleting is the fix.
         ],
       },
     ],
