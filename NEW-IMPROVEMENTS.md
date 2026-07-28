@@ -26,17 +26,17 @@ Partially-done findings show which sub-items are complete.
 | Done | #   | Finding                                                                          | Severity        | Type               | Effort    |
 | ---- | --- | -------------------------------------------------------------------------------- | --------------- | ------------------ | --------- |
 | [x]  | 1   | `/api/admin/*` routes mostly unauthenticated                                     | 🔴 **Critical** | Security           | 1–2 hrs   |
-| [ ]  | 2   | Stored XSS via unauthenticated rich-text write                                   | 🔴 **Critical** | Security           | 2–3 hrs   |
+| [x]  | 2   | Stored XSS via unauthenticated rich-text write                                   | 🔴 **Critical** | Security           | 2–3 hrs   |
 | [x]  | 3   | Migration drift — **no migration history at all**; geo *and* auth models missing | 🔴 **Critical** | Data / Deploy      | 30 min    |
 | [ ]  | 4   | Branch hygiene — 15 merged branches, stale local refs                            | 🟡 Medium       | Workflow           | 20 min    |
 | [x]  | 5   | Cache tags defined but never invalidated                                         | 🟠 **High**     | Correctness        | 2–3 hrs   |
 | [x]  | 6   | `new PrismaClient()` in rich-text routes                                         | 🟡 Medium       | Resource leak      | 10 min    |
-| [ ]  | 7   | Dead breadcrumb work on every request                                            | 🟡 Medium       | Performance        | 30 min    |
+| [x]  | 7   | Dead breadcrumb work on every request                                            | 🟡 Medium       | Performance        | 30 min    |
 | [ ]  | 8   | `force-dynamic` — every page view is a function invocation                       | 🟠 **High**     | Performance        | multi-day |
-| [ ]  | 9   | Deprecated APIs/hooks still shipping + type coupling                             | 🟡 Medium       | Tech debt          | 1–2 hrs   |
-| [ ]  | 10  | `console.log` in hot render paths                                                | 🟢 Low          | Hygiene            | 15 min    |
+| [x]  | 9   | Deprecated APIs/hooks still shipping + type coupling                             | 🟡 Medium       | Tech debt          | 1–2 hrs   |
+| [x]  | 10  | `console.log` in hot render paths                                                | 🟢 Low          | Hygiene            | 15 min    |
 | [ ]  | 11  | DB write during page render (`getOrCreateMainPage`)                              | 🟢 Low          | Design smell       | 1 hr      |
-| [ ]  | 12  | `/api/debug/cache-test` open in production                                       | 🟢 Low          | Info leak          | 5 min     |
+| [x]  | 12  | `/api/debug/cache-test` open in production                                       | 🟢 Low          | Info leak          | 5 min     |
 | [x]  | 13  | No `robots.txt` / `sitemap.xml` (404s in Vercel logs)                            | 🟢 Low          | SEO                | 30 min    |
 | ~    | 14  | **Every page shares one title** — no per-page metadata                           | 🟠 **High**     | SEO / Growth       | 2 hrs (A) |
 | ~    | 15  | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects      | 🟡 Medium       | Correctness / Perf | 1–2 hrs   |
@@ -60,7 +60,7 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 13.2 `sitemap.ts`                                   | Phase A commit 5 — 1198 URLs, depth up to 4                                     |
 | [ ]  | 13.3 Canonicalise `nested-two.vercel.app`           | Partly handled by `metadataBase` in commit 3                                    |
 | [x]  | 15.1 `Vary: Cookie` kills the CDN cache             | Country moved into the URL; cacheable only when explicit                        |
-| [ ]  | 15.2 Country cookie never refreshed                 | Phase B                                                                         |
+| [x]  | 15.2 Country cookie never refreshed                 | Re-detects per request, writes only on change; `maxAge` 1yr → 30d               |
 | [x]  | 15.3 Cookie dropped on early returns                | Shipped with #1                                                                 |
 | [ ]  | 15.4 `noindex` for geo-restricted pages             | Ships with #14 / SEO-A                                                          |
 
@@ -2686,8 +2686,73 @@ phase, merged to `master` → auto-deploys to `atno.io`.
   > would have queried a nonexistent column and 500'd. The migration was applied
   > to production **first**, then the code.
   ```
-- [ ] 6. **#15.2** Re-detect country every request + 30-day `maxAge` (with the local-dev guard)
-- [ ] 7. **#2** DOMPurify sanitization on rich-text write
+- [x] 6. **#15.2** Re-detect country every request + 30-day `maxAge` — **DONE.** All in
+      `resolveCountryCookie()`, exactly as the original note predicted.
+
+      **Why it mattered despite no geo content existing yet.** The cookie was set once
+      with a **1-year** lifetime, and there is deliberately **no country switcher** in
+      the UI. So a visitor whose detection was wrong — VPN, corporate proxy, carrier
+      routing — had *no mechanism at all* to correct it. Re-detection is not an
+      optimisation here; it is the only correction the design permits. Doing it before
+      the tagging work means the feature is correct for existing visitors from day one
+      rather than for whoever happens to arrive with a fresh cookie.
+
+      **And it is free:** `x-vercel-ip-country` is already on every request, and the
+      middleware already runs on every request. The old `if (existingCountry) return
+      null` was never a performance measure.
+
+      > ⚠️ **It returns `null` when the value is unchanged, and that detail is load-bearing.**
+      > `Set-Cookie` can stop shared caches storing a response — which matters now that
+      > `/api/page-context` is CDN-cached (#15.1) and the public pages may become
+      > cacheable (#8). Writing unconditionally would work against both. A settled
+      > visitor now gets **zero** cookie writes after their first request.
+
+      > ⚠️ **The local-dev guard is deliberate and must stay.** With no geo header
+      > (localhost) *and* an existing cookie, the function returns `null` and leaves the
+      > value alone — which is what allows hand-setting `user-country=IN` in DevTools to
+      > test the Indian view. Overwriting it with `DEFAULT_COUNTRY` every request would
+      > make local geo testing impossible.
+
+      Verified locally: no cookie → sets `US`; `Cookie: user-country=IN` sent → **no**
+      `Set-Cookie` (hand-set value preserved). The re-detection branch itself needs a
+      real `x-vercel-ip-country` header, so it only exercises on Vercel.
+
+- [x] 6b. **A proper 404 page** — the site was serving Next.js's stock black-and-white
+      default. Two files so navigation survives where it matters:
+
+      | Route | Renders | Sidebar |
+      |---|---|---|
+      | `src/app/not-found.tsx` | unknown URLs like `/foo` | ✗ root layout only |
+      | `src/app/domain/not-found.tsx` | bad `/domain/...` paths | ✅ inside the domain layout |
+
+      The second is the common case — `[...slug]/page.tsx` calls `notFound()` in four
+      places — and a root-only 404 would have stripped the sidebar and breadcrumb there.
+      Shared body in `src/components/NotFoundContent.tsx`.
+
+      **⚠️ No database query on the 404 page.** Listing available domains would be
+      friendlier, but 404s are precisely the URLs bots hammer; querying on each one
+      converts a stream of bad requests into database load.
+
+      Verified: `/nonexistent-page`, `/domain/does-not-exist` and
+      `/domain/gdesign/no-such-page` all return **HTTP 404**, not 200 — a "not found"
+      page served with 200 is a soft 404 and Google treats it as a quality problem.
+
+      > **Observed quirk, accepted not worked around:** metadata from a *nested*
+      > `not-found.tsx` is ignored. `/nonexistent-page` gets
+      > `<title>Page not found · ATNO</title>` from the root file, while
+      > `/domain/does-not-exist` falls back to the root layout's default. A 404's title
+      > has no SEO weight, and adding a `metadata` export to the nested file would look
+      > like it worked while changing nothing.
+- [x] 7. **#2** DOMPurify sanitization on rich-text write — **DONE.** New
+      `src/lib/sanitize-html.ts`, applied in both rich-text write handlers, with the
+      allow-list derived from the 415 rows already stored (not from a template — the
+      generic list would have flattened `details`/`summary` and all 28,608 `style`
+      attributes). Over the real content: **0.41% fewer bytes, zero tags lost**, only
+      the 398 intended `on*` handlers removed. Three DOMPurify config traps found by
+      testing rather than reading: `USE_PROFILES` silently overrides
+      `ALLOWED_TAGS`/`ALLOWED_ATTR`; `#text` must be listed or `KEEP_CONTENT: false`
+      destroys all text; and a `/g` regex used with `.test()` is stateful. `on*` hover
+      effects replaced with CSS in `globals.css`. **Phase B complete.**
 - [x] 8. **#5** Wire up `revalidateTag` on all mutations — **DONE.** New
       `src/lib/cache-invalidation.ts`; **15 calls across 13 mutating handlers in 9 route
       files.** Verified mechanically that no route mutates `Domain`/`Page`/`Category`
@@ -2814,16 +2879,116 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 
 ### Phase C — Cleanup
 
-- [ ] 11. **#9** Repoint the two type imports, then delete the 8 deprecated files
-- [ ] 12. **#7** Make server breadcrumb work opt-in; dedupe the double `getByPath`
-- [ ] 13. **#10** Strip debug logs and the 500-line comment block
-- [ ] 13b. **Delete** `src/app/header1/page.tsx` — the stock shadcn `NavigationMenu`
-  ```
-  demo, currently live and crawlable on `atno.io`. Blocked in `robots.ts` as a
-  stopgap, but it still ships in the bundle and anyone with the URL can reach it.
-  Check nothing imports from it first.
-  ```
-- [ ] 14. **#8** Remove the contradictory `revalidate` export; correct the plan doc
+- [x] 11. **#9** Repoint the two type imports, then delete the 8 deprecated files —
+      **DONE.** Every reference verified by grep before deleting anything, not taken
+      from the deprecation comments.
+
+      **The distinction that made this safe:** active components use
+      `useHeaderDataFromContext` / `useSidebarDataFromContext` /
+      `usePageSidebarDataFromContext` from **`@/contexts/PageContextProvider`** —
+      similar names, an entirely different module. `AppHeader.tsx`, `app-sidebar.tsx`
+      and `PageSidebar.tsx` all go through the context provider. The four deprecated
+      hooks had **zero** importers apart from two `import type` lines.
+
+      **The type-import trap was real, and the doc's fix was correct.** Checked rather
+      than trusted: `SidebarPage` and `SidebarDomain` are **byte-identical** in
+      `useSidebarData.ts:20-40` and `usePageContext.ts:96-116`, so repointing was
+      mechanical. Sequence used: repoint → `tsc` + build green → confirm zero importers
+      → delete → rebuild.
+
+      Each of the four endpoints was confirmed to have no live caller — every hit was
+      either inside the hook being deleted alongside it, or a comment.
+
+- [x] 12b. **Delete `/api/debug/cache-test`** — **DONE.** Chose deletion over gating.
+      It leaked domain/category counts, internal cache-duration config and service
+      timings, and its own header said "Remove this in production". If cache
+      diagnostics are wanted later, `/api/admin/debug/…` is now guarded by #1.
+
+- [x] 12. **#7** Make server breadcrumb work opt-in; dedupe the double `getByPath` —
+      **DONE.** `getPageContext(path, userCountry, includeBreadcrumb = false)`. The one
+      caller (`/api/page-context/route.ts:104`) passes two arguments, so it is off.
+
+      **⚠️ The visible breadcrumb is untouched, and that is guaranteed rather than
+      hoped.** `usePageContext.ts` (lines 684, 704) *already* overwrote whatever the API
+      returned with `breadcrumb: { items: [], shouldCollapse: false, visibleItems: null }`,
+      and `bread.tsx` destructures `{ sidebar, pageSidebar, currentPage, loading }` —
+      never `breadcrumb`. The client was discarding the server value **before** this
+      change, so removing the computation cannot alter client behaviour. The working
+      breadcrumb comes from `bread.tsx` + `usePathname()`, which renders instantly with
+      no API round-trip.
+
+      **Three database round-trips removed from the hottest endpoint** — every public
+      page load fetches `/api/page-context` to build the sidebar:
+
+      | Query in `buildBreadcrumbData` | Cached? |
+      |---|---|
+      | `DomainService.getBySlug` | `unstable_cache` |
+      | `PageService.getByPath` — **result assigned to `const page` and never read** | no |
+      | raw `prisma.page.findMany` | **not cached at all** |
+
+      **The dead query was the notable find.** Line 461 executed `getByPath` purely to
+      throw the result away — verified across the whole function, the only other
+      occurrences of `page` were `prisma.page`, a comment and the string `'page'`.
+
+      **And the "double `getByPath`" had a subtle cause worth remembering.** React
+      `cache()` keys on argument **identity**, comparing objects by reference. Both
+      `getPageContext` (line 43) and `buildBreadcrumbData` (line 458) did
+      `segments.slice(2)`, producing arrays with identical contents but *different
+      references* — so `['ytube'] !== ['ytube']`, the memo missed, and the same query ran
+      twice. Fixed by passing the caller's array down via `sharedPageSegments`, so an
+      opt-in breadcrumb now reuses the memo instead of re-querying.
+
+      Verified: `breadcrumb.items` is `0` in the response (proving the branch is
+      skipped), while `header`, `sidebar`, `pageSidebar` and `currentPage` are all
+      intact, and the breadcrumb still renders on `/domain/gdesign/ytube`.
+
+      > **Method note:** the intent was to count queries with `DEBUG=prisma:query`, which
+      > produced **zero log lines** — the singleton is not constructed with event-based
+      > logging. The initial "0 queries" reading was broken instrumentation, not
+      > evidence. Verified via the response payload instead, which proves the branch was
+      > skipped directly.
+
+      > ⚠️ **Latent bug documented, not fixed:** `buildBreadcrumbData` matches page
+      > labels on **slug alone** — no parent-chain validation, no country filter. Slugs
+      > repeat across parents (`consultation` appears under several), so a label can come
+      > from the wrong branch of the tree. Harmless while nothing consumes it, but it
+      > **must be fixed before enabling this for JSON-LD**, or wrong labels reach search
+      > results. The removed `getByPath` call was very likely the half-finished intent —
+      > it returns the correctly-resolved page with parent chain and country filter
+      > already applied.
+
+      `getBreadcrumbData` now has **zero callers** (it served the deleted
+      `/api/breadcrumb`). Kept, documented as such, because it is the ready-made entry
+      point for the JSON-LD work.
+
+- [x] 13. **#10** Strip debug logs and the 500-line comment block — **DONE.**
+
+      | File | Removed |
+      |---|---|
+      | `TableLayout.tsx` | **518 lines**: two block comments (67–324, 328–583) of pasted sample API output, plus 2 commented-out logs. **723 → 205 lines** |
+      | `DataTable.tsx` | The `console.log` inside the **cell renderer** — fired once per cell per render/sort/filter/paginate |
+      | `AdminSidebar.tsx` | `console.log("pathname", pathname)` on every admin navigation |
+      | `LogoutButton.tsx` | 4 progress logs. `console.error` in catch blocks kept — a *failing* logout is worth reporting |
+
+      > ⚠️ **`setTableData(result.table)` sits at line 325, between the two comment
+      > blocks.** Deleting 67–583 as one range would have removed the statement that
+      > actually stores the fetched table data — the page would have rendered
+      > permanently empty. The two ranges were removed separately.
+
+      > **Process note:** my first check of `TableLayout.tsx` counted only 14 comment
+      > lines and I nearly reported the doc's "~500 lines" claim as wrong. The grep
+      > pattern was at fault — lines *inside* a `/* … */` block start with neither `//`
+      > nor `*`. Re-measured properly: 258 + 256 = **514 lines**, exactly as documented.
+      > Result: 0 active `console.log` left in `src/` outside generated code.
+
+- [x] 13b. **Delete `src/app/header1/page.tsx`** — **DONE.** Grepped `header1` across
+      all of `src/`; the only reference was the `Disallow` line in `robots.ts`. Nothing
+      linked to it. That `Disallow` was also removed — a rule for a path that now 404s
+      is dead weight, and it advertises a URL that no longer exists.
+
+- [ ] 14. **#8** — see decision record **#8-DR**. Not a `revalidate`-export cleanup any
+      more; it is downstream of a product decision. **Do not pick this up as "make the
+      pages static".**
 - [ ] 15. **#4** Delete the 15 merged branches
 
 
@@ -2897,6 +3062,30 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 18 (July 28): **#7 done.** Server breadcrumb is now opt-in and off by default,
+removing three database round-trips (one of them uncached, one a query whose result was
+never read) from the hottest endpoint. The visible breadcrumb is provably unaffected:
+`usePageContext` already overwrote the server value with an empty object. Also recorded
+why the "double `getByPath`" happened — React `cache()` compares object arguments by
+reference, so two `segments.slice(2)` calls missed the memo — and documented a latent
+slug-only label-matching bug in `buildBreadcrumbData` that must be fixed before any
+JSON-LD use. **Phase C now needs only #4 (branch deletion, being done via the GitHub
+UI).***
+
+*Revision 17 (July 28): **#15.2 done** — country cookie now re-detects per request and
+writes only when the value changes (so a settled visitor triggers no `Set-Cookie`, which
+keeps responses cacheable after #15.1); `maxAge` 1yr → 30d. The local-dev guard that lets
+you hand-set `user-country=IN` is preserved. **Plus a proper 404 page** replacing the Next
+default — two files so `/domain/*` 404s keep the sidebar, no DB query on the 404 path, and
+all variants verified to return HTTP 404 rather than a soft 404.*
+
+*Revision 16 (July 28): **Phase C mostly done** — #9, #10, #12, #13b and #2's doc tick.
+**10 files / 1,660 lines deleted** (4 live public endpoints, 4 dead hooks, `/header1`,
+`/api/debug/cache-test`) plus **518 lines** of dead comments from `TableLayout.tsx`
+(723 → 205). All references grepped before deleting; the two `import type` lines were
+repointed and the build verified green FIRST. Zero active `console.log` left outside
+generated code. Only #7 and #4 remain in Phase C.*
+
 *Revision 15 (July 28): added **decision record #8-DR** — investigated making the public
 pages static, found it cheaper than estimated (only 3 `cookies()` calls force dynamic
 rendering, and table-row filtering never touches the page render), then **rejected the
