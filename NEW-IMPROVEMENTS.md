@@ -1083,24 +1083,102 @@ added through the admin panel since the last deploy. The query is also wrapped i
 `try/catch` returning the single static entry, because `revalidate` means this runs
 during `next build`: an unreachable database would otherwise fail the whole deploy.
 
-**Three fields deliberately omitted:**
+**✅ `lastModified` — now emitted on all 1198 entries** (added 27 Jul 2026).
+
+Originally omitted because it could not be computed honestly: `Page` and `Domain` had
+only `createdAt`. Migration `20260727140000_add_updated_at` added the column — see
+Phase B item 5b below for the backfill detail that made it worthwhile.
+
+Verified date distribution — a real spread, not one artificial spike:
+
+```
+2025-09    271 urls        entries stamped today: 0
+2025-10    491 urls
+2026-02    299 urls
+2026-03    136 urls
+```
+
+`/domain` has no row of its own, so it takes `max(domain.updatedAt)` — adding,
+renaming or unpublishing a domain genuinely changes what that page renders. It is set
+*after* the query so the static entry still survives an unreachable database.
+
+> ⚠️ **`Page.updatedAt` alone was NOT enough — and this was nearly shipped wrong.**
+>
+> An earlier revision of this document called it a "known limitation" affecting some
+> pages, and said it "understates freshness, which is the safe direction". **Both
+> claims were wrong.** Measured against real data:
+>
+> ```
+> Pages by contentType (excluding __main__):
+>   table               666    57.3%     content in Table.data
+>   rich_text           418    35.9%     content in RichTextContent.htmlContent
+>   subcategory_list     74     6.4%     content is the child Page rows
+>   section_based         5     0.4%     content in Page.sections  (SAME row)
+>
+> content on a CHILD row : 1066   91.7%
+> content on the Page row:   97    8.3%
+> ```
+>
+> **91.7% of pages keep their content in a child row** — and it was already wrong,
+> not wrong in theory. Every one of the 651 table pages and 415 rich-text pages had a
+> child timestamp NEWER than its page timestamp, by up to **147 days**:
+>
+> ```
+> tools    sitemap said 2025-09-12   content changed 2026-02-06   147 days stale
+> courses  sitemap said 2025-09-12   content changed 2026-02-06   147 days stale
+> ytube    sitemap said 2025-09-12   content changed 2026-02-06   147 days stale
+> ```
+>
+> Systematically stale values are exactly what makes Google discard `lastmod` for an
+> entire sitemap — the failure this column was added to prevent. "Safe direction" was
+> the wrong framing: it would have been worse than emitting nothing.
+
+**Fixed** by `pageLastModified()` in `sitemap.ts`, which takes the newest of the page
+row and its content rows. Prisma resolves the two one-to-one relations as joins, so it
+remains one query per domain — no N+1. Effect:
+
+```
+BEFORE                            AFTER
+  2025-09    271 urls               2025-09     57 urls
+  2025-10    491 urls               2025-10     49 urls
+  2026-02    299 urls               2026-02    955 urls
+  2026-03    136 urls               2026-03    137 urls
+```
+
+**912 URLs moved to their real dates.**
+
+The domain root URL takes `max(domain.updatedAt, __main__ page's effective date)` —
+for a `direct` domain the visible content is `__main__`'s. It deliberately does **not**
+roll up every descendant: for a hierarchical domain a child's table contents changing
+does not alter the root listing, and rolling that up would inflate the date on nearly
+every edit anywhere in the domain. **Overstating** freshness is the direction Google
+actually penalises, and each child has its own accurate entry regardless.
+
+> ⚠️ **When adding a new content type**, if it stores content in a NEW table, add that
+> relation to the `select` and to `pageLastModified()`. Otherwise pages of that type
+> silently report a stale `lastmod` — precisely how this went wrong the first time.
+>
+> **The durable alternative, worth doing at three content tables:** make
+> `Page.updatedAt` mean "this page's content changed" by touching the parent row on
+> every child write — either explicitly
+> (`prisma.page.update({ where: { id: pageId }, data: {} })`) from each mutation
+> route, or automatically via a Prisma Client extension intercepting writes to any
+> model with a `pageId`. Then `sitemap.ts` reads one field again and needs no changes
+> when a content type is added. Better data model too — a meaningful `Page.updatedAt`
+> would also serve the admin UI and cache invalidation (#5). Not done now because
+> with exactly two content tables, reading both here is simpler and **cannot be
+> forgotten at write time**.
+
+**Two fields still deliberately omitted:**
 
 | Field | Why |
 |---|---|
-| `lastModified` | **Cannot be computed honestly.** `Page` and `Domain` have only `createdAt` — no `updatedAt`. Using `createdAt` would assert "unchanged since creation", false for any edited page. Google ignores `lastmod` **across the entire sitemap** once it judges the values unreliable, so a wrong date is strictly worse than none. |
 | `changeFrequency` | Google's documentation states it ignores this. |
 | `priority` | Likewise ignored. |
 
-Both `changeFrequency` and `priority` were in the plan below. Omitted for the same
-reason meta keywords were rejected: **a tag the major engines ignore is not harmless
-extra signal, it is noise that implies a control you do not have.**
-
-> **TODO(Phase B):** add `updatedAt DateTime @updatedAt` to `Page` and `Domain`, then
-> populate `lastModified`. Worth pairing with finding #3, which already involves
-> writing a migration. Note `ContentBlock`, `Table` and `RichTextContent` already have
-> `updatedAt` — but `section_based` pages store their layout in `Page.sections`, a JSON
-> column with no timestamp, so editing one leaves every existing date untouched. A
-> partial derivation would still be wrong, just less visibly.
+Both were in the plan below. Omitted for the same reason meta keywords were rejected:
+**a tag the major engines ignore is not harmless extra signal, it is noise that implies
+a control you do not have.**
 
 **Scale:** the protocol caps one file at 50,000 URLs / 50 MB. At 1198 a single file is
 correct; `generateSitemaps()` splits it if the catalogue ever approaches the limit.
@@ -2141,10 +2219,36 @@ phase, merged to `master` → auto-deploys to `atno.io`.
       `development` and a rehearsal branch. Found and fixed a second missing migration
       (the entire auth schema), not just `targetCountries`. Also repointed local dev
       off production onto the `development` branch.
-- [ ] 5b. **`updatedAt` on `Page` and `Domain`** — so `sitemap.ts` can emit honest
-      `lastModified` (see #13). Needs a backfill from `createdAt`; Prisma writes
-      `@updatedAt` as `NOT NULL` with no default, which cannot be added directly to
-      tables that already have rows.
+- [x] 5b. **`updatedAt` on `Page` and `Domain`** — **DONE.** Migration
+      `20260727140000_add_updated_at`, applied to all three branches.
+      `sitemap.ts` now emits `lastModified` on all 1198 entries.
+
+      **The backfill was the whole point.** Prisma's generated SQL was
+      `ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`, which
+      stamps all 1229 existing rows with the instant the migration ran — telling
+      Google the entire site changed at once, exactly the unreliability that made us
+      omit `lastmod` in the first place. Two hand-added statements fix it:
+
+      ```sql
+      UPDATE "Domain" SET "updatedAt" = "createdAt";
+      UPDATE "Page"   SET "updatedAt" = "createdAt";
+      ```
+
+      For a row never edited, its creation time genuinely *is* its last-modified
+      time. Result: dates spread across Sep 2025 – Mar 2026, zero stamped today.
+      On a fresh database both UPDATEs match zero rows, so the migration is correct
+      in both directions.
+
+      Used `@updatedAt @default(now())` rather than bare `@updatedAt` (which is what
+      `User` has). The DB default is a safety net for any INSERT not going through
+      Prisma Client — raw SQL, seed scripts — which would otherwise fail on a
+      `NOT NULL` column with no default.
+
+      > ⚠️ **Deploy ordering matters here.** Prisma Client generated from a schema
+      > containing `updatedAt` selects that column on any `include`-style query. Had
+      > the code shipped before the migration ran, `DomainService.getWithPagesFiltered`
+      > would have queried a nonexistent column and 500'd. The migration was applied
+      > to production **first**, then the code.
 - [ ] 6. **#15.2** Re-detect country every request + 30-day `maxAge` (with the local-dev guard)
 - [ ] 7. **#2** DOMPurify sanitization on rich-text write
 - [ ] 8. **#5** Wire up `revalidateTag` on all mutations
@@ -2215,6 +2319,14 @@ Worth stating plainly, so refactoring doesn't undo it:
 *Revision 4 (July 26): #13 `robots.ts` shipped; corrected the planned `/api/` disallow
 list (it would have hidden table content from Google); logged `/header1` for deletion;
 root `/` redirect changed 307 → 308 (#14 A0).*
+*Revision 11 (July 28): corrected the `lastmod` source. `Page.updatedAt` alone was
+stale for **91.7% of pages** — content lives in `Table.data` / `RichTextContent`, up to
+147 days newer — which would have made Google discard `lastmod` site-wide. The earlier
+"understates freshness, safe direction" framing was wrong. `pageLastModified()` now
+takes the newest of the page and its content rows; 912 URLs moved to their real dates.*
+*Revision 10 (July 27): `updatedAt` added to `Page`/`Domain` and applied to all three
+Neon branches; `sitemap.ts` now emits `lastModified` on all 1198 entries, backfilled
+from `createdAt` so dates spread Sep 2025 – Mar 2026 rather than all reading "today".*
 *Revision 9 (July 27): **#3 migration drift resolved.** Finding was understated —
 production had NO `_prisma_migrations` table at all, and the missing schema included
 the entire auth model set (`User`/`Account`/`Session`/`VerificationToken`), not just
