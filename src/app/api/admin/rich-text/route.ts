@@ -1,13 +1,19 @@
 // src/app/api/admin/rich-text/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@/generated/prisma';
 import { requireAdmin } from '@/lib/api-auth';
-
-// TODO(#6): replace with the shared singleton — `import { prisma } from '@/lib/prisma'`.
-// Creating a client here spawns a new connection pool per serverless instance and
-// leaks one on every dev hot-reload. Left as-is so this commit stays purely about auth.
-const prisma = new PrismaClient();
+// Shared singleton — NOT `new PrismaClient()`.
+//
+// This file used to construct its own client at module scope. Two costs:
+//   - in dev, Next.js re-evaluates the module on every hot reload, so each save
+//     leaked another connection pool until Postgres refused new connections
+//   - on Vercel, every serverless instance opened its own pool, multiplying
+//     connections against a connection-limited database for no benefit
+//
+// `src/lib/prisma.ts` stores the client on `globalThis` in non-production so hot
+// reloads reuse one pool. The API surface is identical; only the import changes.
+// An eslint rule now blocks `new PrismaClient()` outside that file.
+import { prisma } from '@/lib/prisma';
 
 /**
  * GET /api/admin/rich-text

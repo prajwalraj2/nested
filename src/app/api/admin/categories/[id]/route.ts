@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
+import { invalidateCategories } from '@/lib/cache-invalidation';
 
 /**
  * Individual Category API Routes
@@ -192,6 +193,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     });
 
+    // A rename, icon change or column/order move all alter how the domain index and
+    // header dropdown render, since domains are grouped and ordered BY category.
+    invalidateCategories();
+
     return NextResponse.json({
       success: true,
       message: 'Category updated successfully',
@@ -279,6 +284,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     await prisma.domainCategory.delete({
       where: { id }
     });
+
+    invalidateCategories();
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
+import { invalidateDomains } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 
 /**
@@ -244,6 +245,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     });
 
+    // A full PUT can change the slug, which changes the URL, and the pageType,
+    // which can create a `__main__` page (see the block above) — so PAGES needs
+    // clearing as well, which invalidateDomains() does.
+    invalidateDomains();
+
     return NextResponse.json({
       success: true,
       message: 'Domain updated successfully',
@@ -340,6 +346,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       });
     });
 
+    // The transaction above removed the domain AND every page inside it, so both
+    // tags must go. Stale entries here would leave deleted domains rendering in the
+    // navigation and 404ing when clicked.
+    invalidateDomains();
+
     return NextResponse.json({
       success: true,
       message: 'Domain deleted successfully',
@@ -406,6 +417,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }
       });
 
+      // Publishing is the single most visible admin action — the domain appears on
+      // or disappears from the public index. Without this it took up to 60s.
+      invalidateDomains();
+
       return NextResponse.json({
         success: true,
         message: `Domain ${body.isPublished ? 'published' : 'unpublished'} successfully`,
@@ -428,6 +443,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         data: { orderInCategory: parseInt(body.orderInCategory) }
       });
 
+      // Order drives the rendering position on the domain index.
+      invalidateDomains();
+
       return NextResponse.json({
         success: true,
         message: 'Domain order updated successfully',
@@ -449,6 +467,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         where: { id },
         data: { targetCountries: validTargetCountries }
       });
+
+      // Geo targeting decides who can see the domain at all — and it feeds the
+      // sitemap and the `noindex` guard in generateMetadata.
+      invalidateDomains();
 
       return NextResponse.json({
         success: true,

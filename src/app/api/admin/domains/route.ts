@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // See src/lib/api-auth.ts for the 401-vs-403 and isActive reasoning.
 import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
+import { invalidateDomains } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 
 /**
@@ -230,6 +231,11 @@ export async function POST(request: NextRequest) {
         }
       });
     }
+
+    // A new domain changes the domain index, the header dropdown and the sidebar.
+    // `invalidateDomains()` clears PAGES too, which matters here: for a `direct`
+    // domain the block above also created a `__main__` page.
+    invalidateDomains();
 
     return NextResponse.json({
       success: true,

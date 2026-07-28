@@ -42,7 +42,7 @@ const DESCRIPTION =
  * only applies to `metadata.title`. Without spelling it out here, previews would
  * have shown a bare "Domains" while search showed the full brand-led title.
  */
-const TITLE = `${SITE_NAME} — Curated Tools & Resources, by Domain`;
+const TITLE = `${SITE_NAME} - Curated Tools & Resources, by Domain`;
 
 export const metadata: Metadata = {
   /**

@@ -1,13 +1,11 @@
 // src/app/api/admin/rich-text/[pageId]/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@/generated/prisma';
 import { requireAdmin } from '@/lib/api-auth';
-
-// TODO(#6): replace with the shared singleton — `import { prisma } from '@/lib/prisma'`.
-// Creating a client here spawns a new connection pool per serverless instance and
-// leaks one on every dev hot-reload. Left as-is so this commit stays purely about auth.
-const prisma = new PrismaClient();
+// Shared singleton — see the note in ../route.ts. Constructing a client per module
+// leaked a connection pool on every dev hot reload and opened a redundant pool per
+// serverless instance in production.
+import { prisma } from '@/lib/prisma';
 
 interface RouteParams {
   params: Promise<{

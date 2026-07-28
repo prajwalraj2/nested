@@ -5,6 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
 // working access until their 24-hour JWT expired.
 import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
+// Clears the tagged unstable_cache entries after a write. Without this, nothing ever
+// invalidated them and edits only appeared when the timer expired.
+import { invalidateCategories } from '@/lib/cache-invalidation';
 
 /**
  * Categories API Route
@@ -150,6 +153,11 @@ export async function POST(request: NextRequest) {
         }
       }
     });
+
+    // Drop the cached category and domain payloads so the new category appears on
+    // the next request instead of after the 5-minute CACHE_DURATIONS.LONG timer.
+    // Placed AFTER the write succeeds and BEFORE responding — see cache-invalidation.ts.
+    invalidateCategories();
 
     return NextResponse.json({
       success: true,
