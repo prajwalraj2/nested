@@ -1,84 +1,94 @@
 # 🔧 New Improvements — Findings from Full Codebase Audit
 
 **Created:** July 25, 2026
-**Audited:** `phase14` @ `5598778`; all findings re-verified against **production
-`master` @ `c4ff8d8`** (the two differ only in copy changes to `RichTextLayout` /
+**Audited:** `phase14` @ `5598778`; all findings re-verified against **production**
+`master` **@** `c4ff8d8` (the two differ only in copy changes to `RichTextLayout` /
 `TableLayout` plus README).
 **Work branch:** `dev-3.0` (branched from `master` @ `c4ff8d8`)
 **Scope:** Full read-through of schema, services, all API routes, public rendering path, admin panel, middleware/auth, caching layers, and planning docs.
 
 **Related documents:**
+
 - `REORDERED-EXECUTION-PLAN.md` (execution status — Steps 1–5 done, 6–7 pending)
 - `MASTER-TASK-LIST.md` (original 37-task plan)
 - `ARCHITECTURE-IMPROVEMENTS-2.md`, `COMPREHENSIVE-PROJECT-ANALYSIS.md`
 
 ---
 
+
+
 ## 📊 Summary Table
 
 Tick the **Done** box when a finding is fully implemented, verified, and merged.
 Partially-done findings show which sub-items are complete.
 
-| Done | # | Finding | Severity | Type | Effort |
-|:---:|---|---------|----------|------|--------|
-| [x] | 1 | `/api/admin/*` routes mostly unauthenticated | 🔴 **Critical** | Security | 1–2 hrs |
-| [ ] | 2 | Stored XSS via unauthenticated rich-text write | 🔴 **Critical** | Security | 2–3 hrs |
-| [x] | 3 | Migration drift — **no migration history at all**; geo *and* auth models missing | 🔴 **Critical** | Data / Deploy | 30 min |
-| [ ] | 4 | Branch hygiene — 15 merged branches, stale local refs | 🟡 Medium | Workflow | 20 min |
-| [ ] | 5 | Cache tags defined but never invalidated | 🟠 **High** | Correctness | 2–3 hrs |
-| [ ] | 6 | `new PrismaClient()` in rich-text routes | 🟡 Medium | Resource leak | 10 min |
-| [ ] | 7 | Dead breadcrumb work on every request | 🟡 Medium | Performance | 30 min |
-| [ ] | 8 | `revalidate` + `force-dynamic` contradiction | 🟡 Medium | Clarity | 5 min |
-| [ ] | 9 | Deprecated APIs/hooks still shipping + type coupling | 🟡 Medium | Tech debt | 1–2 hrs |
-| [ ] | 10 | `console.log` in hot render paths | 🟢 Low | Hygiene | 15 min |
-| [ ] | 11 | DB write during page render (`getOrCreateMainPage`) | 🟢 Low | Design smell | 1 hr |
-| [ ] | 12 | `/api/debug/cache-test` open in production | 🟢 Low | Info leak | 5 min |
-| [x] | 13 | No `robots.txt` / `sitemap.xml` (404s in Vercel logs) | 🟢 Low | SEO | 30 min |
-| ~ | 14 | **Every page shares one title** — no per-page metadata | 🟠 **High** | SEO / Growth | 2 hrs (A) |
-| ~ | 15 | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects | 🟡 Medium | Correctness / Perf | 1–2 hrs |
+
+| Done | #   | Finding                                                                          | Severity        | Type               | Effort    |
+| ---- | --- | -------------------------------------------------------------------------------- | --------------- | ------------------ | --------- |
+| [x]  | 1   | `/api/admin/*` routes mostly unauthenticated                                     | 🔴 **Critical** | Security           | 1–2 hrs   |
+| [ ]  | 2   | Stored XSS via unauthenticated rich-text write                                   | 🔴 **Critical** | Security           | 2–3 hrs   |
+| [x]  | 3   | Migration drift — **no migration history at all**; geo *and* auth models missing | 🔴 **Critical** | Data / Deploy      | 30 min    |
+| [ ]  | 4   | Branch hygiene — 15 merged branches, stale local refs                            | 🟡 Medium       | Workflow           | 20 min    |
+| [ ]  | 5   | Cache tags defined but never invalidated                                         | 🟠 **High**     | Correctness        | 2–3 hrs   |
+| [ ]  | 6   | `new PrismaClient()` in rich-text routes                                         | 🟡 Medium       | Resource leak      | 10 min    |
+| [ ]  | 7   | Dead breadcrumb work on every request                                            | 🟡 Medium       | Performance        | 30 min    |
+| [ ]  | 8   | `revalidate` + `force-dynamic` contradiction                                     | 🟡 Medium       | Clarity            | 5 min     |
+| [ ]  | 9   | Deprecated APIs/hooks still shipping + type coupling                             | 🟡 Medium       | Tech debt          | 1–2 hrs   |
+| [ ]  | 10  | `console.log` in hot render paths                                                | 🟢 Low          | Hygiene            | 15 min    |
+| [ ]  | 11  | DB write during page render (`getOrCreateMainPage`)                              | 🟢 Low          | Design smell       | 1 hr      |
+| [ ]  | 12  | `/api/debug/cache-test` open in production                                       | 🟢 Low          | Info leak          | 5 min     |
+| [x]  | 13  | No `robots.txt` / `sitemap.xml` (404s in Vercel logs)                            | 🟢 Low          | SEO                | 30 min    |
+| ~    | 14  | **Every page shares one title** — no per-page metadata                           | 🟠 **High**     | SEO / Growth       | 2 hrs (A) |
+| ~    | 15  | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects      | 🟡 Medium       | Correctness / Perf | 1–2 hrs   |
+
 
 **Sub-items:**
 
-| Done | Item | Notes |
-|:---:|---|---|
-| [x] | 13.1 `robots.ts` | Phase A commit 2 |
-| [x] | 14.A0 Root `/` redirect 307 → 308 | Shipped with commit 2 |
-| [x] | 14.A1 Per-page `generateMetadata` | Phase A commit 3 |
-| [x] | 14.A2 `metadataBase` / canonical origin | Phase A commit 3 |
-| [x] | 14.A3 Open Graph + Twitter cards | Phase A commit 3 — no image yet, card is `summary` |
-| [x] | 14.A4 Brand favicons + static OG share image | Phase A commit 4 — card is now `summary_large_image` |
-| [x] | 14.A5 `/domain` title made brand-led | `/` redirects here, so it's the de-facto homepage |
-| [ ] | 14.A6 Per-page generated OG cards | `opengraph-image.tsx` + `ImageResponse`. One line in `buildOpenGraph` to switch |
-| [ ] | 14.A7 `manifest.ts` for Android / PWA install | The favicon.io `site.webmanifest` has empty `name` fields |
-| [ ] | 14.B SEO-B backlog (JSON-LD, `next/image`, content) | Phase D |
-| [x] | 13.2 `sitemap.ts` | Phase A commit 5 — 1198 URLs, depth up to 4 |
-| [ ] | 13.3 Canonicalise `nested-two.vercel.app` | Partly handled by `metadataBase` in commit 3 |
-| [ ] | 15.1 `Vary: Cookie` kills the CDN cache | Phase B |
-| [ ] | 15.2 Country cookie never refreshed | Phase B |
-| [x] | 15.3 Cookie dropped on early returns | Shipped with #1 |
-| [ ] | 15.4 `noindex` for geo-restricted pages | Ships with #14 / SEO-A |
+
+| Done | Item                                                | Notes                                                                           |
+| ---- | --------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [x]  | 13.1 `robots.ts`                                    | Phase A commit 2                                                                |
+| [x]  | 14.A0 Root `/` redirect 307 → 308                   | Shipped with commit 2                                                           |
+| [x]  | 14.A1 Per-page `generateMetadata`                   | Phase A commit 3                                                                |
+| [x]  | 14.A2 `metadataBase` / canonical origin             | Phase A commit 3                                                                |
+| [x]  | 14.A3 Open Graph + Twitter cards                    | Phase A commit 3 — no image yet, card is `summary`                              |
+| [x]  | 14.A4 Brand favicons + static OG share image        | Phase A commit 4 — card is now `summary_large_image`                            |
+| [x]  | 14.A5 `/domain` title made brand-led                | `/` redirects here, so it's the de-facto homepage                               |
+| [ ]  | 14.A6 Per-page generated OG cards                   | `opengraph-image.tsx` + `ImageResponse`. One line in `buildOpenGraph` to switch |
+| [ ]  | 14.A7 `manifest.ts` for Android / PWA install       | The favicon.io `site.webmanifest` has empty `name` fields                       |
+| [ ]  | 14.B SEO-B backlog (JSON-LD, `next/image`, content) | Phase D                                                                         |
+| [x]  | 13.2 `sitemap.ts`                                   | Phase A commit 5 — 1198 URLs, depth up to 4                                     |
+| [ ]  | 13.3 Canonicalise `nested-two.vercel.app`           | Partly handled by `metadataBase` in commit 3                                    |
+| [ ]  | 15.1 `Vary: Cookie` kills the CDN cache             | Phase B                                                                         |
+| [ ]  | 15.2 Country cookie never refreshed                 | Phase B                                                                         |
+| [x]  | 15.3 Cookie dropped on early returns                | Shipped with #1                                                                 |
+| [ ]  | 15.4 `noindex` for geo-restricted pages             | Ships with #14 / SEO-A                                                          |
+
 
 ---
+
+
 
 ## ✅ 1. Most `/api/admin/*` Routes Are Completely Unauthenticated
 
 **Status:** **[x] DONE** — Phase A commit 1 on `dev-3.0`. Shipped together with #15.3.
 
-<details>
-<summary><strong>What was actually built</strong> (click to expand)</summary>
+**What was actually built** (click to expand)
 
-| File | Change |
-|---|---|
-| `src/lib/api-auth.ts` | **New.** `requireAdmin()` returning a discriminated union — `{ ok: true, session }` or `{ ok: false, response }`. |
-| `src/middleware.ts` | Rewritten. Now matches `/api/admin` as well as `/admin`; returns JSON 401/403 for APIs; every exit path carries the country cookie. |
-| 9 unguarded route files | `requireAdmin()` added to every handler. |
-| 5 already-guarded route files | Refactored onto the same helper. |
+
+| File                          | Change                                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/api-auth.ts`         | **New.** `requireAdmin()` returning a discriminated union — `{ ok: true, session }` or `{ ok: false, response }`.                   |
+| `src/middleware.ts`           | Rewritten. Now matches `/api/admin` as well as `/admin`; returns JSON 401/403 for APIs; every exit path carries the country cookie. |
+| 9 unguarded route files       | `requireAdmin()` added to every handler.                                                                                            |
+| 5 already-guarded route files | Refactored onto the same helper.                                                                                                    |
+
 
 **36 handlers across 14 files — all guarded.** Verified: handler count == guard count per file.
 
 The refactor also fixed two latent bugs in the 5 files that *were* protected: their
 inline `if (!session?.user?.isAdmin)` returned **403 to anonymous callers** (should be
-401), and **never checked `isActive`** — so a soft-deleted admin kept full access until
+401), and **never checked** `isActive` — so a soft-deleted admin kept full access until
 their 24-hour JWT expired.
 
 Deviation from the plan below: `requireAdmin()` returns a **tagged object**, not
@@ -89,7 +99,7 @@ checks), and returning it from the guard means they never call `auth()` twice.
 when unauthenticated across GET/PUT/PATCH/DELETE · public routes unaffected ·
 `set-cookie: user-country` present on the 307 redirect, the 200 page, and the 401.
 
-</details>
+
 
 **Severity:** Critical — unauthenticated destructive writes from the public internet.
 
@@ -111,35 +121,39 @@ route file calls `auth()` itself — and most don't.
 
 ### Audit results
 
-| Route file | Methods | Auth check |
-|---|---|---|
-| `api/admin/categories/route.ts` | GET, POST | ✅ Yes |
-| `api/admin/domains/route.ts` | GET, POST | ✅ Yes |
-| `api/admin/pages/route.ts` | GET, POST | ✅ Yes |
-| `api/admin/users/route.ts` | GET, POST | ✅ Yes |
-| `api/admin/users/[id]/route.ts` | GET, PUT, DELETE | ✅ Yes |
-| `api/admin/categories/[id]/route.ts` | GET, PUT, **DELETE** | ❌ **NONE** |
-| `api/admin/domains/[id]/route.ts` | GET, PUT, PATCH, **DELETE** | ❌ **NONE** |
-| `api/admin/pages/[id]/route.ts` | GET, PUT, **DELETE** | ❌ **NONE** |
-| `api/admin/sections/[id]/route.ts` | GET, PUT | ❌ **NONE** |
-| `api/admin/tables/route.ts` | GET, POST | ❌ **NONE** |
-| `api/admin/tables/[id]/route.ts` | GET, PUT, DELETE | ❌ **NONE** |
-| `api/admin/tables/[id]/data/route.ts` | GET, PUT, **DELETE** | ❌ **NONE** |
-| `api/admin/rich-text/route.ts` | GET, POST | ❌ **NONE** |
-| `api/admin/rich-text/[pageId]/route.ts` | GET, PUT, DELETE | ❌ **NONE** |
+
+| Route file                              | Methods                     | Auth check |
+| --------------------------------------- | --------------------------- | ---------- |
+| `api/admin/categories/route.ts`         | GET, POST                   | ✅ Yes      |
+| `api/admin/domains/route.ts`            | GET, POST                   | ✅ Yes      |
+| `api/admin/pages/route.ts`              | GET, POST                   | ✅ Yes      |
+| `api/admin/users/route.ts`              | GET, POST                   | ✅ Yes      |
+| `api/admin/users/[id]/route.ts`         | GET, PUT, DELETE            | ✅ Yes      |
+| `api/admin/categories/[id]/route.ts`    | GET, PUT, **DELETE**        | ❌ **NONE** |
+| `api/admin/domains/[id]/route.ts`       | GET, PUT, PATCH, **DELETE** | ❌ **NONE** |
+| `api/admin/pages/[id]/route.ts`         | GET, PUT, **DELETE**        | ❌ **NONE** |
+| `api/admin/sections/[id]/route.ts`      | GET, PUT                    | ❌ **NONE** |
+| `api/admin/tables/route.ts`             | GET, POST                   | ❌ **NONE** |
+| `api/admin/tables/[id]/route.ts`        | GET, PUT, DELETE            | ❌ **NONE** |
+| `api/admin/tables/[id]/data/route.ts`   | GET, PUT, **DELETE**        | ❌ **NONE** |
+| `api/admin/rich-text/route.ts`          | GET, POST                   | ❌ **NONE** |
+| `api/admin/rich-text/[pageId]/route.ts` | GET, PUT, DELETE            | ❌ **NONE** |
+
 
 **9 of the 14 admin route files are open** (36 handlers total across all 14).
 What an anonymous request can do today:
 
 - `DELETE /api/admin/domains/{id}` → deletes a domain **and every page inside it**
-  (transaction deletes all `ContentBlock`s, then all `Page`s, then the `Domain`)
+(transaction deletes all `ContentBlock`s, then all `Page`s, then the `Domain`)
 - `DELETE /api/admin/pages/{id}` → deletes a page **and all recursive descendants**
 - `PUT /api/admin/tables/{id}/data` → replace or wipe any table's entire dataset
 - `PUT /api/admin/rich-text/{pageId}` → inject arbitrary HTML into any page (see #2)
 - `PUT /api/admin/sections/{id}` → scramble any page's 3-column layout
 - `PATCH /api/admin/domains/{id}` → publish/unpublish domains, change geo-targeting
 - `GET /api/admin/tables?...` → dump every table's full contents, **including the
-  hidden `targetCountries` column** that is normally stripped from public views
+hidden** `targetCountries` **column** that is normally stripped from public views
+
+
 
 ### Fix — two layers (do both)
 
@@ -211,6 +225,8 @@ imports, or a future matcher edit). Neither alone is sufficient in practice.
 
 ---
 
+
+
 ## 🔴 2. Stored XSS Chain via Rich Text
 
 **Severity:** Critical (while #1 is open) → Medium (after #1 is fixed).
@@ -218,7 +234,7 @@ imports, or a future matcher edit). Neither alone is sufficient in practice.
 ### The chain
 
 1. `PUT /api/admin/rich-text/[pageId]` accepts a raw `htmlContent` string.
-   The only validation is `if (!htmlContent)` — no sanitization, no allow-list.
+  The only validation is `if (!htmlContent)` — no sanitization, no allow-list.
 2. It is stored verbatim in `RichTextContent.htmlContent`.
 3. `src/components/domain/RichTextLayout.tsx` renders it to every public visitor:
 
@@ -230,7 +246,7 @@ imports, or a future matcher edit). Neither alone is sufficient in practice.
 ```
 
 Because the write endpoint is currently unauthenticated (#1), **any anonymous person
-can plant `<script>` / `<img onerror=...>` on a public page** — which then executes in
+can plant** `<script>` **/** `<img onerror=...>` **on a public page** — which then executes in
 every visitor's browser, including an admin's, in the same origin as the admin panel
 and its (currently unguarded) API. That is a full site takeover primitive.
 
@@ -276,6 +292,8 @@ otherwise be re-rendered forever.
 
 ---
 
+
+
 ## ✅ 3. Migration Drift — **[x] DONE** (27 Jul 2026)
 
 **Severity:** was Critical. Resolved on production, `development` and a rehearsal branch.
@@ -288,16 +306,18 @@ otherwise be re-rendered forever.
 > **did not exist** in production. The database had been built entirely with
 > `prisma db push`, so Prisma had no record of anything ever having been applied.
 >
-> **2. `targetCountries` was not the only missing schema.** Replaying every
+> **2.** `targetCountries` **was not the only missing schema.** Replaying every
 > migration into an empty shadow database and diffing against `schema.prisma`
 > revealed the **entire authentication schema** was absent too:
 >
-> | | |
-> |---|---|
-> | Migrations created | `Domain`, `Page`, `ContentBlock`, `DomainCategory`, `Table`, `RichTextContent` — **6** |
-> | Schema declares | those 6 **plus** `User`, `Account`, `Session`, `VerificationToken` — **10** |
 >
-> So a fresh `prisma migrate deploy` produced a database with **no `User` table**.
+> |                    |                                                                                        |
+> | ------------------ | -------------------------------------------------------------------------------------- |
+> | Migrations created | `Domain`, `Page`, `ContentBlock`, `DomainCategory`, `Table`, `RichTextContent` — **6** |
+> | Schema declares    | those 6 **plus** `User`, `Account`, `Session`, `VerificationToken` — **10**            |
+>
+>
+> So a fresh `prisma migrate deploy` produced a database with **no** `User` **table**.
 > Even after fixing the geo columns, that database would have had no way to log in
 > (`authorize()` querying a nonexistent table), no NextAuth adapter models, and
 > `prisma/seed-admin.ts` unable to create the first admin.
@@ -306,21 +326,27 @@ otherwise be re-rendered forever.
 > and stop. Only the shadow-database replay surfaced it — which is the argument for
 > doing the rigorous check rather than trusting `migrate status`.
 
+
+
 ### What was done — "baselining", Prisma's process for adopting migrations
 
 Two migration files were added, then **all eleven** were registered as already
 applied via `migrate resolve --applied`, which writes a history row and **executes
 no SQL**:
 
-| File | How it was produced |
-|---|---|
-| `20260727120000_add_geo_targeting` | Hand-written to match `information_schema` exactly: `TEXT[]`, **no `NOT NULL`** (`is_nullable=YES`), `DEFAULT ARRAY['ALL']::TEXT[]` |
-| `20260727130000_add_auth_models` | **Generated by Prisma** via `migrate diff --from-migrations`, so it matches `schema.prisma` exactly rather than approximately |
+
+| File                               | How it was produced                                                                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `20260727120000_add_geo_targeting` | Hand-written to match `information_schema` exactly: `TEXT[]`, **no** `NOT NULL` (`is_nullable=YES`), `DEFAULT ARRAY['ALL']::TEXT[]` |
+| `20260727130000_add_auth_models`   | **Generated by Prisma** via `migrate diff --from-migrations`, so it matches `schema.prisma` exactly rather than approximately       |
+
 
 > The `NOT NULL` detail mattered. Prisma models a scalar list (`String[]`) as a
 > *nullable* Postgres array and treats SQL NULL as an empty list, so it never emits
 > `NOT NULL` for one. Adding it would have made every new database permanently
 > stricter than production.
+
+
 
 ### Verification, weakest to strongest
 
@@ -349,7 +375,7 @@ Live site unaffected throughout: `/domain`, `/domain/gdesign`, `/sitemap.xml` an
 
 ### Process notes worth keeping
 
-**`directUrl` was NOT required.** All 11 `migrate resolve` calls succeeded over
+`directUrl` **was NOT required.** All 11 `migrate resolve` calls succeeded over
 Neon's **pooled** endpoint. Neon's own snippet says `directUrl` is only needed for
 Prisma < 5.10 and this project is on **6.14.0**. An earlier revision of this
 document called it a prerequisite; that was wrong, and no schema change was made.
@@ -363,6 +389,8 @@ and `migrate resolve` / `migrate deploy` have no confirmation prompt — so a st
 > Windows PowerShell 5.1 read the UTF-8 file as ANSI, and it died with a parse
 > error. The "must abort on production" test *appeared* to pass — but only because
 > of the crash, not the logic. **Testing the negative case is what exposed that.**
+
+
 
 ### ⚠️ Related finding — local dev was pointed at PRODUCTION
 
@@ -400,8 +428,7 @@ changed at once.
 
 ---
 
-<details>
-<summary><strong>Original analysis (for reference)</strong></summary>
+**Original analysis (for reference)**
 
 **Severity:** Critical for any clean deployment or new environment.
 
@@ -433,7 +460,7 @@ with `prisma db push`, which mutates the schema **without recording a migration*
 ### Consequence
 
 Anyone running `prisma migrate deploy` against a fresh database gets a schema with
-**no `targetCountries` columns**. Then every navigation query fails, because
+**no** `targetCountries` **columns**. Then every navigation query fails, because
 `buildCountryFilter()` is injected into essentially every read:
 
 ```typescript
@@ -489,9 +516,11 @@ was `db push`ed (run `npx prisma migrate status` and read the drift report).
 > the missing auth models. `migrate status` alone was **not** sufficient —
 > `migrate diff --from-migrations` against a shadow database was.
 
-</details>
+
 
 ---
+
+
 
 ## 🟡 4. Branch Hygiene — 15 Merged Branches, Stale Local Refs
 
@@ -508,7 +537,7 @@ git rev-list --left-right --count origin/master...phase14  →  12    0
 ```
 
 Production **is** `master` — confirmed in the Vercel dashboard: *"To update your
-Production Deployment, push to the `master` branch."* All phase work was merged via
+Production Deployment, push to the* `master` *branch."* All phase work was merged via
 PRs #2–#5 (Feb 3–10). Next.js on `master` is `15.5.9`, i.e. CVE-patched.
 **Nothing needs merging.**
 
@@ -516,20 +545,24 @@ PRs #2–#5 (Feb 3–10). Next.js on `master` is `15.5.9`, i.e. CVE-patched.
 > months stale and missing the services layer, geo-targeting, and the Next.js
 > security patch. That was **wrong**. It was derived from a local clone whose
 > remote-tracking refs had not been fetched since October 2025, so both `master` and
-> `origin/master` pointed at `f01a212`. **Always `git fetch` before comparing
+> `origin/master` pointed at `f01a212`. **Always** `git fetch` **before comparing
 > branches** — `git log`, `git rev-list`, and `git branch -vv` all silently report
 > against the last-fetched snapshot, with no warning that it is out of date.
+
+
 
 ### Actual issues
 
 1. **15 fully-merged branches** (`phase1`–`phase14`, `branch7`) still exist locally
-   and on the remote. Every one is an ancestor of `origin/master`. They clutter the
+  and on the remote. Every one is an ancestor of `origin/master`. They clutter the
    branch list, and each still produces Vercel preview deployments — which are
    publicly crawlable (see #13).
-2. **Local `master` was stale** at `f01a212`. Fixed with
-   `git branch -f master origin/master`.
+2. **Local** `master` **was stale** at `f01a212`. Fixed with
+  `git branch -f master origin/master`.
 3. **Two hostnames serve the same production deployment** — `atno.io` and
-   `nested-two.vercel.app`. This is duplicate content; see #13.
+  `nested-two.vercel.app`. This is duplicate content; see #13.
+
+
 
 ### Fix
 
@@ -548,6 +581,8 @@ If the history markers matter, tag instead of keeping branches —
 auto-deploy) is sound. Just delete each branch once its PR merges.
 
 ---
+
+
 
 ## 🟠 5. Cache Tags Are Defined but Never Invalidated
 
@@ -572,11 +607,13 @@ grep -rn "revalidateTag\|revalidatePath" src/  →  NONE
 
 **Nothing ever invalidates anything.** Caches only expire on their timer:
 
-| Data | Duration | Admin edit invisible for |
-|---|---|---|
-| Domains, Pages, Navigation | `MEDIUM` = 60s | up to 1 minute |
-| Categories | `LONG` = 300s | **up to 5 minutes** |
-| `/api/page-context` (CDN) | `s-maxage=60`, `stale-while-revalidate=300` | up to 5 min stale |
+
+| Data                       | Duration                                    | Admin edit invisible for |
+| -------------------------- | ------------------------------------------- | ------------------------ |
+| Domains, Pages, Navigation | `MEDIUM` = 60s                              | up to 1 minute           |
+| Categories                 | `LONG` = 300s                               | **up to 5 minutes**      |
+| `/api/page-context` (CDN)  | `s-maxage=60`, `stale-while-revalidate=300` | up to 5 min stale        |
+
 
 Stacked, an admin can publish a domain and not see it for minutes, with no way to
 force a flush. This reads as a bug ("my change didn't save") and invites people to
@@ -611,20 +648,24 @@ export function invalidateTables() {
 
 Call the matching function after **every** successful mutation:
 
-| Route | Call after success |
-|---|---|
+
+| Route                                       | Call after success                          |
+| ------------------------------------------- | ------------------------------------------- |
 | `POST/PUT/PATCH/DELETE /api/admin/domains*` | `invalidateDomains()` + `invalidatePages()` |
-| `POST/PUT/DELETE /api/admin/pages*` | `invalidatePages()` |
-| `POST/PUT/DELETE /api/admin/categories*` | `invalidateCategories()` |
-| `PUT /api/admin/sections/[id]` | `invalidatePages()` |
-| `POST/PUT/DELETE /api/admin/tables*` | `invalidateTables()` |
-| `PUT/POST/DELETE /api/admin/rich-text*` | `invalidatePages()` |
+| `POST/PUT/DELETE /api/admin/pages*`         | `invalidatePages()`                         |
+| `POST/PUT/DELETE /api/admin/categories*`    | `invalidateCategories()`                    |
+| `PUT /api/admin/sections/[id]`              | `invalidatePages()`                         |
+| `POST/PUT/DELETE /api/admin/tables*`        | `invalidateTables()`                        |
+| `PUT/POST/DELETE /api/admin/rich-text*`     | `invalidatePages()`                         |
+
 
 Note domain mutations must also invalidate pages: `getDomainWithPagesFromDB` is
 tagged with both `DOMAINS` and `PAGES`, and the navigation payload nests page lists
 inside domains.
 
 ---
+
+
 
 ## 🟡 6. `new PrismaClient()` Instead of the Singleton
 
@@ -676,6 +717,8 @@ Add a lint guard so it can't regress:
 client and calls `$disconnect()`.)
 
 ---
+
+
 
 ## 🟡 7. Dead Breadcrumb Work on Every Request
 
@@ -732,6 +775,8 @@ both `currentPage` and the breadcrumb labels.
 
 ---
 
+
+
 ## 🟡 8. `revalidate` and `force-dynamic` Contradict Each Other
 
 **Severity:** Medium (cosmetic, but actively misleading).
@@ -744,7 +789,7 @@ export const dynamic = 'force-dynamic';    // src/app/domain/[...slug]/page.tsx
 ```
 
 `force-dynamic` opts the route out of static generation entirely, so
-**`revalidate = 60` has no effect.** Every request renders fresh.
+`revalidate = 60` **has no effect.** Every request renders fresh.
 
 The behavior is *correct* — both pages read the `user-country` cookie via
 `getUserCountryFromCookies()`, and cookie-dependent pages genuinely cannot be
@@ -774,18 +819,22 @@ its own cacheable path. That's a larger change — worth its own task.
 
 ---
 
+
+
 ## 🟡 9. Deprecated APIs/Hooks Still Shipping — and a Deletion Trap
 
 **Severity:** Medium — tech debt with a build-breaking landmine.
 
 Per `REORDERED-EXECUTION-PLAN.md` Step 2, these were marked deprecated but kept:
 
-| Deprecated API route | Deprecated hook |
-|---|---|
-| `src/app/api/header-domains/route.ts` | `src/hooks/useHeaderData.ts` |
-| `src/app/api/sidebar/route.ts` | `src/hooks/useSidebarData.ts` |
-| `src/app/api/page-sidebar/route.ts` | `src/hooks/usePageSidebarData.ts` |
-| `src/app/api/breadcrumb/route.ts` | `src/hooks/useBreadcrumbData.ts` |
+
+| Deprecated API route                  | Deprecated hook                   |
+| ------------------------------------- | --------------------------------- |
+| `src/app/api/header-domains/route.ts` | `src/hooks/useHeaderData.ts`      |
+| `src/app/api/sidebar/route.ts`        | `src/hooks/useSidebarData.ts`     |
+| `src/app/api/page-sidebar/route.ts`   | `src/hooks/usePageSidebarData.ts` |
+| `src/app/api/breadcrumb/route.ts`     | `src/hooks/useBreadcrumbData.ts`  |
+
 
 The API routes are still **live, publicly reachable endpoints** — 4 extra bits of
 attack surface with their own (older, unaudited) query logic. `api/page-sidebar`
@@ -813,11 +862,13 @@ import type { SidebarDomain } from '@/hooks/usePageContext';
 import type { SidebarPage } from '@/hooks/usePageContext';
 ```
 
+
+
 ### Recommended order
 
 1. Repoint the two type imports to `@/hooks/usePageContext`
 2. `grep -rn "useHeaderData\|useSidebarData\|usePageSidebarData\|useBreadcrumbData" src/`
-   → confirm zero remaining references
+  → confirm zero remaining references
 3. Delete the 4 hooks
 4. Delete the 4 API route files
 5. Run `npm run build` to confirm
@@ -827,20 +878,24 @@ production — the "keep for reference" window has passed. Git history preserves
 
 ---
 
+
+
 ## 🟢 10. `console.log` in Hot Render Paths
 
 **Severity:** Low, but one instance is a real performance issue.
 
 16 `console.log` statements remain across 7 files:
 
-| File | Note |
-|---|---|
-| `src/components/table/DataTable.tsx:124` | ⚠️ **Inside the cell renderer** — fires **per cell** for every description column, on every render, sort, filter, and paginate |
-| `src/components/admin/layout/AdminSidebar.tsx:113` | `console.log("pathname", pathname)` on every admin navigation |
-| `src/components/domain/TableLayout.tsx` | Commented-out logs + **~500 lines of pasted JSON sample output** in comments |
-| `src/app/api/page-sidebar/route.ts` | Commented debug blocks (file is deprecated → delete per #9) |
-| `src/hooks/usePageSidebarData.ts` | Deprecated → delete per #9 |
-| `src/hooks/useUserCountry.ts`, `src/components/auth/LogoutButton.tsx` | Minor |
+
+| File                                                                  | Note                                                                                                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `src/components/table/DataTable.tsx:124`                              | ⚠️ **Inside the cell renderer** — fires **per cell** for every description column, on every render, sort, filter, and paginate |
+| `src/components/admin/layout/AdminSidebar.tsx:113`                    | `console.log("pathname", pathname)` on every admin navigation                                                                  |
+| `src/components/domain/TableLayout.tsx`                               | Commented-out logs + **~500 lines of pasted JSON sample output** in comments                                                   |
+| `src/app/api/page-sidebar/route.ts`                                   | Commented debug blocks (file is deprecated → delete per #9)                                                                    |
+| `src/hooks/usePageSidebarData.ts`                                     | Deprecated → delete per #9                                                                                                     |
+| `src/hooks/useUserCountry.ts`, `src/components/auth/LogoutButton.tsx` | Minor                                                                                                                          |
+
 
 The `DataTable` one is worst:
 
@@ -874,6 +929,8 @@ if (process.env.NODE_ENV === 'development') console.log(...)
 
 ---
 
+
+
 ## 🟢 11. Database Write During Page Render
 
 **Severity:** Low — design smell with a small race.
@@ -884,16 +941,19 @@ if (process.env.NODE_ENV === 'development') console.log(...)
 const mainPage = await PageService.getOrCreateMainPage(domain.id, domain.name);
 ```
 
-This **creates a `Page` row** if `__main__` is missing. Because the route is
+This **creates a** `Page` **row** if `__main__` is missing. Because the route is
 `force-dynamic`, it runs on **every** visit to any direct-domain root.
 
 Problems:
+
 - A read request mutates data (surprising; breaks GET idempotency)
 - Two concurrent first-hits can both pass the `findFirst` check and both insert —
-  there's no unique constraint on `(domainId, slug)` to stop a duplicate `__main__`
+there's no unique constraint on `(domainId, slug)` to stop a duplicate `__main__`
 - It masks the real bug: `__main__` should always already exist, created by
-  `POST /api/admin/domains` and by the `hierarchical → direct` switch in
-  `PATCH /api/admin/domains/[id]`
+`POST /api/admin/domains` and by the `hierarchical → direct` switch in
+`PATCH /api/admin/domains/[id]`
+
+
 
 ### Fix
 
@@ -908,20 +968,23 @@ if (!mainPage) {
 ```
 
 Then guarantee the invariant elsewhere:
+
 1. Add a unique constraint so duplicates become impossible:
-   ```prisma
+  ```prisma
    model Page {
      @@unique([domainId, slug, parentId])   // verify against existing data first
    }
-   ```
+  ```
    (Careful: Postgres treats `NULL`s as distinct in unique constraints, so root-level
    pages with `parentId = NULL` won't be covered. A partial unique index on
    `(domainId, slug) WHERE slug = '__main__'` is the precise fix.)
 2. Add a repair check to `HealthCheck` on the admin dashboard: list direct domains
-   missing `__main__`, with a one-click fix.
+  missing `__main__`, with a one-click fix.
 3. Keep `getOrCreateMainPage` but call it only from admin write paths.
 
 ---
+
+
 
 ## 🟢 12. `/api/debug/cache-test` Is Open in Production
 
@@ -953,6 +1016,8 @@ Once `/api/admin/*` is protected (#1), moving it to `/api/admin/debug/cache-test
 also works and keeps it usable against production data when logged in as admin.
 
 ---
+
+
 
 ## 🟢 13. No `robots.txt` or `sitemap.xml`
 
@@ -995,24 +1060,26 @@ Disallow: /
 > `allow: '/'`. Do not copy that version — it was wrong in a way that would have
 > *damaged* SEO:
 >
-> **1. A blanket `Disallow: /api/` hides table content from Google.** Googlebot renders
+> **1. A blanket** `Disallow: /api/` **hides table content from Google.** Googlebot renders
 > JavaScript, but it re-checks `robots.txt` for every subresource it fetches during
 > rendering. Two **public** endpoints are fetched client-side:
 >
-> | Endpoint | Called from | What breaks if blocked |
-> |---|---|---|
-> | `/api/domain/tables/by-page/[pageId]` | `TableLayout.tsx:51` | **The entire contents of every `table` page.** The rows *are* the content — Google would see an empty shell. |
-> | `/api/page-context` | `usePageContext.ts:393,553` | Sidebar + header nav → Googlebot can't follow internal links to deeper pages. |
+>
+> | Endpoint                              | Called from                 | What breaks if blocked                                                                                           |
+> | ------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+> | `/api/domain/tables/by-page/[pageId]` | `TableLayout.tsx:51`        | **The entire contents of every** `table` **page.** The rows *are* the content — Google would see an empty shell. |
+> | `/api/page-context`                   | `usePageContext.ts:393,553` | Sidebar + header nav → Googlebot can't follow internal links to deeper pages.                                    |
+>
 >
 > Hence the two `Allow:` lines. Google resolves Allow/Disallow conflicts by
 > **longest matching path**, not file order: `/api/domain/` (12 chars) beats `/api/`
 > (5 chars). Next.js emits `Allow` before `Disallow` anyway, which also satisfies
 > simpler first-match crawlers.
 >
-> **2. `/header1` was missing from the list.** `src/app/header1/page.tsx` is the stock
+> **2.** `/header1` **was missing from the list.** `src/app/header1/page.tsx` is the stock
 > shadcn/Radix `NavigationMenu` demo — placeholder copy ("Alert Dialog", "Hover Card")
-> and dead links to `/docs/primitives/*` — and it is **live and crawlable on
-> `atno.io`**. Blocked here as a stopgap; it should be **deleted** (added to Phase C).
+> and dead links to `/docs/primitives/*` — and it is **live and crawlable on**
+> `atno.io`. Blocked here as a stopgap; it should be **deleted** (added to Phase C).
 
 **Design note — blanket-block plus whitelist, not an itemised list.** `Disallow: /api/`
 means a route added next month is private by default. Itemising the current routes
@@ -1022,23 +1089,25 @@ instead would mean every new endpoint is crawlable until someone remembers to ad
 every redirect, so without this a crawler can burn budget on dozens of URLs that all
 render the same form.
 
-> ⚠️ **`Sitemap:` currently points at a 404** — `sitemap.ts` is commit 4. Consequence
+> ⚠️ `Sitemap:` **currently points at a 404** — `sitemap.ts` is commit 4. Consequence
 > is one "Sitemap could not be read" warning in Search Console, which clears itself.
 > Included now on purpose: crawlers re-read `robots.txt` roughly daily, so a line
 > that's briefly wrong beats one we forget to add.
 
-**Two things `robots.txt` does *not* do** — both worth internalising, because it's easy
+**Two things** `robots.txt` **does *not* do** — both worth internalising, because it's easy
 to assume otherwise:
 
 1. **It is not security.** It's a voluntary request. A malicious scraper ignores it.
-   And it's a *public file*, so everything listed above is now advertised. That is
+  And it's a *public file*, so everything listed above is now advertised. That is
    precisely why #1 had to ship first — publishing "the admin panel is at `/admin`" is
    fine once those routes are 401-guarded, and would have been an invitation before.
-2. **`Disallow` is not `noindex`.** If another site links to a blocked URL, Google can
-   still list the bare URL with no snippet — it sees the link, just not the content.
+2. `Disallow` **is not** `noindex`**.** If another site links to a blocked URL, Google can
+  still list the bare URL with no snippet — it sees the link, just not the content.
    Keeping something genuinely *out* of the index needs `robots: { index: false }` in
    page metadata, which is a different mechanism (#14 / SEO-A, for geo-restricted
    pages).
+
+
 
 ### ✅ Fix — `src/app/sitemap.ts` — **[x] DONE** (Phase A commit 5)
 
@@ -1067,23 +1136,23 @@ depth 4:   69   /domain/webdev/withcode/definingservices/portfoliowebsite
 
 **Two correctness details that only show up at depth:**
 
-- **A page is only public if its ENTIRE ancestor chain is `ALL`-targeted.** When a
-  parent is missing from the filtered set, `buildPagePath` returns `null` and the page
-  is dropped. `PageService.getByPath` applies the same country filter and then walks
-  segment by segment — so an invisible intermediate page makes its children 404 even
-  when the children themselves are global. A naive filter checking only the page's own
-  `targetCountries` would list URLs that cannot be reached.
+- **A page is only public if its ENTIRE ancestor chain is** `ALL`**-targeted.** When a
+parent is missing from the filtered set, `buildPagePath` returns `null` and the page
+is dropped. `PageService.getByPath` applies the same country filter and then walks
+segment by segment — so an invisible intermediate page makes its children 404 even
+when the children themselves are global. A naive filter checking only the page's own
+`targetCountries` would list URLs that cannot be reached.
 - **Cycle guard.** `parentId` is a plain self-relation with no constraint preventing a
-  page being its own ancestor. One corrupt row would spin the traversal forever and
-  hang `next build`. A `Set` of visited ids bounds it.
+page being its own ancestor. One corrupt row would spin the traversal forever and
+hang `next build`. A `Set` of visited ids bounds it.
 
-**`export const revalidate = 3600`.** Without this, Next renders the sitemap once at
+`export const revalidate = 3600`**.** Without this, Next renders the sitemap once at
 build time and serves that snapshot forever — silently omitting every domain and page
 added through the admin panel since the last deploy. The query is also wrapped in
 `try/catch` returning the single static entry, because `revalidate` means this runs
 during `next build`: an unreachable database would otherwise fail the whole deploy.
 
-**✅ `lastModified` — now emitted on all 1198 entries** (added 27 Jul 2026).
+**✅** `lastModified` **— now emitted on all 1198 entries** (added 27 Jul 2026).
 
 Originally omitted because it could not be computed honestly: `Page` and `Domain` had
 only `createdAt`. Migration `20260727140000_add_updated_at` added the column — see
@@ -1102,7 +1171,7 @@ Verified date distribution — a real spread, not one artificial spike:
 renaming or unpublishing a domain genuinely changes what that page renders. It is set
 *after* the query so the static entry still survives an unreachable database.
 
-> ⚠️ **`Page.updatedAt` alone was NOT enough — and this was nearly shipped wrong.**
+> ⚠️ `Page.updatedAt` **alone was NOT enough — and this was nearly shipped wrong.**
 >
 > An earlier revision of this document called it a "known limitation" affecting some
 > pages, and said it "understates freshness, which is the safe direction". **Both
@@ -1171,10 +1240,12 @@ actually penalises, and each child has its own accurate entry regardless.
 
 **Two fields still deliberately omitted:**
 
-| Field | Why |
-|---|---|
+
+| Field             | Why                                            |
+| ----------------- | ---------------------------------------------- |
 | `changeFrequency` | Google's documentation states it ignores this. |
-| `priority` | Likewise ignored. |
+| `priority`        | Likewise ignored.                              |
+
 
 Both were in the plan below. Omitted for the same reason meta keywords were rejected:
 **a tag the major engines ignore is not harmless extra signal, it is noise that implies
@@ -1184,6 +1255,8 @@ a control you do not have.**
 correct; `generateSitemaps()` splits it if the catalogue ever approaches the limit.
 
 ---
+
+
 
 ### Original plan (for reference — see the corrections above)
 
@@ -1219,13 +1292,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 }
 ```
 
-> ⚠️ **Only include `targetCountries: ['ALL']` content.** A sitemap is a single
+> ⚠️ **Only include** `targetCountries: ['ALL']` **content.** A sitemap is a single
 > global document with no country context — listing geo-restricted URLs would
 > advertise content that then 404s for most visitors, which hurts crawl quality.
 >
 > ⚠️ Nested `hierarchical` paths (`/domain/webdev/withcode/ytube`) need parent-chain
 > resolution to build correctly. The query above only emits depth-1 pages; extend it
 > using the same traversal logic as `generatePagePreviewUrl` if deeper URLs matter.
+
+
 
 ### Also required — block crawlers on preview deployments
 
@@ -1243,6 +1318,8 @@ export default function robots(): MetadataRoute.Robots {
 }
 ```
 
+
+
 ### Also required — canonicalise the duplicate hostname
 
 **TODO:** `atno.io` and `nested-two.vercel.app` both serve the *same* production
@@ -1253,15 +1330,15 @@ every page twice and split ranking signals between the two hostnames.
 Two options, do at least the first:
 
 1. **Declare the canonical origin** — one line, fixes canonical tags site-wide:
-   ```typescript
+  ```typescript
    // src/app/layout.tsx
    export const metadata: Metadata = {
      metadataBase: new URL('https://atno.io'),
      // ...
    }
-   ```
+  ```
 2. **Redirect the alias** — Vercel → Settings → Domains → set
-   `nested-two.vercel.app` to redirect to `atno.io`. Cleanest outcome. Worth first
+  `nested-two.vercel.app` to redirect to `atno.io`. Cleanest outcome. Worth first
    checking whether that alias is still needed at all.
 
 Pair all of this with **Task 7.3 (SEO metadata)** — a sitemap pointing at pages with
@@ -1271,6 +1348,8 @@ currently has **exactly one** `metadata` export (`src/app/layout.tsx`) and **zer
 dedicated SEO section for the full picture.
 
 ---
+
+
 
 ## 🟠 14. SEO — Every Page Serves the Same Title
 
@@ -1301,31 +1380,37 @@ much as fixing this one thing.**
 
 ---
 
+
+
 ### ✅ SEO-A — the core fix — **[x] DONE** (Phase A commit 3)
 
 Verified by reading the rendered `<head>` of a running production build, not by
 inspecting the source. Sample:
 
-| URL | `<title>` | canonical |
-|---|---|---|
-| `/domain` | `Domains · ATNO` | `https://atno.io/domain` |
-| `/domain/gdesign` | `Graphic Designing · ATNO` | `https://atno.io/domain/gdesign` |
-| `/domain/aimldl/ytube` | `YouTube Channels · AI \| ML \| DL [ Traditional ] · ATNO` | `https://atno.io/domain/aimldl/ytube` |
-| `/login` | `ATNO — Domain Explorer` *(layout default)* | *(none — correct)* |
+
+| URL                    | `<title>`                                                | canonical                             |
+| ---------------------- | -------------------------------------------------------- | ------------------------------------- |
+| `/domain`              | `Domains · ATNO`                                         | `https://atno.io/domain`              |
+| `/domain/gdesign`      | `Graphic Designing · ATNO`                               | `https://atno.io/domain/gdesign`      |
+| `/domain/aimldl/ytube` | `YouTube Channels · AI | ML | DL [ Traditional ] · ATNO` | `https://atno.io/domain/aimldl/ytube` |
+| `/login`               | `ATNO — Domain Explorer` *(layout default)*              | *(none — correct)*                    |
+
 
 Full tag set now emitted on every public page: `title`, `description`, `canonical`,
 `og:title`, `og:description`, `og:url`, `og:site_name`, `og:locale`, `og:type`,
 `twitter:card`, `twitter:title`, `twitter:description`.
 
-New shared module **`src/lib/seo.ts`**: `SITE_NAME`, `SITE_URL`, `TITLE_SEPARATOR`,
+New shared module `src/lib/seo.ts`: `SITE_NAME`, `SITE_URL`, `TITLE_SEPARATOR`,
 `stripEmoji`, `truncate`, `htmlToText`, `isGloballyIndexable`, `buildOpenGraph`,
 `buildTwitter`. `sitemap.ts` (commit 4) reuses it.
 
 ---
 
+
+
 #### ⚠️ Three things the plan got wrong — found only by inspecting the output
 
-**1. Next.js merges metadata SHALLOWLY. A page's `openGraph` REPLACES the layout's.**
+**1. Next.js merges metadata SHALLOWLY. A page's** `openGraph` **REPLACES the layout's.**
 
 This is the one that would have shipped broken. The plan had the layout declare
 `type`/`siteName`/`locale` once, with pages adding only `title`/`description`/`url`.
@@ -1344,7 +1429,7 @@ call sites go through them. A page can no longer partially specify one.
 **Generalisable lesson:** metadata correctness is not visible in the source. Read the
 rendered `<head>`.
 
-**2. `|` is unusable as a title separator — 6 domain names already contain pipes.**
+**2.** `|` **is unusable as a title separator — 6 domain names already contain pipes.**
 
 ```
 🌻 AI | ML | DL [ Traditional ]     🥽 AR | VR | MR | XR Developer
@@ -1374,6 +1459,8 @@ One deliberate non-removal: keycaps. `Step 1️⃣ Setup` → `Step 1 Setup`, no
 
 ---
 
+
+
 #### 📊 Reality check — there is currently NO geo-restricted content
 
 Queried directly against production data:
@@ -1390,15 +1477,18 @@ Pages   with targetCountries != ["ALL"]  →  0
 > at the **table-row** level, which per the geo decision record has no SEO cost at all.
 >
 > Consequences:
+>
 > - The `robots: { index: false }` guard is **a no-op today**. It is still correct to
->   have — it applies automatically the moment someone sets a country in the admin UI,
->   which is exactly when it would otherwise be forgotten.
+> have — it applies automatically the moment someone sets a country in the admin UI,
+> which is exactly when it would otherwise be forgotten.
 > - **Option A is currently free, not a compromise.** Nothing is being withheld from
->   the index, because nothing is geo-restricted at a level that affects URLs.
+> the index, because nothing is geo-restricted at a level that affects URLs.
 > - Verified instead by unit-checking `isGloballyIndexable()` across all combinations
->   (ALL/ALL, ALL/US, US/ALL, empty, undefined) rather than against live data.
+> (ALL/ALL, ALL/US, US/ALL, empty, undefined) rather than against live data.
 
 ---
+
+
 
 #### ✅ A4. Brand icons + share image — **[x] DONE** (Phase A commit 4)
 
@@ -1409,13 +1499,15 @@ at it.
 
 **Installed:**
 
-| Path | Source | Purpose |
-|---|---|---|
-| `src/app/favicon.ico` | `favicon-black-disc` | Tab icon. File convention → hashed URL |
-| `src/app/apple-icon.png` | `favicon-black-disc` (180×180) | iOS "Add to Home Screen" |
-| `public/icon-light.png` | `favicon-black-glyph` → 192×192 | `prefers-color-scheme: light` |
-| `public/icon-dark.png` | `only-icon-whitecolor-transparent` → 192×192 | `prefers-color-scheme: dark` |
-| `public/og-image.png` | horizontal logo → 1200×630 | Open Graph + Twitter card |
+
+| Path                     | Source                                       | Purpose                                |
+| ------------------------ | -------------------------------------------- | -------------------------------------- |
+| `src/app/favicon.ico`    | `favicon-black-disc`                         | Tab icon. File convention → hashed URL |
+| `src/app/apple-icon.png` | `favicon-black-disc` (180×180)               | iOS "Add to Home Screen"               |
+| `public/icon-light.png`  | `favicon-black-glyph` → 192×192              | `prefers-color-scheme: light`          |
+| `public/icon-dark.png`   | `only-icon-whitecolor-transparent` → 192×192 | `prefers-color-scheme: dark`           |
+| `public/og-image.png`    | horizontal logo → 1200×630                   | Open Graph + Twitter card              |
+
 
 Rendered `<head>`, verified against a running production build:
 
@@ -1430,17 +1522,19 @@ All five assets return 200. `twitter:card` upgraded `summary` → `summary_large
 
 **Why two icon variants.** Read from the alpha channel rather than assumed:
 
-| Set | Corner | Artwork | Light tab strip | Dark tab strip |
-|---|---|---|---|---|
-| `favicon-black-disc` | transparent | black disc, **white** mark | ✅ | ✅ white mark shows |
-| `favicon-black-glyph` | transparent | **black** mark, no disc | ✅ crisp | ❌ near-invisible |
+
+| Set                   | Corner      | Artwork                    | Light tab strip | Dark tab strip     |
+| --------------------- | ----------- | -------------------------- | --------------- | ------------------ |
+| `favicon-black-disc`  | transparent | black disc, **white** mark | ✅               | ✅ white mark shows |
+| `favicon-black-glyph` | transparent | **black** mark, no disc    | ✅ crisp         | ❌ near-invisible   |
+
 
 `black-glyph` is the sharper icon but disappears on Chrome's dark tab strip
 (`#35363a`). Hence the `media` split, with `black-disc` as the `.ico` fallback for
 anything that ignores `media` — it is self-contained and legible either way.
 
-> ⚠️ **`icons.apple` must be declared explicitly even though
-> `src/app/apple-icon.png` exists.** Defining any `icons` object in metadata
+> ⚠️ `icons.apple` **must be declared explicitly even though**
+> `src/app/apple-icon.png` **exists.** Defining any `icons` object in metadata
 > **suppresses** the file-convention `<link rel="apple-touch-icon">` — while
 > inconsistently leaving the `favicon.ico` tag in place. The file is still built and
 > still served at `/apple-icon.png`, but nothing in the HTML points at it, so iOS
@@ -1473,13 +1567,15 @@ square X card.
 > ⚠️ **Link previews are cached per URL, per platform, and mostly cannot be purged.**
 > After deploying, `atno.io` may show the old preview for days. That is not a bug.
 >
-> | Platform | Behaviour |
-> |---|---|
-> | WhatsApp | Effectively permanent per URL |
-> | Teams | Aggressive; no public purge tool |
-> | X | Card Validator retired; self-clears in days |
+>
+> | Platform | Behaviour                                                                   |
+> | -------- | --------------------------------------------------------------------------- |
+> | WhatsApp | Effectively permanent per URL                                               |
+> | Teams    | Aggressive; no public purge tool                                            |
+> | X        | Card Validator retired; self-clears in days                                 |
 > | LinkedIn | [Post Inspector](https://www.linkedin.com/post-inspector/) forces a refresh |
-> | Facebook | Sharing Debugger forces a refresh |
+> | Facebook | Sharing Debugger forces a refresh                                           |
+>
 >
 > To see the real result immediately, test a cache-busting URL: `atno.io/?v=2` is a
 > completely different URL to every one of these.
@@ -1507,6 +1603,8 @@ trailing brand is correct.
 > `metadata.title`. Without setting it explicitly, search would have shown the full
 > brand-led title while chat previews showed a bare "Domains".
 
+
+
 #### 🗂️ Design assets consolidated
 
 `favicon_io (1)`, `favicon_io (2)` and `atno logo images` (30 files, 4.9 MB) were
@@ -1515,6 +1613,8 @@ Now `design/favicon-black-disc/`, `design/favicon-black-glyph/`, `design/logo/` 
 committed, so the source artwork is versioned with the project.
 
 ---
+
+
 
 #### 📏 Open item — some generated titles exceed Google's display budget
 
@@ -1538,7 +1638,11 @@ it prefixes every title in that domain. Truncating in code would just discard ke
 
 ---
 
+
+
 ### SEO-A — original plan (for reference)
+
+
 
 #### ✅ A0. Root redirect: 307 → 308 — **[x] DONE** (shipped with commit 2)
 
@@ -1566,7 +1670,7 @@ location: /domain
 > part *can* be cleared by a redeploy.
 >
 > Acceptable now, since `/` has no content and no plan for any. **Revisit before
-> putting anything at `/`:** switch back to `redirect()` first and accept the weaker
+> putting anything at** `/`**:** switch back to `redirect()` first and accept the weaker
 > SEO signal in exchange for staying reversible.
 
 **Better long-term:** no redirect at all — serve the domain listing at `/` directly, or
@@ -1618,6 +1722,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 > **Emoji in titles.** DB titles carry emoji (`▶️ YouTube Channel`,
 > `🖌️ Graphic Designing`). Valid in a `<title>`, but Google usually strips them from
 > results and they eat character budget. Strip them for metadata, keep them in the UI:
+>
 > ```typescript
 > const stripEmoji = (s: string) =>
 >   s.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}️]/gu, '').trim()
@@ -1677,6 +1782,8 @@ See #13 — including the `VERCEL_ENV` preview guard and the sitemap's
 
 ---
 
+
+
 ### ❌ Decided against — `<meta name="keywords">`
 
 **Not added, deliberately.** Recorded so it isn't revisited.
@@ -1697,28 +1804,34 @@ For the record, had we added it: `keywords: ['a', 'b']` in any `Metadata` object
 **What replaced it.** Search engines moved from keyword *declarations* to keyword
 *evidence*:
 
-| Signal | Status | Where we stand |
-|---|---|---|
-| `<title>` | Strongest on-page factor | ✅ #14 SEO-A |
-| Real body text | What Google actually reads | ⚠️ **The genuine gap** — mostly link lists |
-| `<h1>` / headings | Strong | ✅ Already present |
-| JSON-LD structured data | Enables rich results | ❌ Open — SEO-B below |
-| Internal links + sitemap | Discovery + importance | ✅ #13 |
-| `<meta keywords>` | **Ignored since 2009** | ❌ Not adding |
+
+| Signal                   | Status                     | Where we stand                             |
+| ------------------------ | -------------------------- | ------------------------------------------ |
+| `<title>`                | Strongest on-page factor   | ✅ #14 SEO-A                                |
+| Real body text           | What Google actually reads | ⚠️ **The genuine gap** — mostly link lists |
+| `<h1>` / headings        | Strong                     | ✅ Already present                          |
+| JSON-LD structured data  | Enables rich results       | ❌ Open — SEO-B below                       |
+| Internal links + sitemap | Discovery + importance     | ✅ #13                                      |
+| `<meta keywords>`        | **Ignored since 2009**     | ❌ Not adding                               |
+
 
 The same reasoning retired `changeFrequency` and `priority` from `sitemap.ts`.
 
 ### SEO-B — later, lower priority
 
-| Item | Why | Note |
-|---|---|---|
-| JSON-LD `BreadcrumbList` | Puts breadcrumb trails into search results — a realistic win for a deeply nested site | Data already exists in `buildBreadcrumbData` (currently orphaned, see #7 — this is the use case that justifies keeping it) |
-| JSON-LD `Organization` | Brand entity on the home page | Small |
-| `next/image` for `NarrativeLayout.tsx:104` | Raw `<img>` has no `width`/`height` → layout shift. **CLS is a ranking signal.** | Also gets automatic format/size optimization |
-| Static rendering | `force-dynamic` means no cached HTML and a DB hit on every crawl → slow TTFB | **Blocked on the geo decision below** |
-| Real page content | See the caveat at the end of this section | Product work, not code |
+
+| Item                                       | Why                                                                                   | Note                                                                                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| JSON-LD `BreadcrumbList`                   | Puts breadcrumb trails into search results — a realistic win for a deeply nested site | Data already exists in `buildBreadcrumbData` (currently orphaned, see #7 — this is the use case that justifies keeping it) |
+| JSON-LD `Organization`                     | Brand entity on the home page                                                         | Small                                                                                                                      |
+| `next/image` for `NarrativeLayout.tsx:104` | Raw `<img>` has no `width`/`height` → layout shift. **CLS is a ranking signal.**      | Also gets automatic format/size optimization                                                                               |
+| Static rendering                           | `force-dynamic` means no cached HTML and a DB hit on every crawl → slow TTFB          | **Blocked on the geo decision below**                                                                                      |
+| Real page content                          | See the caveat at the end of this section                                             | Product work, not code                                                                                                     |
+
 
 ---
+
+
 
 ### 🌍 Geo-Targeting × SEO — Decision Record
 
@@ -1736,7 +1849,7 @@ Googlebot requests /domain/x
   → buildCountryFilter('US') → only ALL + US content is visible
 ```
 
-**Any domain or page targeted exclusively at `IN` / `GB` / `AU` / `CA` is permanently
+**Any domain or page targeted exclusively at** `IN` **/** `GB` **/** `AU` **/** `CA` **is permanently
 invisible to search.** This is not hypothetical — the live site has India-specific
 content (e.g. "Dropshipping (Indian)").
 
@@ -1746,17 +1859,21 @@ Option B below.
 
 ---
 
+
+
 #### ✅ Option A — Index the global view only *(chosen)*
 
 **How it works.** Change nothing about routing. Crawlers see the `ALL` + `US` view.
 The sitemap lists **only** `targetCountries: ['ALL']` URLs, and `generateMetadata`
 emits `robots: { index: false, follow: true }` for anything else.
 
-| | |
-|---|---|
-| **Indexed** | All `ALL`-targeted content — the large majority |
-| **Not indexed** | Anything exclusively `IN`/`GB`/`AU`/`CA` |
-| **Work** | Sitemap filter + the `isGlobal` check in A1. Effectively zero. |
+
+|                 |                                                                |
+| --------------- | -------------------------------------------------------------- |
+| **Indexed**     | All `ALL`-targeted content — the large majority                |
+| **Not indexed** | Anything exclusively `IN`/`GB`/`AU`/`CA`                       |
+| **Work**        | Sitemap filter + the `isGlobal` check in A1. Effectively zero. |
+
 
 **⚠️ The wrinkle this solves.** Because the crawler's default country is `US`,
 US-only pages *are* reachable and indexable via internal links even though they're
@@ -1769,6 +1886,8 @@ just convenient. Don't skip it.
 catalogue, or when organic traffic from a non-US market becomes a goal.
 
 ---
+
+
 
 #### Option B — Country in the URL path
 
@@ -1801,18 +1920,20 @@ All content is English, so this is region-only differentiation — exactly what
 `hreflang` region codes exist for.
 
 **What you gain**
+
 - Every geo variant is independently indexable and correctly region-targeted
-- **`force-dynamic` can be removed.** No cookie dependency → pages become
-  statically renderable → real ISR, cached HTML, fast TTFB. This also resolves #8
-  and much of the SEO-B performance list.
+- `force-dynamic` **can be removed.** No cookie dependency → pages become
+statically renderable → real ISR, cached HTML, fast TTFB. This also resolves #8
+and much of the SEO-B performance list.
 - Users can share a country-specific link that actually stays country-specific
 
 **What it costs**
+
 - **Every internal link must carry the country prefix.** That means
-  `navigation.service.ts` (all URL building), `SectionBasedLayout`,
-  `SubcategorySelector`, `PageSidebar`, `SidebarDomain`, `bread.tsx`, and
-  `generatePagePreviewUrl` in the admin pages API.
-- **URL migration.** Existing `/domain/*` URLs need 301s to preserve accrued authority
+`navigation.service.ts` (all URL building), `SectionBasedLayout`,
+`SubcategorySelector`, `PageSidebar`, `SidebarDomain`, `bread.tsx`, and
+`generatePagePreviewUrl` in the admin pages API.
+- **URL migration.** Existing `/domain/`* URLs need 301s to preserve accrued authority
 - Sitemap grows ~5× (countries × pages)
 - `hreflang` must be reciprocal and complete, or Google ignores the whole cluster
 - Admin UX has to start thinking in country terms
@@ -1820,6 +1941,8 @@ All content is English, so this is region-only differentiation — exactly what
 **Effort:** multi-day refactor. Justified only if geo content becomes central.
 
 ---
+
+
 
 #### ❌ Option C — Detect the crawler and serve it everything
 
@@ -1832,16 +1955,20 @@ normal. Special-casing the *bot* is what crosses the line.
 
 ---
 
+
+
 #### Option D — Make geo additive instead of exclusive *(worth considering)*
 
 **How it works.** A product change rather than a routing change: stop *hiding*
 geo-restricted content. Show everything to everyone, and let `targetCountries` drive
 **ordering, grouping, or a badge** ("Popular in India") instead of visibility.
 
-| | |
-|---|---|
+
+|          |                                                                                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Gain** | The SEO problem disappears entirely — nothing is hidden, so nothing is unindexable. No URL refactor, no `hreflang`, no migration. `force-dynamic` could arguably go too. |
-| **Cost** | Changes what the product *means*. Only viable if geo-targeting is about relevance, not restriction. |
+| **Cost** | Changes what the product *means*. Only viable if geo-targeting is about relevance, not restriction.                                                                      |
+
 
 **Worth an explicit answer before ever committing to Option B:** is
 `targetCountries` there because Indian users shouldn't *see* US content, or because
@@ -1849,6 +1976,8 @@ Indian users should see Indian content *first*? If it's the latter, Option D is
 dramatically cheaper than B and strictly better for SEO.
 
 ---
+
+
 
 ### ⚠️ Honest caveat on what SEO work will and won't achieve
 
@@ -1864,6 +1993,8 @@ intro paragraphs, context, why these particular resources were chosen.
 Stated plainly so the outcome matches the expectation.
 
 ---
+
+
 
 ## 🟡 15. Geo Implementation — What's Intentional vs What's Broken
 
@@ -1887,11 +2018,11 @@ row targetCountries values:  ALL        5683   70.6%
 machinery is built and correct; nothing exercises it. Two consequences:
 
 1. **There is no migration cost to any geo strategy.** The decision below is
-   forward-looking only.
-2. **The `isGloballyIndexable` / `noindex` guard is inert today** — correctly so. It
-   activates automatically the first time a country is set in the admin UI.
+  forward-looking only.
+2. **The** `isGloballyIndexable` **/** `noindex` **guard is inert today** — correctly so. It
+  activates automatically the first time a country is set in the admin UI.
 
-**✅ The 2367 rows with no `targetCountries` value are safe.** `filterRowsByCountry`
+**✅ The 2367 rows with no** `targetCountries` **value are safe.** `filterRowsByCountry`
 opens with `if (!targetCountries) return true`, so a missing value means "visible to
 everyone" — the same as `ALL`. These rows predate the geo feature. No action needed.
 
@@ -1909,12 +2040,14 @@ site invisible to search: the exact opposite of the intent.
 
 Supporting reasons:
 
-| | |
-|---|---|
+
+|                             |                                                                                                                                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Authority concentration** | Google ranks URLs. One `/domain/ecommerce/websites` consolidates every link, share and click worldwide. Five country variants means five weak URLs competing, with Google picking one canonical and discarding the rest. |
-| **Near-duplicates** | IN/US/AU variants of the same page with ~80% identical structure is textbook duplicate content. |
-| **Crawl budget** | 1198 URLs × 5 countries ≈ 6,000, of which ~80% would be unindexable or duplicative. |
-| **Row filtering is free** | Rows are not URLs. Varying them by visitor location is locale-adaptive serving — documented and supported. Zero SEO cost. |
+| **Near-duplicates**         | IN/US/AU variants of the same page with ~80% identical structure is textbook duplicate content.                                                                                                                          |
+| **Crawl budget**            | 1198 URLs × 5 countries ≈ 6,000, of which ~80% would be unindexable or duplicative.                                                                                                                                      |
+| **Row filtering is free**   | Rows are not URLs. Varying them by visitor location is locale-adaptive serving — documented and supported. Zero SEO cost.                                                                                                |
+
 
 **The honest cost.** Row-level geo content is invisible to search: Googlebot sees the
 ALL + US view, so `IN`-only rows are never indexed. The site will not rank for
@@ -1922,10 +2055,12 @@ ALL + US view, so `IN`-only rows are never indexed. The site will not rank for
 
 That is the right trade, because the two systems work in sequence, not in competition:
 
-| | Job | Operates on |
-|---|---|---|
-| SEO | Win generic queries — "graphic design youtube channels" | The URL and its `<title>` |
-| Geo-filtering | Make the page useful once the visitor arrives | The rows inside it |
+
+|               | Job                                                     | Operates on               |
+| ------------- | ------------------------------------------------------- | ------------------------- |
+| SEO           | Win generic queries — "graphic design youtube channels" | The URL and its `<title>` |
+| Geo-filtering | Make the page useful once the visitor arrives           | The rows inside it        |
+
 
 **⚠️ An asymmetry worth knowing.** `buildCountryFilter('US')` → ALL + US, and that is
 what Googlebot sees:
@@ -1937,17 +2072,17 @@ rows tagged IN/GB/AU/CA  → never indexed ❌
 ```
 
 **US content is indexed for free; every other market's is not.** India is a target
-market, so Indian rows that should be discoverable in Google must be tagged **`ALL`**,
+market, so Indian rows that should be discoverable in Google must be tagged `ALL`,
 not `IN`. Reserve `IN` for rows that would be actively useless or misleading elsewhere.
 
 **Operating rules:**
 
-1. **Domains and pages: always `ALL`.** Each exception is a URL with zero organic
-   traffic, permanently.
+1. **Domains and pages: always** `ALL`**.** Each exception is a URL with zero organic
+  traffic, permanently.
 2. **Put all geo variation at row level.** Free, SEO-wise.
 3. The occasional country-specific page is fine — but it is invisible to search. If one
-   ever matters for growth, make it `ALL` and vary its rows instead.
-4. **Prefer `ALL` over a specific country** on any row you want indexed.
+  ever matters for growth, make it `ALL` and vary its rows instead.
+4. **Prefer** `ALL` **over a specific country** on any row you want indexed.
 
 This supersedes the "Open decisions → Geo strategy" entry: **Option A confirmed, and it
 is free rather than a compromise.** Option B (country-in-URL) would only become
@@ -1962,27 +2097,33 @@ resources that are useful *in their market*.
 
 Canonical examples, in the owner's words:
 
-| Content | `targetCountries` | Why |
-|---|---|---|
-| Ecommerce domain → "Ecommerce Websites" table → an Indian store | `IN` | Only useful to Indian visitors |
-| Same table → an American store | `US` | Only useful to US visitors |
-| Graphic Design domain → "Tools" table → Photoshop | `ALL` | Universal — everyone uses it |
+
+| Content                                                         | `targetCountries` | Why                            |
+| --------------------------------------------------------------- | ----------------- | ------------------------------ |
+| Ecommerce domain → "Ecommerce Websites" table → an Indian store | `IN`              | Only useful to Indian visitors |
+| Same table → an American store                                  | `US`              | Only useful to US visitors     |
+| Graphic Design domain → "Tools" table → Photoshop               | `ALL`             | Universal — everyone uses it   |
+
 
 **Two consequences that follow from "relevance, not restriction":**
 
 1. **It is safe for the client to specify its own country** (e.g. as a URL query
-   param). Someone hand-editing `country=IN` just sees Indian rows. There is no
+  param). Someone hand-editing `country=IN` just sees Indian rows. There is no
    privilege escalation and no data they shouldn't have. This is what makes the CDN
    fix in 15.1 possible — do not "harden" it later on principle.
 2. **Geo filtering is applied at three levels**, and they behave very differently:
 
-| Level | Code | On mismatch | Notes |
-|---|---|---|---|
-| Table row | `filterRowsByCountry()` | Row omitted, **page still renders 200** | The primary use case |
-| Page | `buildCountryFilter()` in `getByPath` | `notFound()` → **404** | Used in practice |
-| Domain | `isContentVisibleToUser()` | `notFound()` → **404** | Used in practice |
+
+| Level     | Code                                  | On mismatch                             | Notes                |
+| --------- | ------------------------------------- | --------------------------------------- | -------------------- |
+| Table row | `filterRowsByCountry()`               | Row omitted, **page still renders 200** | The primary use case |
+| Page      | `buildCountryFilter()` in `getByPath` | `notFound()` → **404**                  | Used in practice     |
+| Domain    | `isContentVisibleToUser()`            | `notFound()` → **404**                  | Used in practice     |
+
 
 ---
+
+
 
 ### ✅ Intentional — do not change
 
@@ -1994,7 +2135,7 @@ built for their country, so the country is detected and never offered as a choic
 > user has — so per-request detection stops being an optimisation and becomes the
 > safety net.
 
-**`DEFAULT_COUNTRY = 'US'` for unsupported countries.** Deliberate: only
+`DEFAULT_COUNTRY = 'US'` **for unsupported countries.** Deliberate: only
 `IN`, `US`, `GB`, `AU`, `CA` are supported today; more will be added progressively.
 Everyone else should see **ALL + US**.
 
@@ -2009,6 +2150,8 @@ A German visitor gets universal resources plus the US set. Flagged here only so 
 future reader doesn't mistake it for an oversight.
 
 ---
+
+
 
 ### 15.1 `Vary: Cookie` makes the page-context CDN cache useless
 
@@ -2062,6 +2205,8 @@ merely reads it and forwards the value.
 
 ---
 
+
+
 ### 15.2 The country cookie is set once and never refreshed
 
 `src/middleware.ts:18-37`:
@@ -2078,10 +2223,11 @@ year. If detection was wrong (VPN, corporate proxy, carrier routing), and there'
 switcher, the user is stuck with the wrong market's content and **no recourse at all**.
 
 **Re-detecting on every request is free.** Two reasons:
+
 1. `x-vercel-ip-country` is derived from the IP at the Vercel edge and is **already
-   present on every request** — no API call, no lookup, no added latency.
+  present on every request** — no API call, no lookup, no added latency.
 2. The middleware **already runs on every request** (the matcher covers everything
-   except `/api/auth`, static assets, and images). The `if (!existingCountry)` guard
+  except `/api/auth`, static assets, and images). The `if (!existingCountry)` guard
    was never a performance measure.
 
 **Fix:**
@@ -2109,6 +2255,8 @@ if (headerCountry) {
 30 days is a reasonable value.
 
 ---
+
+
 
 ### ✅ 15.3 The country cookie is silently dropped on every early return
 
@@ -2139,12 +2287,14 @@ logged-in-admin-bounced-off-`/login` redirect.
 
 Impact today is small — it self-heals on the next non-redirecting request:
 
-| Request | Result |
-|---|---|
-| `GET /admin` (no cookie, not logged in) | Redirect returned → **no cookie set** |
-| `GET /login` (browser follows) | No redirect → `response` returned → **cookie set here** |
 
-It matters because **#1 adds more early returns** (401 JSON for `/api/admin/*`), each
+| Request                                 | Result                                                  |
+| --------------------------------------- | ------------------------------------------------------- |
+| `GET /admin` (no cookie, not logged in) | Redirect returned → **no cookie set**                   |
+| `GET /login` (browser follows)          | No redirect → `response` returned → **cookie set here** |
+
+
+It matters because **#1 adds more early returns** (401 JSON for `/api/admin/`*), each
 another path that drops the cookie. Restructure so every exit carries it:
 
 ```typescript
@@ -2166,16 +2316,18 @@ Adding a branch later can no longer reintroduce the bug.
 
 ---
 
+
+
 ### 15.4 Page/Domain-level geo needs `noindex` — confirmed, not theoretical
 
 Because domain- and page-level targeting **is** used, this sequence is live:
 
 1. A page targeted `["US"]` → Googlebot crawls from a US IP → resolves to `US` →
-   sees the page → **indexes it**
+  sees the page → **indexes it**
 2. An Indian user finds it in Google, clicks → `getByPath` filters it out →
-   `notFound()` → **404**
+  `notFound()` → **404**
 3. Google sees an indexed URL failing for most visitors → **soft 404**, a quality
-   penalty
+  penalty
 
 So the `robots: { index: false, follow: true }` guard in **#14 / SEO-A is required**,
 not optional, and the sitemap must apply the same `targetCountries: ['ALL']` filter.
@@ -2185,172 +2337,201 @@ during crawl, and never indexes them.
 
 ---
 
+
+
 ### ✅ Verified safe — geo never leaks through a cache
 
 Checked explicitly, because this would have been the worst possible bug:
 
 - `TableService.getPublicTable` uses React `cache()` **only** — request-scoped, keyed
-  on `(pageId, userCountry)`. No `unstable_cache`, so nothing survives the request.
+on `(pageId, userCountry)`. No `unstable_cache`, so nothing survives the request.
 - `/api/domain/tables/by-page/[pageId]` sets **no cache headers** — table data is
-  never held by the CDN.
+never held by the CDN.
 
 An Indian visitor's rows can never be served to an American from cache. Preserve this
-property in any future caching work: **never wrap row-filtered table data in
-`unstable_cache` unless the country is part of the cache key.**
+property in any future caching work: **never wrap row-filtered table data in**
+`unstable_cache` **unless the country is part of the cache key.**
 
 ---
 
+
+
 ## 🗺️ Recommended Order of Work
 
-All work happens on **`dev-3.0`** (branched from `master` @ `c4ff8d8`), one PR per
+All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
 phase, merged to `master` → auto-deploys to `atno.io`.
 
 ### Phase A — Security + SEO foundation (in progress)
-| Done | Commit | Item | Notes |
-|:---:|---|---|---|
-| [x] | 1 | **#1** Lock down `/api/admin/*` **+ #15.3** | `lib/api-auth.ts` + widened middleware + `requireAdmin()` on all 14 routes (36 handlers). Restructures middleware so every exit path carries the country cookie. |
-| [x] | 2 | **#13** `robots.ts` | With the `VERCEL_ENV` preview guard. *After* #1 — don't signpost `/admin` while it's open. Corrected the planned disallow list: `/api/` needed two `Allow` exceptions or table content would be hidden from Google. |
-| [x] | 3 | **#14** SEO-A: `metadataBase` + `generateMetadata` + OG tags | New `src/lib/seo.ts`. Includes the `robots: { index: false }` guard for geo-restricted pages (a no-op today — no such content exists). Found and fixed three plan errors; see the SEO-A section. |
-| [x] | 4 | **#14** A4/A5: brand favicons, static OG card, brand-led `/domain` title | Replaced the stock Vercel favicon. Light/dark icon variants. `design/` folder for source artwork. |
-| [x] | 5 | **#13** `sitemap.ts` | 1198 URLs, `ALL`-targeted only, parent-chain traversal for depths 2–4. **Phase A complete.** |
+
+
+| Done | Commit | Item                                                                     | Notes                                                                                                                                                                                                               |
+| ---- | ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [x]  | 1      | **#1** Lock down `/api/admin/`* **+ #15.3**                              | `lib/api-auth.ts` + widened middleware + `requireAdmin()` on all 14 routes (36 handlers). Restructures middleware so every exit path carries the country cookie.                                                    |
+| [x]  | 2      | **#13** `robots.ts`                                                      | With the `VERCEL_ENV` preview guard. *After* #1 — don't signpost `/admin` while it's open. Corrected the planned disallow list: `/api/` needed two `Allow` exceptions or table content would be hidden from Google. |
+| [x]  | 3      | **#14** SEO-A: `metadataBase` + `generateMetadata` + OG tags             | New `src/lib/seo.ts`. Includes the `robots: { index: false }` guard for geo-restricted pages (a no-op today — no such content exists). Found and fixed three plan errors; see the SEO-A section.                    |
+| [x]  | 4      | **#14** A4/A5: brand favicons, static OG card, brand-led `/domain` title | Replaced the stock Vercel favicon. Light/dark icon variants. `design/` folder for source artwork.                                                                                                                   |
+| [x]  | 5      | **#13** `sitemap.ts`                                                     | 1198 URLs, `ALL`-targeted only, parent-chain traversal for depths 2–4. **Phase A complete.**                                                                                                                        |
+
+
+
 
 ### Phase B — Correctness
+
 - [x] 5. **#3** Migration drift — **DONE.** Baselined all 11 migrations on production,
-      `development` and a rehearsal branch. Found and fixed a second missing migration
-      (the entire auth schema), not just `targetCountries`. Also repointed local dev
-      off production onto the `development` branch.
-- [x] 5b. **`updatedAt` on `Page` and `Domain`** — **DONE.** Migration
-      `20260727140000_add_updated_at`, applied to all three branches.
-      `sitemap.ts` now emits `lastModified` on all 1198 entries.
+  ```
+  `development` and a rehearsal branch. Found and fixed a second missing migration
+  (the entire auth schema), not just `targetCountries`. Also repointed local dev
+  off production onto the `development` branch.
+  ```
+- [x] 5b. `updatedAt` **on** `Page` **and** `Domain` — **DONE.** Migration
+  ```
+  `20260727140000_add_updated_at`, applied to all three branches.
+  `sitemap.ts` now emits `lastModified` on all 1198 entries.
 
-      **The backfill was the whole point.** Prisma's generated SQL was
-      `ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`, which
-      stamps all 1229 existing rows with the instant the migration ran — telling
-      Google the entire site changed at once, exactly the unreliability that made us
-      omit `lastmod` in the first place. Two hand-added statements fix it:
+  **The backfill was the whole point.** Prisma's generated SQL was
+  `ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`, which
+  stamps all 1229 existing rows with the instant the migration ran — telling
+  Google the entire site changed at once, exactly the unreliability that made us
+  omit `lastmod` in the first place. Two hand-added statements fix it:
 
-      ```sql
-      UPDATE "Domain" SET "updatedAt" = "createdAt";
-      UPDATE "Page"   SET "updatedAt" = "createdAt";
-      ```
+  ```sql
+  UPDATE "Domain" SET "updatedAt" = "createdAt";
+  UPDATE "Page"   SET "updatedAt" = "createdAt";
+  ```
 
-      For a row never edited, its creation time genuinely *is* its last-modified
-      time. Result: dates spread across Sep 2025 – Mar 2026, zero stamped today.
-      On a fresh database both UPDATEs match zero rows, so the migration is correct
-      in both directions.
+  For a row never edited, its creation time genuinely *is* its last-modified
+  time. Result: dates spread across Sep 2025 – Mar 2026, zero stamped today.
+  On a fresh database both UPDATEs match zero rows, so the migration is correct
+  in both directions.
 
-      Used `@updatedAt @default(now())` rather than bare `@updatedAt` (which is what
-      `User` has). The DB default is a safety net for any INSERT not going through
-      Prisma Client — raw SQL, seed scripts — which would otherwise fail on a
-      `NOT NULL` column with no default.
+  Used `@updatedAt @default(now())` rather than bare `@updatedAt` (which is what
+  `User` has). The DB default is a safety net for any INSERT not going through
+  Prisma Client — raw SQL, seed scripts — which would otherwise fail on a
+  `NOT NULL` column with no default.
 
-      > ⚠️ **Deploy ordering matters here.** Prisma Client generated from a schema
-      > containing `updatedAt` selects that column on any `include`-style query. Had
-      > the code shipped before the migration ran, `DomainService.getWithPagesFiltered`
-      > would have queried a nonexistent column and 500'd. The migration was applied
-      > to production **first**, then the code.
+  > ⚠️ **Deploy ordering matters here.** Prisma Client generated from a schema
+  > containing `updatedAt` selects that column on any `include`-style query. Had
+  > the code shipped before the migration ran, `DomainService.getWithPagesFiltered`
+  > would have queried a nonexistent column and 500'd. The migration was applied
+  > to production **first**, then the code.
+  ```
 - [ ] 6. **#15.2** Re-detect country every request + 30-day `maxAge` (with the local-dev guard)
 - [ ] 7. **#2** DOMPurify sanitization on rich-text write
 - [ ] 8. **#5** Wire up `revalidateTag` on all mutations
 - [ ] 9. **#6** Fix the two `new PrismaClient()` instances + add the lint rule
-      *(both call sites already carry a `TODO(#6)` comment — deliberately left for this step)*
+  ```
+  *(both call sites already carry a `TODO(#6)` comment — deliberately left for this step)*
+  ```
 - [ ] 10. **#15.1** Country in the URL for `/api/page-context`, drop `Vary: Cookie`
 
+
+
 ### Phase C — Cleanup
+
 - [ ] 11. **#9** Repoint the two type imports, then delete the 8 deprecated files
 - [ ] 12. **#7** Make server breadcrumb work opt-in; dedupe the double `getByPath`
 - [ ] 13. **#10** Strip debug logs and the 500-line comment block
-- [ ] 13b. **Delete `src/app/header1/page.tsx`** — the stock shadcn `NavigationMenu`
-      demo, currently live and crawlable on `atno.io`. Blocked in `robots.ts` as a
-      stopgap, but it still ships in the bundle and anyone with the URL can reach it.
-      Check nothing imports from it first.
+- [ ] 13b. **Delete** `src/app/header1/page.tsx` — the stock shadcn `NavigationMenu`
+  ```
+  demo, currently live and crawlable on `atno.io`. Blocked in `robots.ts` as a
+  stopgap, but it still ships in the bundle and anyone with the URL can reach it.
+  Check nothing imports from it first.
+  ```
 - [ ] 14. **#8** Remove the contradictory `revalidate` export; correct the plan doc
 - [ ] 15. **#4** Delete the 15 merged branches
 
+
+
 ### Phase D — Polish
+
 - [ ] 16. **#14** SEO-B: JSON-LD `BreadcrumbList`, `next/image`, real page content
 - [ ] 17. **#11** Make the render path read-only; add the `__main__` invariant + health check
 - [ ] 18. **#12** Gate or delete `/api/debug/cache-test`
 - [ ] 19. Remaining Step 7: error boundaries, structured error responses, rate limiting
 
+
+
 ### Open decisions
+
 - ~~**Geo strategy**~~ — **RESOLVED July 27 2026.** Domains and pages stay `ALL`; all
-  geo variation happens at table-row level. Option A confirmed, and free rather than a
-  compromise. Full reasoning and operating rules in #15. Option D (additive geo) is
-  moot — nothing is currently being hidden.
+geo variation happens at table-row level. Option A confirmed, and free rather than a
+compromise. Full reasoning and operating rules in #15. Option D (additive geo) is
+moot — nothing is currently being hidden.
 - **OG image versioning** — when the share image is redesigned, bump the filename
-  (`og-image-v2.png`) rather than overwriting. Scrapers cache the whole rendered *card*
-  keyed on the page URL, so new bytes at the same path are never re-fetched. Keep the
-  old file so already-cached cards don't break.
-- **`nested-two.vercel.app`** — keep as an alias with `metadataBase` handling the
-  canonical, or redirect it to `atno.io`? (#13)
+(`og-image-v2.png`) rather than overwriting. Scrapers cache the whole rendered *card*
+keyed on the page URL, so new bytes at the same path are never re-fetched. Keep the
+old file so already-cached cards don't break.
+- `nested-two.vercel.app` — keep as an alias with `metadataBase` handling the
+canonical, or redirect it to `atno.io`? (#13)
 
 ---
+
+
 
 ## ✅ What's Already Good
 
 Worth stating plainly, so refactoring doesn't undo it:
 
 - **Services layer** (`src/services/`) is genuinely well-structured — clear
-  separation, consistent `cache()` wrapping, shared types in one place.
-- **`PageService.getByPath`** correctly replaced an N+1 loop with a single batched
-  `slug: { in: [...] }` query plus in-memory parent-chain traversal, with a sensible
-  per-segment fallback.
-- **`usePageContext`'s fetch strategy** is smart: static data fetched once behind a
-  ref guard, page-sidebar refetched only when mode or parent context actually
-  changes, with `pageType`-aware logic for direct vs hierarchical.
+separation, consistent `cache()` wrapping, shared types in one place.
+- `PageService.getByPath` correctly replaced an N+1 loop with a single batched
+`slug: { in: [...] }` query plus in-memory parent-chain traversal, with a sensible
+per-segment fallback.
+- `usePageContext`**'s fetch strategy** is smart: static data fetched once behind a
+ref guard, page-sidebar refetched only when mode or parent context actually
+changes, with `pageType`-aware logic for direct vs hierarchical.
 - **Client-derived breadcrumbs** (`bread.tsx`) render instantly with skeleton
-  fallbacks and avoid stale labels by checking `loading` before trusting context —
-  a real UX improvement over the API-dependent version.
+fallbacks and avoid stale labels by checking `loading` before trusting context —
+a real UX improvement over the API-dependent version.
 - **Three-tier geo-targeting** (domain → page → table row) is consistently applied,
-  and the hidden `targetCountries` system column is properly stripped from public
-  payloads by `getPublicSchema`/`getPublicRows`.
+and the hidden `targetCountries` system column is properly stripped from public
+payloads by `getPublicSchema`/`getPublicRows`.
 - **User management** does the security basics right: bcrypt cost 12, password
-  strength rules, self-lockout guards (can't remove own admin / deactivate / delete
-  self), soft-delete by default.
+strength rules, self-lockout guards (can't remove own admin / deactivate / delete
+self), soft-delete by default.
 - **Layered caching** (React `cache()` → `unstable_cache` → HTTP/CDN) is a sound
-  design. It just needs invalidation (#5) to be trustworthy.
+design. It just needs invalidation (#5) to be trustworthy.
 
 ---
 
-*Full-codebase audit, July 25 2026. Findings verified against production `master` @ `c4ff8d8`.*
+*Full-codebase audit, July 25 2026. Findings verified against production* `master` *@* `c4ff8d8`*.*
 *Revision 2 (July 26): corrected finding #4; added #14 (SEO) with the geo decision record.*
 *Revision 3 (July 26): added Done checkboxes throughout; marked #1 and #15.3 complete.*
-*Revision 4 (July 26): #13 `robots.ts` shipped; corrected the planned `/api/` disallow
-list (it would have hidden table content from Google); logged `/header1` for deletion;
-root `/` redirect changed 307 → 308 (#14 A0).*
-*Revision 11 (July 28): corrected the `lastmod` source. `Page.updatedAt` alone was
-stale for **91.7% of pages** — content lives in `Table.data` / `RichTextContent`, up to
-147 days newer — which would have made Google discard `lastmod` site-wide. The earlier
-"understates freshness, safe direction" framing was wrong. `pageLastModified()` now
+*Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
+list (it would have hidden table content from Google); logged* `/header1` *for deletion;
+root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 11 (July 28): corrected the* `lastmod` *source.* `Page.updatedAt` *alone was
+stale for **91.7% of pages** — content lives in* `Table.data` */* `RichTextContent`*, up to
+147 days newer — which would have made Google discard* `lastmod` *site-wide. The earlier
+"understates freshness, safe direction" framing was wrong.* `pageLastModified()` *now
 takes the newest of the page and its content rows; 912 URLs moved to their real dates.*
-*Revision 10 (July 27): `updatedAt` added to `Page`/`Domain` and applied to all three
-Neon branches; `sitemap.ts` now emits `lastModified` on all 1198 entries, backfilled
-from `createdAt` so dates spread Sep 2025 – Mar 2026 rather than all reading "today".*
+*Revision 10 (July 27):* `updatedAt` *added to* `Page`*/*`Domain` *and applied to all three
+Neon branches;* `sitemap.ts` *now emits* `lastModified` *on all 1198 entries, backfilled
+from* `createdAt` *so dates spread Sep 2025 – Mar 2026 rather than all reading "today".*
 *Revision 9 (July 27): **#3 migration drift resolved.** Finding was understated —
-production had NO `_prisma_migrations` table at all, and the missing schema included
-the entire auth model set (`User`/`Account`/`Session`/`VerificationToken`), not just
-`targetCountries`. Baselined 11 migrations on production, `development` and a rehearsal
-branch; verified a fresh `migrate deploy` now builds a working database. Also found and
-fixed local dev pointing at the production database. `directUrl` was not required
+production had NO* `_prisma_migrations` *table at all, and the missing schema included
+the entire auth model set (*`User`*/*`Account`*/*`Session`*/*`VerificationToken`*), not just*
+`targetCountries`*. Baselined 11 migrations on production,* `development` *and a rehearsal
+branch; verified a fresh* `migrate deploy` *now builds a working database. Also found and
+fixed local dev pointing at the production database.* `directUrl` *was not required
 (Prisma 6.14 over Neon's pooler) — an earlier claim to the contrary was wrong.*
 *Revision 8 (July 27): geo audit — **0 of 34 domains, 0 of 1195 pages and 0 of 8050
 table rows are currently country-restricted**, so the whole geo system is inert. Geo
-strategy resolved: keep domains/pages `ALL`, vary only table rows, because a
+strategy resolved: keep domains/pages* `ALL`*, vary only table rows, because a
 geo-restricted page is unindexable (Googlebot resolves to US and gets a 404). Noted the
 ALL+US asymmetry: US rows are indexed for free, IN/GB/AU/CA rows never are.*
-*Revision 7 (July 27): `sitemap.ts` shipped — 1198 URLs with parent-chain traversal.
-**Phase A complete.** The planned flat query would have made 39% of entries 404.
-`lastModified` omitted because `Page`/`Domain` have no `updatedAt` (added to Phase B).
-Recorded the decision NOT to add `<meta keywords>`, and dropped `changeFrequency` /
-`priority` for the same reason.*
+*Revision 7 (July 27):* `sitemap.ts` *shipped — 1198 URLs with parent-chain traversal.
+**Phase A complete.** The planned flat query would have made 39% of entries 404.*
+`lastModified` *omitted because* `Page`*/*`Domain` *have no* `updatedAt` *(added to Phase B).
+Recorded the decision NOT to add* `<meta keywords>`*, and dropped* `changeFrequency` */*
+`priority` *for the same reason.*
 *Revision 6 (July 27): brand favicons installed (the tab icon was still Vercel's),
-static 1200×630 OG card, `twitter:card` → `summary_large_image`, `/domain` title made
-brand-led, design assets consolidated into `design/`. Documented two Next.js metadata
-traps found by reading the rendered head: `openGraph` is replaced not merged, and
-declaring `icons` suppresses the file-convention `apple-touch-icon` tag.*
-*Revision 5 (July 27): #14 SEO-A shipped (`src/lib/seo.ts` + per-page metadata + OG).
-Corrected three plan errors — Next.js replaces rather than merges `openGraph`, `|` is
+static 1200×630 OG card,* `twitter:card` *→* `summary_large_image`*,* `/domain` *title made
+brand-led, design assets consolidated into* `design/`*. Documented two Next.js metadata
+traps found by reading the rendered head:* `openGraph` *is replaced not merged, and
+declaring* `icons` *suppresses the file-convention* `apple-touch-icon` *tag.*
+*Revision 5 (July 27): #14 SEO-A shipped (*`src/lib/seo.ts` *+ per-page metadata + OG).
+Corrected three plan errors — Next.js replaces rather than merges* `openGraph`*,* `|` *is
 unusable as a title separator, and the emoji regex needed wider ranges. Corrected
 #15.4: page/domain-level geo targeting is supported but **currently unused** (0 rows),
-so the `noindex` guard is a no-op today and Option A costs nothing.*
+so the* `noindex` *guard is a no-op today and Option A costs nothing.*

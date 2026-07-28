@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
+import { invalidatePages } from '@/lib/cache-invalidation';
 
 /**
  * API Route for Sections Management
@@ -230,6 +231,12 @@ export async function PUT(
         }
       }
     });
+
+    // `Page.sections` is the 3-column layout for a section_based page, and it lives
+    // ON the Page row — so `page-main` / `page-by-id` / `domain-with-pages` are all
+    // now stale. This is also the one content type whose edits DO advance
+    // `Page.updatedAt`, which is why the sitemap's lastmod is correct for it.
+    invalidatePages();
 
     return NextResponse.json({
       message: 'Sections configuration updated successfully',

@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
+// Needed because deleting a table can reset Page.contentType — see the call site.
+import { invalidatePages } from '@/lib/cache-invalidation';
 import type { UpdateTableRequest } from '@/types/table';
 
 /**
@@ -229,6 +231,15 @@ export async function DELETE(
         });
       }
     });
+
+    // ⚠️ Needed even though Table itself is never held in unstable_cache: the
+    // transaction above can reset `Page.contentType` to 'narrative' when
+    // `resetPageType` is set, and contentType decides WHICH layout component renders
+    // the page (TableLayout vs NarrativeLayout). It is part of
+    // `pageWithContentSelect`, so it sits inside the cached page-main / page-by-id /
+    // domain-with-pages entries. Without this the page keeps rendering as a table for
+    // up to 60s after its table was deleted.
+    invalidatePages();
 
     return NextResponse.json({
       message: 'Table deleted successfully'

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // See src/lib/api-auth.ts for the 401-vs-403 and isActive reasoning.
 import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
+import { invalidatePages } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 
 /**
@@ -251,6 +252,11 @@ export async function POST(request: NextRequest) {
       where: { domainId },
       select: { id: true, slug: true, parentId: true }
     });
+
+    // The new page has to show up in the sidebar and in its parent's section
+    // layout. invalidatePages() also clears DOMAINS, because the navigation payload
+    // embeds page lists inside each domain object.
+    invalidatePages();
 
     return NextResponse.json({
       success: true,

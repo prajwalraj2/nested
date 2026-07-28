@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
+import { invalidatePages } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 
 /**
@@ -254,6 +255,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       select: { id: true, slug: true, parentId: true }
     });
 
+    // A rename changes the sidebar label; a slug change changes the URL; a
+    // targetCountries change affects the sitemap and the noindex guard.
+    invalidatePages();
+
     return NextResponse.json({
       success: true,
       message: 'Page updated successfully',
@@ -358,6 +363,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         where: { id }
       });
     });
+
+    // Recursive delete — the page and every descendant are gone. Any cached
+    // navigation still listing them would render links that 404.
+    invalidatePages();
 
     return NextResponse.json({
       success: true,

@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
+// Needed because creating a table also flips Page.contentType — see the call site.
+import { invalidatePages } from '@/lib/cache-invalidation';
 import type { CreateTableRequest, TableListResponse } from '@/types/table';
 import { ensureTargetCountriesColumn, ensureRowsHaveTargetCountries } from '@/lib/table-utils';
 
@@ -223,6 +225,14 @@ export async function POST(request: NextRequest) {
 
       return newTable;
     });
+
+    // ⚠️ Needed even though Table itself is never held in unstable_cache: the
+    // transaction above sets `Page.contentType = 'table'`, and contentType decides
+    // WHICH layout component renders the page. It is part of `pageWithContentSelect`,
+    // so it lives inside the cached page-main / page-by-id / domain-with-pages
+    // entries. Without this the page keeps rendering with its old layout for up to
+    // 60s after the table was attached.
+    invalidatePages();
 
     return NextResponse.json({
       message: 'Table created successfully',
