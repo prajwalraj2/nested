@@ -59,7 +59,7 @@ Partially-done findings show which sub-items are complete.
 | [ ]  | 14.B SEO-B backlog (JSON-LD, `next/image`, content) | Phase D                                                                         |
 | [x]  | 13.2 `sitemap.ts`                                   | Phase A commit 5 — 1198 URLs, depth up to 4                                     |
 | [ ]  | 13.3 Canonicalise `nested-two.vercel.app`           | Partly handled by `metadataBase` in commit 3                                    |
-| [ ]  | 15.1 `Vary: Cookie` kills the CDN cache             | Phase B                                                                         |
+| [x]  | 15.1 `Vary: Cookie` kills the CDN cache             | Country moved into the URL; cacheable only when explicit                        |
 | [ ]  | 15.2 Country cookie never refreshed                 | Phase B                                                                         |
 | [x]  | 15.3 Cookie dropped on early returns                | Shipped with #1                                                                 |
 | [ ]  | 15.4 `noindex` for geo-restricted pages             | Ships with #14 / SEO-A                                                          |
@@ -2475,7 +2475,52 @@ phase, merged to `master` → auto-deploys to `atno.io`.
   ```
   *(both call sites already carry a `TODO(#6)` comment — deliberately left for this step)*
   ```
-- [ ] 10. **#15.1** Country in the URL for `/api/page-context`, drop `Vary: Cookie`
+- [x] 10. **#15.1** Country in the URL for `/api/page-context`, drop `Vary: Cookie` —
+      **DONE.** Verified header behaviour across six request shapes:
+
+      | Request | `Cache-Control` | `x-country-source` |
+      |---|---|---|
+      | `?country=IN` / `US` / `ALL` / `in` | `public, s-maxage=60, stale-while-revalidate=300` | `url` |
+      | *no param* (cookie only) | **`private, no-store`** | `cookie` |
+      | `?country=ZZ` (invalid) | **`private, no-store`** | `cookie` |
+
+      > ⚠️ **The design point: dropping `Vary: Cookie` is only safe when the country is
+      > in the URL.** The two are tied together deliberately —
+      >
+      > ```
+      > country in the URL   -> the URL fully identifies the response -> shared-cacheable
+      > country from cookie  -> personal                             -> private, no-store
+      > ```
+      >
+      > Removing `Vary: Cookie` while still reading the cookie would have let the CDN
+      > store **one visitor's** navigation and serve it to everyone — an Indian
+      > visitor's sidebar handed to Americans, which is exactly what `Vary: Cookie`
+      > was protecting against. The cookie fallback stays because the param is not
+      > guaranteed (stale cached JS bundle, hand-typed request); those get correct
+      > content, just uncached.
+
+      **Invalid values fall back to private rather than being normalised.**
+      `?country=ZZ` would otherwise mint a fresh CDN entry per junk value — an
+      attacker could evict everything useful, and each miss costs a function
+      invocation plus a Postgres round trip. Validating against `SUPPORTED_COUNTRIES`
+      (plus `ALL`) bounds the key space to 6 values × N paths.
+
+      **Bypassed `useUserCountry()` on purpose.** It returns `DEFAULT_COUNTRY` on the
+      first render and corrects in an effect, so routing the fetch through it would
+      either fire with the wrong country or fire twice.
+      `getUserCountryFromCookie(document.cookie)` is synchronous, already validates,
+      and is only called from inside effects so `document` always exists.
+
+      **There were THREE fetch sites, not two** — this document listed two; a third
+      builds its URL dynamically. All now go through one `buildPageContextUrl()`
+      helper; missing one would have left a permanently uncacheable path. Confirmed in
+      the built client bundle that `&country=` is emitted.
+
+      `Vary: rsc, next-router-*` remains — Next.js adds it to every route handler and
+      it is absent on a plain `fetch()`, so it does not fragment the cache.
+
+      **IN and US currently return byte-identical responses (14,476 bytes).** Expected:
+      no content is geo-restricted yet. The mechanism is correct and idle.
 
 
 
@@ -2553,6 +2598,13 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 13 (July 28): **#15.1 done.** Country moved into the `/api/page-context` URL
+and `Vary: Cookie` removed, so the hottest endpoint is genuinely CDN-cacheable. Shared
+cache headers are sent ONLY when the country is explicit and recognised; a cookie-derived
+or invalid value falls back to `private, no-store`, because dropping `Vary: Cookie` while
+reading the cookie would let the CDN serve one visitor's navigation to everyone. Found a
+third fetch site the plan had missed.*
+
 *Revision 12 (July 28): **#5 and #6 done.** `revalidateTag` wired into 13 mutating
 handlers (15 calls, 9 files), verified end-to-end with a real authenticated session —
 category rename and domain unpublish now appear with zero wait. Corrected the severity
