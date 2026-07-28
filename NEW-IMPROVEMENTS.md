@@ -29,8 +29,8 @@ Partially-done findings show which sub-items are complete.
 | [ ]  | 2   | Stored XSS via unauthenticated rich-text write                                   | 🔴 **Critical** | Security           | 2–3 hrs   |
 | [x]  | 3   | Migration drift — **no migration history at all**; geo *and* auth models missing | 🔴 **Critical** | Data / Deploy      | 30 min    |
 | [ ]  | 4   | Branch hygiene — 15 merged branches, stale local refs                            | 🟡 Medium       | Workflow           | 20 min    |
-| [ ]  | 5   | Cache tags defined but never invalidated                                         | 🟠 **High**     | Correctness        | 2–3 hrs   |
-| [ ]  | 6   | `new PrismaClient()` in rich-text routes                                         | 🟡 Medium       | Resource leak      | 10 min    |
+| [x]  | 5   | Cache tags defined but never invalidated                                         | 🟠 **High**     | Correctness        | 2–3 hrs   |
+| [x]  | 6   | `new PrismaClient()` in rich-text routes                                         | 🟡 Medium       | Resource leak      | 10 min    |
 | [ ]  | 7   | Dead breadcrumb work on every request                                            | 🟡 Medium       | Performance        | 30 min    |
 | [ ]  | 8   | `revalidate` + `force-dynamic` contradiction                                     | 🟡 Medium       | Clarity            | 5 min     |
 | [ ]  | 9   | Deprecated APIs/hooks still shipping + type coupling                             | 🟡 Medium       | Tech debt          | 1–2 hrs   |
@@ -2417,8 +2417,61 @@ phase, merged to `master` → auto-deploys to `atno.io`.
   ```
 - [ ] 6. **#15.2** Re-detect country every request + 30-day `maxAge` (with the local-dev guard)
 - [ ] 7. **#2** DOMPurify sanitization on rich-text write
-- [ ] 8. **#5** Wire up `revalidateTag` on all mutations
-- [ ] 9. **#6** Fix the two `new PrismaClient()` instances + add the lint rule
+- [x] 8. **#5** Wire up `revalidateTag` on all mutations — **DONE.** New
+      `src/lib/cache-invalidation.ts`; **15 calls across 13 mutating handlers in 9 route
+      files.** Verified mechanically that no route mutates `Domain`/`Page`/`Category`
+      without invalidating, **and end-to-end with a real authenticated session** (12/12
+      checks, against the `development` branch, all data restored):
+
+      ```
+      category rename  -> new name in nav payload with ZERO wait   (was up to 300s)
+      domain unpublish -> link gone from /domain with ZERO wait     (was up to 60s)
+      ```
+
+      > ⚠️ **This is a public-site correctness fix, not just admin UX.** The caches serve
+      > the public site. A stale entry meant *every visitor* got a page without the newly
+      > published domain for up to 60s — the admin was merely the one person who knew it
+      > was wrong. Publish and share a link immediately and the recipient would 404.
+
+      **Corrected the severity claim in this document.** It said "an admin can publish a
+      domain and not see it for minutes". Real figures: **300s** for categories
+      (`CACHE_DURATIONS.LONG`), **60s** for domains / pages / `contentType`, and table
+      rows and rich-text HTML were **already instant** (React `cache()` only, so
+      request-scoped). The "minutes" figure assumed the CDN layer stacked on top, which
+      it does not — `Vary: Cookie` means that cache never hits (#15.1).
+
+      **Found while auditing — two table routes did need invalidation**, for a reason
+      that is easy to miss:
+
+      ```
+      tables/route.ts       POST   -> tx.page.update({ contentType: 'table' })
+      tables/[id]/route.ts  DELETE -> tx.page.update({ contentType: 'narrative' })
+      ```
+
+      `contentType` selects which layout component renders the page and is part of
+      `pageWithContentSelect`, so it sits inside the cached `page-main` / `page-by-id` /
+      `domain-with-pages` entries — attach a table and the page kept its old layout for
+      up to 60s. These use **`tx.page.update` inside a `$transaction`**, so a grep for
+      `prisma.page.update` missed them. **When auditing mutations, search for the
+      transaction client too.**
+
+      **8 of 12 `CACHE_TAGS` entries have no subscribers** — `DOMAIN(slug)`, `PAGE(id)`,
+      `HEADER`, `SIDEBAR`, `BREADCRUMB`, `TABLES`, `TABLE(id)`, `COUNTRY(code)`.
+      `revalidateTag` on any of them is a **silent no-op**. Only `DOMAINS`, `PAGES`,
+      `CATEGORIES` and `NAVIGATION` are wired to the nine `unstable_cache` wrappers.
+
+      **Product note:** renaming a category changes very little publicly.
+      `src/app/domain/page.tsx` renders only the *domains* inside each category cell —
+      the category name never appears there. It surfaces in the header dropdown via
+      `/api/page-context`, and its `columnPosition` / `categoryOrder` drive layout order.
+      (An earlier version of the test asserted against `/domain` and got a false-positive
+      baseline: the category `Design` matched inside the domain name `Graphic Designing`.)
+
+- [x] 9. **#6** Two `new PrismaClient()` → shared singleton, plus a
+      `no-restricted-syntax` eslint rule set to **`error`** (warnings are ignored in this
+      config by design), exempting `src/lib/prisma.ts` and `prisma/`. Rule tested in
+      **both** directions — exemptions pass, and a probe file containing
+      `new PrismaClient()` correctly errors.
   ```
   *(both call sites already carry a `TODO(#6)` comment — deliberately left for this step)*
   ```
@@ -2500,6 +2553,15 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 12 (July 28): **#5 and #6 done.** `revalidateTag` wired into 13 mutating
+handlers (15 calls, 9 files), verified end-to-end with a real authenticated session —
+category rename and domain unpublish now appear with zero wait. Corrected the severity
+claim: 300s for categories, 60s for domains/pages, table and rich-text content already
+instant. Found two table routes that DID need invalidation, via `tx.page.update` inside a
+`$transaction` — which a `prisma.page.update` grep missed. Recorded that 8 of 12
+`CACHE_TAGS` entries have no subscribers. #6: both `new PrismaClient()` replaced with the
+singleton, plus an eslint rule tested in both directions.*
+
 *Revision 11 (July 28): corrected the* `lastmod` *source.* `Page.updatedAt` *alone was
 stale for **91.7% of pages** — content lives in* `Table.data` */* `RichTextContent`*, up to
 147 days newer — which would have made Google discard* `lastmod` *site-wide. The earlier
