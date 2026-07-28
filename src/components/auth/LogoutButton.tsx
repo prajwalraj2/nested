@@ -25,27 +25,27 @@ export default function LogoutButton({
   const handleLogout = async () => {
     setIsLoading(true)
     
+    // Progress `console.log`s were removed from this function. They narrated each step
+    // ("Starting logout process...", "NextAuth signOut completed", …) to every user's
+    // console on every logout. The `console.error` calls below are kept — a FAILING
+    // logout is worth reporting; a succeeding one is not.
     try {
-      console.log('Starting logout process...')
-      
       // Method 1: Try NextAuth signOut first
       try {
         await signOut({
           callbackUrl: '/login',
           redirect: false
         })
-        console.log('NextAuth signOut completed')
       } catch (signOutError) {
         console.error('NextAuth signOut failed:', signOutError)
       }
-      
+
       // Method 2: Call manual logout API as backup
       try {
         await fetch('/api/auth/logout', {
           method: 'POST',
           credentials: 'include'
         })
-        console.log('Manual logout API called')
       } catch (apiError) {
         console.error('Manual logout API failed:', apiError)
       }
@@ -62,8 +62,6 @@ export default function LogoutButton({
           document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
         })
       }
-      
-      console.log('All logout methods completed, redirecting...')
       
       // Force redirect to login page
       window.location.href = '/login'

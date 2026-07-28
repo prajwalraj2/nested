@@ -8,7 +8,11 @@ import {
   SidebarMenuSub,
   SidebarMenu
 } from '@/components/ui/sidebar';
-import type { SidebarDomain } from '@/hooks/useSidebarData';
+// Repointed from the deprecated `useSidebarData` hook, which has been deleted. The two
+// type declarations were byte-identical, so this is a pure move — but it had to happen
+// FIRST: this file and SidebarPage.tsx were the only remaining references to that hook,
+// and deleting it before repointing would have broken the build.
+import type { SidebarDomain } from '@/hooks/usePageContext';
 
 interface SidebarDomainProps {
   domain: SidebarDomain;

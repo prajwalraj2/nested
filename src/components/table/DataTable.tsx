@@ -120,15 +120,11 @@ export function DataTable({
       },
       cell: ({ getValue, row }) => {
         const value = getValue();
-        // Debug logging - remove after testing
-        if (col.name === 'Description' || col.id.includes('description')) {
-          console.log('Description column detected:', {
-            columnName: col.name,
-            columnId: col.id,
-            columnType: col.type,
-            value: value
-          });
-        }
+        // Removed a debug `console.log` that lived here (its own comment said "remove
+        // after testing"). This is the CELL RENDERER, so it fired once per cell on
+        // every render, sort, filter and pagination — 25 rows with a description
+        // column meant 25 console writes per interaction, and console output is
+        // genuinely slow in browsers with devtools open.
         return formatCellValue(value, col.type, row.original, col.name);
       },
       enableSorting: col.sortable,
