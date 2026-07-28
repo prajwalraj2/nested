@@ -120,3 +120,37 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ==========================================================================
+   Rich-text content — link hover
+   ==========================================================================
+   Replaces inline `onmouseover` / `onmouseout` handlers that used to live in the
+   stored HTML. 398 of them existed across 4 pages, doing exactly this:
+
+     <a style="color: #767c7c;"
+        onmouseover="this.style.color='#000000';"
+        onmouseout="this.style.color='#767c7c';">
+
+   Those were benign — authored deliberately, not injected — but the DOMPurify
+   sanitiser added for finding #2 strips ALL `on*` attributes, and it must: an
+   allow-list cannot tell a harmless `onmouseover` from one that calls `fetch()`
+   against the admin API. Permitting event handlers is permitting arbitrary
+   JavaScript, which defeats the point of sanitising.
+
+   So the effect moves here, where it needs no script at all. This is strictly
+   better than the original: it applies to every rich-text link consistently,
+   rather than only the 4 pages that happened to carry the handlers.
+
+   ⚠️ `!important` is REQUIRED and is not laziness. The stored HTML sets
+   `style="color: #767c7c"` inline on each link, and an inline style always beats
+   a stylesheet rule on specificity — without `!important` the hover simply would
+   not apply. It is scoped tightly to `.rich-text-content a:hover`, the wrapper
+   set in RichTextLayout.tsx:45, so it cannot leak into the rest of the UI.
+
+   ⚠️ Sanitising happens on WRITE, so the 398 existing handlers stay in the
+   database until each page is next saved. They are harmless meanwhile, and this
+   rule means the hover behaves identically before and after — no data migration
+   required. */
+.rich-text-content a:hover {
+  color: #000 !important;
+}

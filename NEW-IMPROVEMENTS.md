@@ -32,7 +32,7 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 5   | Cache tags defined but never invalidated                                         | 🟠 **High**     | Correctness        | 2–3 hrs   |
 | [x]  | 6   | `new PrismaClient()` in rich-text routes                                         | 🟡 Medium       | Resource leak      | 10 min    |
 | [ ]  | 7   | Dead breadcrumb work on every request                                            | 🟡 Medium       | Performance        | 30 min    |
-| [ ]  | 8   | `revalidate` + `force-dynamic` contradiction                                     | 🟡 Medium       | Clarity            | 5 min     |
+| [ ]  | 8   | `force-dynamic` — every page view is a function invocation                       | 🟠 **High**     | Performance        | multi-day |
 | [ ]  | 9   | Deprecated APIs/hooks still shipping + type coupling                             | 🟡 Medium       | Tech debt          | 1–2 hrs   |
 | [ ]  | 10  | `console.log` in hot render paths                                                | 🟢 Low          | Hygiene            | 15 min    |
 | [ ]  | 11  | DB write during page render (`getOrCreateMainPage`)                              | 🟢 Low          | Design smell       | 1 hr      |
@@ -777,9 +777,266 @@ both `currentPage` and the breadcrumb labels.
 
 
 
-## 🟡 8. `revalidate` and `force-dynamic` Contradict Each Other
+## 🟠 8. `revalidate` and `force-dynamic` Contradict Each Other
 
-**Severity:** Medium (cosmetic, but actively misleading).
+**Severity:** ~~Medium (cosmetic)~~ → **raised to High.** No longer cosmetic: this is now
+the single largest remaining performance cost on the site.
+
+> ### 📈 Measured in production, 28 Jul 2026
+>
+> Vercel logs show **~24 `/domain/<slug>` requests inside one second** (`11:54:22–23`) —
+> a crawler sweeping the sitemap. **Every one is a function invocation** doing a full
+> dynamic render plus database queries. In the same log window `/api/page-context` shows
+> a **cache** icon rather than an `f`, confirming #15.1 works — but it removed one
+> function call per page view, while the page render itself is still one per view.
+>
+> So the page renders, not the API, are where the cost now sits.
+>
+> ⚠️ **Deleting `export const dynamic = 'force-dynamic'` would achieve NOTHING.** In
+> Next 15, calling `cookies()` in a Server Component opts that route into dynamic
+> rendering on its own, regardless of the `dynamic` export. The real cause is:
+>
+> ```typescript
+> const userCountry = await getUserCountryFromCookies();   // <- this forces dynamic
+> ```
+>
+> And the sting: because **no content is geo-restricted** (0 domains, 0 pages, 0 of
+> 8050 table rows — see the audit in #15), that cookie read currently changes nothing
+> about the output. All 24 of those renders produced exactly what a static build would
+> have produced.
+>
+> **The fix is Option B from the geo decision record** — country in the route
+> (`/[country]/domain/...`) or a middleware rewrite — which removes the cookie
+> dependency and lets these pages be statically rendered with real ISR. That is a
+> multi-day refactor touching every internal link (`navigation.service.ts`,
+> `SectionBasedLayout`, `SubcategorySelector`, `PageSidebar`, `SidebarDomain`,
+> `bread.tsx`, `generatePagePreviewUrl`), so it is **flagged, not scheduled**.
+>
+> Worth revisiting whenever page-render cost or crawl budget becomes a concern — it is
+> the largest single lever left.
+
+---
+
+## 🧭 8-DR. Decision Record — Static Rendering vs Domain/Page Geo-Targeting
+
+**Status: OPEN. Nothing decided, nothing implemented.** Recorded 28 Jul 2026 so the
+reasoning survives outside a chat window.
+
+This record exists because a proposal to make the public pages static was investigated,
+found to be far cheaper than first estimated, and then **rejected** on evidence — and
+that investigation surfaced a much more consequential problem that has nothing to do
+with performance.
+
+### 8-DR.1 — The proposal, and why it looked cheap
+
+`/domain/*` pages are `force-dynamic`, so every view is a serverless invocation with
+database queries. Production logs showed **~24 invocations inside one second** during a
+crawler sweep of the sitemap.
+
+Investigating what actually forces dynamic rendering produced a genuinely useful finding:
+
+> ⚠️ **Deleting `export const dynamic = 'force-dynamic'` would achieve nothing.** In
+> Next.js 15, calling `cookies()` in a Server Component opts that route into dynamic
+> rendering by itself. The real cause is `getUserCountryFromCookies()`.
+
+And there are only **three** such calls across the two public page files — with no
+`searchParams` or `headers()` usage anywhere to force dynamic rendering independently:
+
+```
+src/app/domain/page.tsx:160
+src/app/domain/[...slug]/page.tsx:75    (inside generateMetadata)
+src/app/domain/[...slug]/page.tsx:244   (inside the page component)
+```
+
+**And a second finding made it look cheaper still.** Table-row filtering — the primary
+use of `targetCountries` — never touches the page render at all:
+
+```
+src/app/api/domain/tables/by-page/[pageId]/route.ts:44
+    const userCountry = getUserCountryFromRequest(request);
+    const tableData = await TableService.getPublicTable(pageId, userCountry);
+```
+
+That is a **separate, client-fetched API route** (called from `TableLayout.tsx:51`) which
+reads the cookie itself. So the server-rendered HTML uses the country for exactly three
+things, all of them domain/page-level *visibility*:
+
+| Location | Call | Level |
+|---|---|---|
+| `[...slug]/page.tsx:87`, `:252` | `isContentVisibleToUser(domain.targetCountries, …)` | domain |
+| `[...slug]/page.tsx:132`, `:293` | `PageService.getByPath(…, userCountry)` | page |
+| `[...slug]/page.tsx:272`, `:311` | `PageService.getChildPages(…, userCountry)` | page |
+
+The proposal therefore became: **stop filtering by country at domain/page level**, and
+the pages can be static. Table rows keep filtering exactly as they do now. Estimated at
+about half a day — versus the "multi-day, rewrite every internal link" figure originally
+attached to Option B.
+
+### 8-DR.2 — ❌ Why it was rejected
+
+The proposal rested on an assumption, taken from a verbal summary rather than from the
+plan itself: *that only "one or two" domains and pages would ever carry a country tag.*
+
+**The product plan (Notion → Domains Builder, Domain Data) contradicts that.**
+Domain/page-level geo is structural and growing:
+
+**Whole domains that are inherently India-specific**
+
+| Domain | Evidence |
+|---|---|
+| `For Entrepreneurs \| Startups [Indian]` | `[Indian]` is in the name |
+| `Import & Export Business Data` | Its page list *is* Indian regulation: *Important Indian Embassy Contacts*, *Export Promotion Councils*, *Major Trade Association in India*, *HS Code*, *Sector-Specific Approvals*, *Licenses & Documents*, *Incentives*, *Certification Bodies* |
+| `Dropshipping [Indian]` | Already a row in the database |
+
+**India-specific pages inside otherwise global domains**
+
+| Page | Parent domain |
+|---|---|
+| *Indian Market Understanding ( Backed By Data, Charts, Statistics )* | E-commerce Business |
+| *Tools for Product Demand Research (India Specific)* | E-commerce Business |
+| *Selling On MarketPlaces ( Amazon \| Flipkart \| Meesho )* | E-commerce Business — Flipkart and Meesho are India-only |
+
+So both levels are genuinely used, and the set grows with the catalogue.
+
+**What dropping the filter would look like in practice:** an American visitor opening
+`Import & Export Business Data` would be served *"Important Indian Embassy Contacts"* and
+*"Export Promotion Councils"*. That is not a small relevance miss — it makes the site
+look unmaintained.
+
+> ⚠️ **Process note.** The half-day estimate came from accepting a summary of the geo
+> plan instead of asking to see it. The plan was one screenshot away. **When an estimate
+> hinges on how much of something exists, count it.** This is the same failure mode as
+> the `lastmod` estimate in #13, which assumed child-row edits were an edge case and
+> turned out to affect 91.7% of pages.
+
+### 8-DR.3 — ⚠️ The real problem this uncovered: tagging content deletes it from Google
+
+This matters more than the performance work, and it is **latent right now** — no content
+is tagged yet, so nothing is lost. It triggers the moment the tagging work begins.
+
+**The mechanism:**
+
+```
+1. Googlebot crawls from US IP addresses and sends NO cookies
+2. src/middleware.ts assigns DEFAULT_COUNTRY = 'US'
+3. buildCountryFilter('US') -> OR: [ has 'ALL', has 'US' ]
+4. A domain or page tagged ["IN"] matches neither
+5. isContentVisibleToUser() / getByPath() -> notFound() -> 404 TO GOOGLEBOT
+6. It can never be indexed. Not "ranks poorly" - never enters the index.
+```
+
+Plus `sitemap.ts` filters to `targetCountries: ['ALL']` and `generateMetadata` emits
+`robots: { index: false }` for anything else — both correct given the above, and both
+reinforcing it.
+
+**Concretely:** tag `Import & Export Business Data` as `IN` and every page in it
+disappears from search. An Indian person googling *"export promotion councils India"* —
+precisely the target audience — will never find `atno.io`.
+
+> **The architecture currently punishes you for using the geo feature.** The more
+> India-specific content is built and tagged, the more search visibility is destroyed.
+> And the loss is not instantly recoverable: untagging later starts the indexing clock
+> again from zero.
+
+This is why the decision belongs **before** the tagging work, not after.
+
+### 8-DR.4 — The three options, with honest costs
+
+#### Option 1 — Status quo: stay dynamic, keep geo
+
+| | |
+|---|---|
+| **Performance** | ❌ Every page view is a function invocation with DB queries |
+| **Domain/page geo** | ✅ Works as designed |
+| **India content in Google** | ❌ Invisible, permanently, once tagged |
+| **Cost** | Zero |
+
+Viable only while little content is tagged. Gets worse as the catalogue grows.
+
+#### Option 2 — Middleware rewrite: performance only
+
+Middleware already runs on every request and already resolves the country. It can
+`NextResponse.rewrite()` `/domain/x` to an internal `/[country]/domain/x` route.
+
+| | |
+|---|---|
+| **Performance** | ✅ Pages statically cacheable per country |
+| **Domain/page geo** | ✅ Preserved — the country is in the internal path |
+| **India content in Google** | ❌ **Still invisible.** Googlebot resolves to `US`, so it only ever reaches the US variant |
+| **Internal links** | ✅ Unchanged — they keep pointing at `/domain/x`; middleware rewrites again |
+| **Visible URL** | ✅ Unchanged |
+| **Cost** | ~1 day |
+
+Also needs: `revalidatePath` added to `cache-invalidation.ts` (ISR-cached **HTML** is a
+different cache from the Data Cache, so `revalidateTag` alone will not bust it — the same
+ordering trap as #15.1), and canonical tags checked so all country variants point at one
+canonical URL.
+
+**Buys the performance, leaves the bigger problem untouched.**
+
+#### Option 3 — Real country paths + `hreflang`: performance *and* discoverability
+
+`/in/domain/importexport` and `/us/domain/...` as genuine, linkable URLs, declared to
+Google as regional alternates:
+
+```typescript
+alternates: {
+  canonical: `/in/domain/${slug}`,
+  languages: {
+    'en-IN': `/in/domain/${slug}`,
+    'en-US': `/us/domain/${slug}`,
+    'x-default': `/us/domain/${slug}`,
+  },
+},
+```
+
+| | |
+|---|---|
+| **Performance** | ✅ Every variant statically renderable |
+| **Domain/page geo** | ✅ Preserved |
+| **India content in Google** | ✅ **Indexable and region-targeted in India** |
+| **Internal links** | ❌ Every one must carry the country prefix |
+| **Existing URLs** | ❌ Need 301s to preserve accrued authority |
+| **Cost** | Multi-day |
+
+Touches `navigation.service.ts` (all URL building), `SectionBasedLayout`,
+`SubcategorySelector`, `PageSidebar`, `SidebarDomain`, `bread.tsx`, and
+`generatePagePreviewUrl`. Sitemap grows roughly 5×. `hreflang` must be reciprocal and
+complete or Google ignores the cluster entirely. Admin UX starts having to think in
+country terms.
+
+**The only option where tagging content does not cost search traffic.**
+
+#### ❌ Not an option — drop domain/page geo
+
+Rejected on the evidence in 8-DR.2.
+
+#### ❌ Not an option — serve everything to crawlers
+
+Detecting Googlebot and showing it content real users cannot see is **cloaking**, against
+Google's spam policies, with deindexing risk. Recorded as Option C in #14 and still
+prohibited.
+
+### 8-DR.5 — The question to answer
+
+> **Should India-specific content be findable in Google in India, or is it acceptable
+> for it to be visitor-only?**
+
+- **Findable** → Option 3. Plan it as a project, not a performance tweak.
+- **Visitor-only** → Option 2 gets the performance for a fraction of the effort.
+- **Not yet** → Option 1, but decide before tagging a large amount of content.
+
+### 8-DR.6 — What this blocks
+
+**#8 is not scheduled and should not be picked up as "make the pages static".** It is
+downstream of 8-DR.5.
+
+**Nothing else is blocked.** #2 (DOMPurify) and all of Phase C are independent, carry no
+product decisions, and are the sensible next work.
+
+---
+
+**Original severity note:** Medium (cosmetic, but actively misleading).
 
 Both public pages declare:
 
@@ -2026,6 +2283,20 @@ machinery is built and correct; nothing exercises it. Two consequences:
 opens with `if (!targetCountries) return true`, so a missing value means "visible to
 everyone" — the same as `ALL`. These rows predate the geo feature. No action needed.
 
+> ⚠️ **SUPERSEDED IN PART — see the decision record at #8-DR (28 Jul 2026).**
+>
+> The section below concluded "keep Domains and Pages `ALL`; vary only table rows",
+> based on a verbal summary that only one or two would ever be country-tagged. **The
+> product plan contradicts that** — whole domains (`Import & Export Business Data`,
+> `For Entrepreneurs | Startups [Indian]`, `Dropshipping [Indian]`) and page subtrees
+> (*Indian Market Understanding*, *Tools for Product Demand Research (India Specific)*)
+> are India-specific by design.
+>
+> **What still holds:** the SEO analysis, the ALL+US asymmetry, and the fact that
+> row-level filtering is free. **What does not:** the assumption that domain/page-level
+> tagging is negligible, and therefore the conclusion that Option A is costless. Once
+> tagging begins it has a real price — see #8-DR.3.
+
 ### 🎯 Strategy decision — keep Domains and Pages `ALL`; vary only table rows
 
 **Confirmed July 27 2026.** The owner asked whether to build many country-specific
@@ -2522,6 +2793,23 @@ phase, merged to `master` → auto-deploys to `atno.io`.
       **IN and US currently return byte-identical responses (14,476 bytes).** Expected:
       no content is geo-restricted yet. The mechanism is correct and idle.
 
+      **✅ Confirmed on production, 28 Jul 2026.** A cold cache key behaves exactly as
+      designed, and the cookie path is correctly excluded:
+
+      ```
+      ?country=GB (cold)   ->  MISS (age=0)  ->  HIT (age=1)  ->  HIT (age=1)
+      cookie only          ->  MISS, private, no-store          (never cached)
+      ```
+
+      Vercel's logs also now show a **cache** icon for `/api/page-context` instead of
+      the `f` (function) icon, so the invocation really is being skipped.
+
+      > ⚠️ **`cache-control` in the client response reads `public, max-age=0`, not what
+      > we send.** That is expected, not a bug: Vercel's CDN *consumes* `s-maxage` and
+      > `stale-while-revalidate` for its own edge cache and strips them before
+      > responding, leaving `max-age=0` so the browser always revalidates. **Judge this
+      > by `x-vercel-cache`, not by `cache-control`.**
+
 
 
 ### Phase C — Cleanup
@@ -2551,10 +2839,21 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 
 ### Open decisions
 
-- ~~**Geo strategy**~~ — **RESOLVED July 27 2026.** Domains and pages stay `ALL`; all
-geo variation happens at table-row level. Option A confirmed, and free rather than a
-compromise. Full reasoning and operating rules in #15. Option D (additive geo) is
-moot — nothing is currently being hidden.
+- 🔴 **Geo strategy — REOPENED July 28 2026. Full decision record at #8-DR.**
+The July 27 conclusion ("domains and pages stay `ALL`; Option A is free") rested on an
+assumption the product plan contradicts: whole domains (`Import & Export Business Data`,
+`For Entrepreneurs | Startups [Indian]`, `Dropshipping [Indian]`) and page subtrees
+(*Indian Market Understanding*, *Tools for Product Demand Research (India Specific)*) are
+India-specific **by design**. The open question is now:
+
+  > **Should India-specific content be findable in Google in India, or is it acceptable
+  > for it to be visitor-only?**
+
+  This matters more than the performance work it came out of, because **the current
+  architecture makes tagging content `IN` equivalent to deleting it from Google** —
+  Googlebot crawls from US IPs with no cookie, resolves to `US`, and gets a 404.
+  **Answer this before tagging a large amount of content**: untagging later restarts the
+  indexing clock from zero. Three options with honest costs in #8-DR.4.
 - **OG image versioning** — when the share image is redesigned, bump the filename
 (`og-image-v2.png`) rather than overwriting. Scrapers cache the whole rendered *card*
 keyed on the page URL, so new bytes at the same path are never re-fetched. Keep the
@@ -2598,6 +2897,24 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 15 (July 28): added **decision record #8-DR** — investigated making the public
+pages static, found it cheaper than estimated (only 3 `cookies()` calls force dynamic
+rendering, and table-row filtering never touches the page render), then **rejected the
+"drop domain/page geo" approach on evidence from the product plan**: whole domains and
+page subtrees are India-specific by design, not the "one or two" assumed. That
+investigation surfaced a bigger latent problem — **tagging content `IN` currently deletes
+it from Google**, because Googlebot resolves to `US` and gets a 404. Geo strategy
+reopened; #8 is now downstream of a product decision and is not scheduled.*
+
+*Revision 14 (July 28): #15.1 confirmed working on production (cold key MISS→HIT, cookie
+path correctly `private, no-store`, Vercel logs show a cache icon instead of a function
+invocation). **Raised #8 from Medium/cosmetic to High/performance:** logs show ~24
+`/domain/*` function invocations in one second during a crawl sweep, and those page
+renders — not the API — are now the dominant cost. Recorded that deleting
+`force-dynamic` would achieve nothing, because `cookies()` forces dynamic rendering by
+itself, and that the cookie read currently changes no output at all since no content is
+geo-restricted.*
+
 *Revision 13 (July 28): **#15.1 done.** Country moved into the `/api/page-context` URL
 and `Vary: Cookie` removed, so the hottest endpoint is genuinely CDN-cacheable. Shared
 cache headers are sent ONLY when the country is explicit and recognised; a cookie-derived
