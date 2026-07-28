@@ -23,10 +23,49 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { usePathname } from 'next/navigation';
+// Synchronous, validated cookie reader. Used instead of the useUserCountry() hook so
+// the first fetch already carries the right country — see buildPageContextUrl below.
+import { getUserCountryFromCookie } from '@/hooks/useUserCountry';
 
 // ============================================
 // Types (consolidated from all old hooks)
 // ============================================
+
+/**
+ * Build a `/api/page-context` URL with the visitor's country in the QUERY STRING.
+ * ============================================================================
+ *
+ * WHY THE COUNTRY GOES IN THE URL
+ * The route previously read the country from the cookie and sent `Vary: Cookie` so
+ * the CDN wouldn't serve one country's navigation to another. But `Vary: Cookie`
+ * keys on the WHOLE Cookie header — which contains a session token and analytics
+ * IDs — so every visitor minted a unique cache key and the cache hit 0% of the
+ * time. Every page load executed the function and queried Postgres.
+ *
+ * With the country in the URL, all visitors from one country share one cache entry.
+ *
+ * ⚠️ Sending this param is what makes the response cacheable. The route only sends
+ * shared-cache headers when it sees a recognised `country` in the URL; if the param
+ * is missing it falls back to the cookie and marks the response `private, no-store`,
+ * because a cookie-derived answer must never land in a shared cache. So omitting it
+ * is safe but slow — see src/app/api/page-context/route.ts.
+ *
+ * WHY IT READS document.cookie DIRECTLY RATHER THAN USING useUserCountry()
+ * `useUserCountry()` returns DEFAULT_COUNTRY on the first render and corrects itself
+ * in an effect. Routing the fetch through that state would either fire with the
+ * wrong country or fire twice. `document.cookie` is synchronous, and this function
+ * is only ever called from inside an effect or a callback — never during render — so
+ * `document` always exists and there is no hydration concern.
+ *
+ * `getUserCountryFromCookie` also validates against SUPPORTED_COUNTRIES, so a junk
+ * cookie value becomes DEFAULT_COUNTRY rather than a junk cache key.
+ */
+function buildPageContextUrl(contextPath: string): string {
+  const country = getUserCountryFromCookie(
+    typeof document === 'undefined' ? null : document.cookie
+  );
+  return `/api/page-context?path=${encodeURIComponent(contextPath)}&country=${encodeURIComponent(country)}`;
+}
 
 export type HeaderDomain = {
   id: string;
@@ -389,8 +428,10 @@ export function usePageContext() {
       setStaticError(null);
 
       try {
-        // Fetch with a simple path to get static data
-        const response = await fetch(`/api/page-context?path=/domain`);
+        // Fetch with a simple path to get static data.
+        // `country` is passed EXPLICITLY so the response is CDN-cacheable — see
+        // buildPageContextUrl() at the bottom of this file.
+        const response = await fetch(buildPageContextUrl('/domain'));
         const result = await response.json();
 
         if (!response.ok || !result.success) {
@@ -472,18 +513,19 @@ export function usePageContext() {
     setPageSidebarLoading(true);
 
     try {
-      // Build API URL
-      // For direct domains: /api/page-context?path=/domain/gdesign/ytube
-      // For hierarchical domains: /api/page-context?path=/domain/webdev/withcode
-      let apiUrl = `/api/page-context?path=/domain/${domainSlug}`;
+      // Build the path first, then hand it to buildPageContextUrl() so the country
+      // param is appended the same way as everywhere else.
+      // For direct domains:       /domain/gdesign/ytube
+      // For hierarchical domains: /domain/webdev/withcode
+      let contextPath = `/domain/${domainSlug}`;
       if (firstLevelPageSlug) {
-        apiUrl += `/${firstLevelPageSlug}`;
+        contextPath += `/${firstLevelPageSlug}`;
       } else if (currentDomainPageType === 'direct' && segments.length >= 3) {
         // For direct domains, include any page slug to trigger pageSidebar
-        apiUrl += `/${segments[2]}`;
+        contextPath += `/${segments[2]}`;
       }
 
-      const response = await fetch(apiUrl);
+      const response = await fetch(buildPageContextUrl(contextPath));
       const result = await response.json();
 
       if (!response.ok || !result.success) {
@@ -550,7 +592,7 @@ export function usePageContext() {
     setStaticLoading(true);
     
     try {
-      const response = await fetch(`/api/page-context?path=${encodeURIComponent(pathname)}`);
+      const response = await fetch(buildPageContextUrl(pathname));
       const result = await response.json();
 
       if (!response.ok || !result.success) {
