@@ -6,6 +6,9 @@ import { requireAdmin } from '@/lib/api-auth';
 // leaked a connection pool on every dev hot reload and opened a redundant pool per
 // serverless instance in production.
 import { prisma } from '@/lib/prisma';
+// Finding #2: this endpoint's output is rendered with dangerouslySetInnerHTML to every
+// public visitor, so the HTML is cleaned before it reaches the database.
+import { sanitizeRichTextHtml, htmlToPlainText } from '@/lib/sanitize-html';
 
 interface RouteParams {
   params: Promise<{
@@ -133,22 +136,47 @@ export async function PUT(
       );
     }
 
-    // Calculate word count and plain text for search
-    const plainText = htmlContent.replace(/<[^>]*>/g, '').trim();
+    /**
+     * ⚠️ SANITISE BEFORE STORING — finding #2.
+     *
+     * Everything stored here is rendered to every public visitor through
+     * `dangerouslySetInnerHTML` in RichTextLayout.tsx:45. Cleaning on WRITE rather
+     * than on read matters because read paths are cached (`unstable_cache`, the CDN):
+     * one bad write cleaned only at render time would be re-served from cache
+     * indefinitely, and every future cache layer would have to remember to sanitise.
+     * Doing it once at the boundary means the database only ever holds safe HTML.
+     *
+     * The allow-list was derived from the 415 rows already stored, so real formatting
+     * survives — see src/lib/sanitize-html.ts. It does strip `on*` handlers, which
+     * removes the 398 benign hover effects in existing content; the CSS equivalent is
+     * in globals.css under `.rich-text-content a:hover`.
+     */
+    const safeHtml = sanitizeRichTextHtml(htmlContent).trim();
+
+    if (!safeHtml) {
+      return NextResponse.json(
+        { error: 'htmlContent contained no safe content after sanitisation' },
+        { status: 400 }
+      );
+    }
+
+    // Derived from the SANITISED html, so anything stripped cannot leak into the
+    // searchable text layer — e.g. the body of a removed <script>.
+    const plainText = htmlToPlainText(safeHtml);
     const wordCount = plainText ? plainText.split(/\s+/).length : 0;
 
     // Update or create rich text content
     const richTextContent = await prisma.richTextContent.upsert({
       where: { pageId: pageId },
       update: {
-        htmlContent: htmlContent.trim(),
+        htmlContent: safeHtml,
         title: title || null,
         wordCount,
         plainText
       },
       create: {
         pageId,
-        htmlContent: htmlContent.trim(),
+        htmlContent: safeHtml,
         title: title || null,
         wordCount,
         plainText

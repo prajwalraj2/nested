@@ -14,6 +14,9 @@ import { requireAdmin } from '@/lib/api-auth';
 // reloads reuse one pool. The API surface is identical; only the import changes.
 // An eslint rule now blocks `new PrismaClient()` outside that file.
 import { prisma } from '@/lib/prisma';
+// Finding #2: stored HTML is rendered with dangerouslySetInnerHTML to every public
+// visitor, so it is cleaned before it reaches the database.
+import { sanitizeRichTextHtml, htmlToPlainText } from '@/lib/sanitize-html';
 
 /**
  * GET /api/admin/rich-text
@@ -130,22 +133,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate word count and plain text for search
-    const plainText = htmlContent.replace(/<[^>]*>/g, '').trim();
+    // ⚠️ Sanitise before storing — same reasoning as the PUT in ./[pageId]/route.ts.
+    // Read paths are cached, so cleaning at render time would let one bad write be
+    // re-served indefinitely. See src/lib/sanitize-html.ts for the allow-list, which
+    // was derived from the 415 rows already in the database.
+    const safeHtml = sanitizeRichTextHtml(htmlContent).trim();
+
+    if (!safeHtml) {
+      return NextResponse.json(
+        { error: 'htmlContent contained no safe content after sanitisation' },
+        { status: 400 }
+      );
+    }
+
+    // Derived from the SANITISED html so stripped markup cannot leak into search text.
+    const plainText = htmlToPlainText(safeHtml);
     const wordCount = plainText ? plainText.split(/\s+/).length : 0;
 
     // Create or update rich text content
     const richTextContent = await prisma.richTextContent.upsert({
       where: { pageId: pageId },
       update: {
-        htmlContent,
+        htmlContent: safeHtml,
         title: title || null,
         wordCount,
         plainText
       },
       create: {
         pageId,
-        htmlContent,
+        htmlContent: safeHtml,
         title: title || null,
         wordCount,
         plainText
