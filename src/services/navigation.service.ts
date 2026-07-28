@@ -35,7 +35,40 @@ export const NavigationService = {
    * @param path - The current URL path (e.g., '/domain/gdesign/ytube')
    * @param userCountry - The user's country code
    */
-  getPageContext: cache(async (path: string, userCountry: string): Promise<PageContextData> => {
+  /**
+   * @param includeBreadcrumb Defaults to **false** — see the block below.
+   *
+   * ⚠️ WHY THE BREADCRUMB IS OPT-IN AND OFF BY DEFAULT (#7)
+   * ------------------------------------------------------
+   * This function used to compute breadcrumb data unconditionally, and **every
+   * consumer threw it away**:
+   *
+   *   - `src/hooks/usePageContext.ts` hardcodes
+   *     `breadcrumb: { items: [], shouldCollapse: false, visibleItems: null }`
+   *     in two places, with the comment "Breadcrumb is now client-derived"
+   *   - `src/components/bread/bread.tsx` destructures
+   *     `{ sidebar, pageSidebar, currentPage, loading }` — it never reads `breadcrumb`
+   *
+   * `bread.tsx` builds the trail from `usePathname()` plus sidebar data instead, which
+   * is a genuine improvement: it renders instantly with no API round-trip. **That is
+   * the breadcrumb you see on the site, and this change does not touch it.**
+   *
+   * The server-side version was therefore being queried, serialised, transmitted and
+   * discarded on every single request to this endpoint — the hottest one on the site,
+   * since every public page load fetches it to build the sidebar.
+   *
+   * Three database round-trips went with it (see `buildBreadcrumbData`), one of them
+   * an uncached raw query. `includeBreadcrumb: false` removes all three.
+   *
+   * Kept as an option rather than deleted because `buildBreadcrumbData` is correct and
+   * is the natural source for JSON-LD `BreadcrumbList` markup (#14 / SEO-B), which
+   * would put breadcrumb trails into search results.
+   */
+  getPageContext: cache(async (
+    path: string,
+    userCountry: string,
+    includeBreadcrumb = false
+  ): Promise<PageContextData> => {
     // Parse the path
     const segments = path.split('/').filter(Boolean);
     const isDomainPath = segments[0] === 'domain';
@@ -68,8 +101,23 @@ export const NavigationService = {
       }
     }
 
-    // Build breadcrumb data
-    const breadcrumb = await buildBreadcrumbData(segments, userCountry);
+    /**
+     * Build breadcrumb data — only when explicitly asked for.
+     *
+     * ⚠️ `pageSegments` is passed in rather than letting `buildBreadcrumbData` slice
+     * `segments` itself, and that is not cosmetic. React's `cache()` keys on argument
+     * **identity**, comparing object arguments by reference. Two `segments.slice(2)`
+     * calls produce arrays with identical contents but different references, so
+     * `PageService.getByPath(domainId, ['ytube'], …)` called from both places was
+     * MISSING the cache and executing the same query twice — `['ytube'] !== ['ytube']`.
+     *
+     * Sharing the one array means that when the breadcrumb IS requested, its
+     * `getByPath` call hits the memo from the `currentPage` lookup below instead of
+     * re-querying.
+     */
+    const breadcrumb = includeBreadcrumb
+      ? await buildBreadcrumbData(segments, userCountry, pageSegments)
+      : { items: [] };
 
     // Get current page info if applicable
     let currentPage;
@@ -126,7 +174,18 @@ export const NavigationService = {
   }),
 
   /**
-   * Get breadcrumb data for a path
+   * Get breadcrumb data for a path.
+   *
+   * ⚠️ CURRENTLY HAS NO CALLERS. It existed to serve `GET /api/breadcrumb`, which was
+   * deleted in Phase C (#9) along with the other three deprecated navigation endpoints.
+   *
+   * Retained rather than deleted because it is the ready-made entry point for JSON-LD
+   * `BreadcrumbList` markup (#14 / SEO-B) — a realistic win for a site this deeply
+   * nested, since it can put the trail into search results instead of a bare URL.
+   * Deleting it would just mean writing it again.
+   *
+   * ⚠️ Read the "KNOWN LIMITATION" note in `buildBreadcrumbData` before using this for
+   * anything user-facing: labels are matched on slug alone, so they can be wrong.
    */
   getBreadcrumbData: cache(async (path: string, userCountry: string) => {
     const segments = path.split('/').filter(Boolean);
@@ -426,7 +485,17 @@ function organizePagesIntoSections(
  */
 async function buildBreadcrumbData(
   segments: string[],
-  userCountry: string
+  userCountry: string,
+  /**
+   * The already-sliced page segments, when the caller has them.
+   *
+   * ⚠️ Exists purely so the SAME array reference can be shared with the caller.
+   * React `cache()` compares object arguments by reference, so slicing here as well
+   * would create a second array with identical contents and cause
+   * `PageService.getByPath` to miss the memo and re-run the query. Falls back to
+   * slicing when not supplied, so `getBreadcrumbData` still works standalone.
+   */
+  sharedPageSegments?: string[]
 ): Promise<{ items: BreadcrumbItem[] }> {
   const items: BreadcrumbItem[] = [];
 
@@ -455,21 +524,37 @@ async function buildBreadcrumbData(
 
     // If we have page segments, fetch all pages in path with SINGLE query
     if (segments.length >= 3) {
-      const pageSegments = segments.slice(2);
-      
-      // OPTIMIZED: Single query for all pages
-      const page = await PageService.getByPath(
-        domain.id,
-        pageSegments,
-        domain.pageType as 'direct' | 'hierarchical',
-        userCountry
-      );
+      // Reuse the caller's array where possible — see `sharedPageSegments` above.
+      const pageSegments = sharedPageSegments ?? segments.slice(2);
+
+      /**
+       * ⚠️ REMOVED FROM HERE: a `PageService.getByPath(...)` call whose result was
+       * assigned to `const page` and then **never read**. Verified across the whole
+       * function — the only other occurrences of `page` were `prisma.page`, a comment,
+       * and the string literal `'page'`.
+       *
+       * It was a database query executed solely to discard the result. The labels below
+       * come from `allPagesInPath`, a separate query.
+       */
 
       // Build breadcrumb path
       let currentPath = `/domain/${domain.slug}`;
-      
-      // We need to fetch each page's title for the breadcrumb
-      // But we do it efficiently by getting all at once
+
+      /**
+       * Fetch every page named in the path in one query, then match by slug.
+       *
+       * ⚠️ KNOWN LIMITATION, inherited: this matches on slug ALONE — no parent-chain
+       * validation and no country filter. Two pages in the same domain can share a
+       * slug under different parents (`consultation` appears under several), so the
+       * label could come from the wrong branch of the tree. It also ignores
+       * `targetCountries`.
+       *
+       * Harmless while nothing consumes this (see the note on `getPageContext`), but it
+       * must be fixed before enabling it for JSON-LD — otherwise wrong labels would go
+       * into search results. The removed `getByPath` call above was very likely the
+       * half-finished intent: it returns the correctly-resolved page with its parent
+       * chain and country filter already applied.
+       */
       const { prisma } = await import('@/lib/prisma');
       const allPagesInPath = await prisma.page.findMany({
         where: {
