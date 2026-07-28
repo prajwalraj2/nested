@@ -69,7 +69,20 @@ export async function middleware(request: NextRequest) {
         // POSTs. Safe default; nothing here is sensitive anyway.
         sameSite: 'lax',
 
-        maxAge: 60 * 60 * 24 * 365, // 1 year — see #15.2, this will be reduced to 30 days
+        /**
+         * 30 days, reduced from 1 year (#15.2).
+         *
+         * With per-request re-detection below, `maxAge` is only a BACKSTOP — the
+         * value self-corrects on the next request after the visitor's IP country
+         * changes, so it never needs to wait for expiry. 30 days simply bounds how
+         * long a stale value could persist if the geo header were ever missing.
+         *
+         * The old 1-year value was the real problem: whatever country a visitor was
+         * assigned on their very first request was frozen for a year, and because
+         * there is deliberately no country switcher in the UI, they had no way at all
+         * to correct a bad detection (VPN, corporate proxy, carrier routing).
+         */
+        maxAge: 60 * 60 * 24 * 30,
         path: '/',                  // available on every route, not just the current one
       })
     }
@@ -170,45 +183,75 @@ export async function middleware(request: NextRequest) {
 
 /**
  * Work out what the `user-country` cookie should be set to for this request.
+ * ============================================================================
  *
- * @returns a country code to write, or `null` if the cookie should be left alone.
+ * @returns a country code to write, or `null` if the cookie is already correct and
+ *          should be left alone.
  *
- * CURRENT BEHAVIOUR (set-once): if the visitor already has the cookie we return
- * `null` and never re-check. Whatever country they were given on their very first
- * request sticks for a year.
+ * ---------------------------------------------------------------------------
+ * RE-DETECTS ON EVERY REQUEST (#15.2). It used to be set-once-for-a-year.
+ * ---------------------------------------------------------------------------
+ * The old behaviour: if a cookie existed, return `null` and never look again — so
+ * whatever country a visitor was assigned on their very first request was frozen for
+ * a year.
  *
- * That's a problem, because there is intentionally no country switcher in the UI —
- * so if detection is ever wrong (VPN, corporate proxy, mobile carrier routing) the
- * visitor is stuck with the wrong market's content and has no way to correct it.
- * Re-detecting every request is FREE (the header is already on the request, and this
- * middleware already runs on every request), so #15.2 will change this function to
- * re-check each time. Isolating that logic here is exactly why it's a separate
- * function: #15.2 becomes a change to this one function and nothing else.
+ * That was a genuine dead end. There is **deliberately no country switcher** in the
+ * UI (a recorded product decision: each visitor should feel the site was built for
+ * their market). So when detection was wrong — VPN, corporate proxy, mobile carrier
+ * routing — the visitor had **no mechanism at all** to correct it. Re-detection is
+ * not an optimisation here; it is the only correction the design permits.
+ *
+ * **And it is free.** Two reasons, both already true before this change:
+ *   1. `x-vercel-ip-country` is derived from the IP at Vercel's edge and is already
+ *      present on every request — no API call, no lookup, no added latency.
+ *   2. This middleware already runs on every request (the matcher covers everything
+ *      except `/api/auth`, static assets and images).
+ * The old `if (existingCountry) return null` was never a performance measure.
+ *
+ * ⚠️ WHY IT RETURNS `null` WHEN THE VALUE IS UNCHANGED — this is the important part.
+ * `Set-Cookie` on a response can stop shared caches from storing it. After #15.1 we
+ * care about that: `/api/page-context` is CDN-cached, and the public pages may become
+ * cacheable later (#8). Writing the cookie unconditionally on every request would
+ * work against both. Returning `null` when nothing changed means a settled visitor
+ * gets **zero** cookie writes after their first request, and the header only appears
+ * on the rare request where their country genuinely changed.
  */
 function resolveCountryCookie(request: NextRequest): string | null {
-  // Already set → leave it be. (This is the line #15.2 will revisit.)
   const existingCountry = request.cookies.get('user-country')?.value
-  if (existingCountry) {
-    return null
-  }
 
   // `x-vercel-ip-country` is added by Vercel's edge network, derived from the
   // visitor's IP address. It is a 2-letter ISO 3166-1 code, e.g. "IN", "US", "DE".
   //
-  // It is only present on real Vercel deployments — locally it is always null,
-  // which is why local dev always falls back to DEFAULT_COUNTRY ('US'). To test the
-  // Indian view on localhost, set the cookie by hand in DevTools:
-  //     Application → Cookies → user-country = IN
-  const detectedCountry = request.headers.get('x-vercel-ip-country') || DEFAULT_COUNTRY
+  // It is only present on real Vercel deployments — locally it is always null.
+  const headerCountry = request.headers.get('x-vercel-ip-country')
+
+  if (!headerCountry) {
+    /**
+     * No geo header: local dev, or `vercel dev`.
+     *
+     * ⚠️ The `existingCountry` check here is deliberate and must stay. Without a
+     * header we have nothing better than the default, so if a cookie already exists we
+     * LEAVE IT ALONE — which is what makes it possible to hand-set
+     * `user-country=IN` in DevTools (Application → Cookies) to test the Indian view on
+     * localhost. Overwriting it with DEFAULT_COUNTRY on every request would make local
+     * geo testing impossible.
+     */
+    return existingCountry ? null : DEFAULT_COUNTRY
+  }
 
   // We only support a handful of countries so far: IN, US, GB, AU, CA.
   // Anyone else (say Germany → "DE") falls back to 'US', which by design means they
   // see ALL + US content:
   //     buildCountryFilter('US') → OR: [ has 'ALL', has 'US' ]
   // This is intentional, not an oversight — see #15 in NEW-IMPROVEMENTS.md.
-  return SUPPORTED_COUNTRIES.includes(detectedCountry as (typeof SUPPORTED_COUNTRIES)[number])
-    ? detectedCountry
-    : DEFAULT_COUNTRY
+  const detectedCountry =
+    SUPPORTED_COUNTRIES.includes(headerCountry as (typeof SUPPORTED_COUNTRIES)[number])
+      ? headerCountry
+      : DEFAULT_COUNTRY
+
+  // Only write when the value actually changed — see the ⚠️ note above about
+  // Set-Cookie and cacheability.
+  return existingCountry === detectedCountry ? null : detectedCountry
 }
 
 export const config = {
