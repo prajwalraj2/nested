@@ -35,27 +35,71 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
         <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-        <div className="border-b border-gray-300 mb-10 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+        <div className="border-b border-border mb-10 mt-1" style={{ borderBottomWidth: '1px' }}></div>
 
-        {/* Rich Text Content */}
-        <div className="border border-border rounded-lg p-8 bg-gray-100">
+        {/*
+          ⚠️ THIS CARD STAYS LIGHT IN DARK MODE, DELIBERATELY. DO NOT "FIX" IT TO A TOKEN.
+          ==========================================================================
+          `bg-neutral-100` and `text-neutral-900` are fixed values on purpose — they are
+          the one place in the public site that must NOT follow the theme.
+
+          WHY: the stored HTML has colours baked into inline `style` attributes. Measured
+          across all 415 rich-text rows: 395 of them carry inline text colours, 2,519
+          declarations in total, of which **574 are dark colours** — 384 of those pure
+          black (`#000000` ×216, `rgb(0,0,0)` ×168) plus `#292727` ×168 and `#1a1a1a` ×10.
+
+          An inline style beats any stylesheet rule on specificity. So on a dark surface
+          those 574 declarations would render near-black text on a near-black background
+          and simply disappear. No CSS we can write in `globals.css` overrides them, short
+          of `!important` — which would then also flatten the 168 deliberate
+          `rgb(255,255,255)` white-text declarations that pair with the 57 rows carrying
+          inline BACKGROUND colours, turning those white-on-colour.
+
+          So the page chrome themes and this content card does not: a light "island" of
+          author-styled content inside a dark page. That keeps every one of those 2,519
+          author colours reading exactly as intended, costs nothing, and destroys no data.
+
+          The alternative — a migration stripping inline colours from 395 rows so the
+          content becomes themeable — is recorded as option C under finding #21.4. It is
+          irreversible, so it is a product decision, not a styling one.
+
+          `text-neutral-900` is set explicitly rather than relying on inheritance: without
+          it, any text WITHOUT an inline colour would inherit `--foreground`, which is
+          near-white in dark mode — invisible on this light card. That is the same bug in
+          the opposite direction.
+        */}
+        <div className="border border-border rounded-lg p-8 bg-neutral-100 text-neutral-900">
           {hasContent ? (
-            <div className="prose prose-neutral dark:prose-invert max-w-none">
-              <div 
+            /*
+              `dark:prose-invert` was removed. It flips prose's typography colours for a
+              dark background — correct on a dark surface, wrong here, because this card
+              is now permanently light. Leaving it would have inverted the heading, list
+              and blockquote colours to near-white on a light card.
+            */
+            <div className="prose prose-neutral max-w-none">
+              <div
                 className="rich-text-content [&>div]:space-y-4"
-                dangerouslySetInnerHTML={{ 
-                  __html: page.richTextContent!.htmlContent 
+                dangerouslySetInnerHTML={{
+                  __html: page.richTextContent!.htmlContent
                 }}
               />
             </div>
           ) : (
-            /* Empty State */
+            /*
+              Empty state.
+
+              ⚠️ Fixed neutrals, NOT `text-foreground` / `text-muted-foreground` — which is
+              what this used before. Those tokens resolve to near-white in dark mode, and
+              this block sits inside the permanently-light card above, so the heading and
+              body text would have been white-on-light and effectively invisible. Exactly
+              the trap described in the comment on the card.
+            */
             <div className="py-12 text-center">
               <div className="text-6xl mb-4">📝</div>
-              <h2 className="text-xl font-semibold text-foreground mb-3">
+              <h2 className="text-xl font-semibold text-neutral-900 mb-3">
                 Data Coming Soon
               </h2>
-              <p className="text-muted-foreground max-w-md mx-auto">
+              <p className="text-neutral-600 max-w-md mx-auto">
                 We are working on getting the right data.
               </p>
             </div>

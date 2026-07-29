@@ -63,7 +63,7 @@ export function SectionBasedLayout({
       {/* Header */}
       <div className="max-w-7xl mx-auto px-6 py-8">
         <h1 className="text-3xl font-bold text-foreground">{title}</h1>
-        <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+        <div className="border-b border-border mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
       </div>
 
       {/* Main Content - Row-Based 3-Column Layout */}
@@ -116,7 +116,7 @@ function SectionCell({ section, domain, currentPath }: {
       <h2 className="text-lg font-semibold text-foreground mb-1" title={section.title}>
         <span className="block truncate">{section.title}</span>
       </h2>
-      <div className="border-b border-gray-300 w-full mt-1 mb-2" style={{ borderBottomWidth: '1px' }}></div>
+      <div className="border-b border-border w-full mt-1 mb-2" style={{ borderBottomWidth: '1px' }}></div>
       
       <div className="space-y-1">
         {section.pages.map((page: ChildPage) => (

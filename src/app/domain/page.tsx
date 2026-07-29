@@ -192,7 +192,7 @@ export default async function DomainIndexPage() {
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Page Heading */}
         <h1 className="text-3xl font-bold text-foreground">Domains</h1>
-        <div className="border-b border-gray-300 w-full mt-1 mb-8" style={{ borderBottomWidth: '1px' }}></div>
+        <div className="border-b border-border w-full mt-1 mb-8" style={{ borderBottomWidth: '1px' }}></div>
         
         {/* 3-Column Grid Layout - Row-based rendering for alignment */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-x-6 gap-y-10">
