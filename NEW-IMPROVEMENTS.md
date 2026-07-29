@@ -35,7 +35,7 @@ Partially-done findings show which sub-items are complete.
 | [ ]  | 8   | `force-dynamic` — every page view is a function invocation                       | 🟠 **High**     | Performance        | multi-day |
 | [x]  | 9   | Deprecated APIs/hooks still shipping + type coupling                             | 🟡 Medium       | Tech debt          | 1–2 hrs   |
 | [x]  | 10  | `console.log` in hot render paths                                                | 🟢 Low          | Hygiene            | 15 min    |
-| [ ]  | 11  | DB write during page render (`getOrCreateMainPage`)                              | 🟢 Low          | Design smell       | 1 hr      |
+| [x]  | 11  | DB write during page render (`getOrCreateMainPage`)                              | 🟢 Low          | Design smell       | 1 hr      |
 | [x]  | 12  | `/api/debug/cache-test` open in production                                       | 🟢 Low          | Info leak          | 5 min     |
 | [x]  | 13  | No `robots.txt` / `sitemap.xml` (404s in Vercel logs)                            | 🟢 Low          | SEO                | 30 min    |
 | ~    | 14  | **Every page shares one title** — no per-page metadata                           | 🟠 **High**     | SEO / Growth       | 2 hrs (A) |
@@ -1239,6 +1239,106 @@ Then guarantee the invariant elsewhere:
   missing `__main__`, with a one-click fix.
 3. Keep `getOrCreateMainPage` but call it only from admin write paths.
 
+### ✅ DONE — 29 Jul 2026
+
+**Two of the three follow-ups above were deliberately NOT done. Reasons below.**
+
+#### What the audit found before touching anything
+
+Queried the development branch (a copy-on-write clone of production):
+
+```
+direct domains                             : 32
+  └─ missing __main__                      : 0     ← the create branch had NEVER fired
+  └─ with more than one __main__            : 0     ← the race had never happened
+hierarchical domains with a stray __main__ : 0
+Page indexes                               : Page_pkey, Page_domainId_parentId_slug_idx (NON-unique)
+```
+
+So the lazy creation was dead code in practice, and removing the safety net risked
+nothing that exists today.
+
+#### Correction to this finding's own text
+
+The line reference `page.tsx:65` was stale — after the #7 / JSON-LD restructure the call
+sat at **:316**. And the `hierarchical → direct` switch is in the **`PUT`** handler at
+[`domains/[id]/route.ts:196`](src/app/api/admin/domains/[id]/route.ts#L196), not `PATCH`
+(`PATCH` only handles `isPublished`, `orderInCategory` and `targetCountries` — it cannot
+change `pageType`).
+
+#### There are four `__main__` creators, not two
+
+| # | Where | Trigger | Kept? |
+| - | ----- | ------- | ----- |
+| 1 | `POST /api/admin/domains` (:223) | domain created as `direct` | ✅ the primary one |
+| 2 | `PUT /api/admin/domains/[id]` (:196) | `hierarchical → direct` switch | ✅ |
+| 3 | `POST /api/admin/pages` (:171) | page created under a direct domain with no `__main__` | ✅ — it is already a write request, so self-healing there is legitimate |
+| 4 | `domain/[...slug]/page.tsx` (:316) | **a public visitor loads the root** | ❌ **removed** |
+
+All three survivors check for an existing row before inserting.
+
+#### What changed
+
+- [`page.tsx`](src/app/domain/[...slug]/page.tsx) — `getOrCreateMainPage(domain.id, domain.name)`
+  → `getMainPage(domain.id)`, plus a `console.error` + `notFound()` when it is missing.
+  A missing `__main__` means the root genuinely has no content, so 404 is the honest
+  answer; the log names the domain so it is fixable in admin.
+- [`page.service.ts`](src/services/page.service.ts) — **`getOrCreateMainPage` deleted
+  outright**, not just left unused. Its only caller in the entire codebase was that one
+  render line (the admin routes each do their own inline `prisma.page.create`), so nothing
+  broke. An unused write-on-read helper is exactly what someone reaches for later without
+  noticing it mutates.
+
+#### Unplanned bonus: these 32 roots were never cached
+
+`getOrCreateMainPage` was a plain `async` function — **deliberately uncached, because it
+could write** (its own comment said so). `getMainPage` wraps `unstable_cache`. So every
+visit to any of the 32 direct-domain roots was doing an uncached database read; they now
+hit the Data Cache. This was a performance fix disguised as a correctness fix.
+
+#### Follow-up 1 (unique constraint) — SKIPPED, on purpose
+
+Prisma cannot express `UNIQUE (domainId) WHERE slug = '__main__'` in `schema.prisma`, so
+it would have to go in as raw SQL inside a migration. The shadow database would then
+contain an index the schema does not declare, which Prisma reports as drift and tries to
+`DROP` on the next `migrate dev` — reintroducing exactly the problem #3 was spent
+cleaning up.
+
+A plain `@@unique([domainId, slug])` is **not** an option either: 83 `(domain, slug)`
+pairs already collide legitimately across different parents (measured in #7), so it would
+fail on existing data.
+
+And it is no longer needed. The race was between two concurrent **anonymous GETs**;
+removing #4 eliminates it. The only remaining writers are three admin paths that all check
+first, and admin domain-creation is a single deliberate action, not a concurrent one.
+
+#### Follow-up 2 (HealthCheck repair panel) — SKIPPED for now
+
+The `console.error` covers the same need at a fraction of the cost: it surfaces in the
+Vercel logs naming the exact domain, and per the audit it should never fire. Worth
+revisiting only if it ever does.
+
+#### Verification
+
+Production build clean, `tsc --noEmit` clean, then against a real running server:
+
+- **All 32 published direct-domain roots → HTTP 200 and rendered content.**
+- **12 concurrent requests** to one root — the exact scenario that could previously race
+  into duplicate rows.
+- **`Page` row count unchanged: 1195 before, 1195 after. `__main__` count unchanged at
+  32.** Zero writes during render — the actual point of this finding.
+- **Failure branch exercised deliberately:** renamed one domain's `__main__` slug on the
+  development branch, and its root returned **404** with the expected log line —
+  `[#11] direct domain "affiliatemarketing" (…) has no __main__ page` — and **created 0
+  replacement rows**. Slug restored in a `finally`; count back to 1.
+
+⚠️ One observation from that test that is **not** a bug: after restoring the row directly
+via Prisma, the root kept 404ing until the cache TTL expired. That is because the test
+bypassed the API, so no invalidation fired. `getMainPageFromDB` is tagged
+`CACHE_TAGS.PAGES`, and all three real creation paths call `invalidateDomains()` /
+`invalidatePages()` — both of which `revalidateTag(PAGES)` — so a genuine admin-side
+repair takes effect immediately.
+
 ---
 
 
@@ -2082,7 +2182,7 @@ The same reasoning retired `changeFrequency` and `priority` from `sitemap.ts`.
 | ✅ JSON-LD `BreadcrumbList` — **DONE**       | Puts breadcrumb trails into search results — a realistic win for a deeply nested site | Shipped. Required fixing the slug-only label resolution first (16a) — 20 of 1,163 trails were showing the wrong page's title |
 | ✅ JSON-LD `Organization` — **DONE**         | Brand entity on the entry point | Shipped on `/domain` only |
 | JSON-LD `Organization`                     | Brand entity on the home page                                                         | Small                                                                                                                      |
-| `next/image` for `NarrativeLayout.tsx:104` | Raw `<img>` has no `width`/`height` → layout shift. **CLS is a ranking signal.**      | Also gets automatic format/size optimization                                                                               |
+| ⛔ `next/image` for `NarrativeLayout.tsx:104` — **WON'T DO (29 Jul)** | Raw `<img>` has no `width`/`height` → layout shift, and CLS *is* a ranking signal — but see next column | **`NarrativeLayout` renders for 0 of 1,198 pages.** It is only reachable via the `default:` branch of the layout switch, and the only four `contentType` values in the database — `table` (666), `rich_text` (418), `subcategory_list` (74), `section_based` (37) — each have an explicit `case`. Optimising an image in unreachable code buys nothing. Revisit if a `narrative` contentType is ever introduced. |
 | Static rendering                           | `force-dynamic` means no cached HTML and a DB hit on every crawl → slow TTFB          | **Blocked on the geo decision below**                                                                                      |
 | Real page content                          | See the caveat at the end of this section                                             | Product work, not code                                                                                                     |
 
@@ -3106,9 +3206,12 @@ phase, merged to `master` → auto-deploys to `atno.io`.
       **After deploy:** validate a URL with Google's Rich Results Test, then watch
       Search Console → Enhancements → Breadcrumbs over the following days.
 
-- [ ] 16c. **#14** SEO-B remainder: `next/image` for `NarrativeLayout.tsx:104`, real page content
-- [ ] 17. **#11** Make the render path read-only; add the `__main__` invariant + health check
-- [ ] 18. **#12** Gate or delete `/api/debug/cache-test`
+- [~] 16c. **#14** SEO-B remainder: ~~`next/image` for `NarrativeLayout.tsx:104`~~ (won't do —
+      that layout renders for 0 of 1,198 pages; see the SEO-B table); real page content is
+      product work, still open
+- [x] 17. **#11** Make the render path read-only — done 29 Jul. `getOrCreateMainPage` deleted;
+      the unique index and health-check panel were skipped with reasons recorded under #11
+- [x] 18. **#12** Gate or delete `/api/debug/cache-test` — deleted in Phase C
 - [ ] 19. Remaining Step 7: error boundaries, structured error responses, rate limiting
 
 
@@ -3173,6 +3276,28 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 20 (July 29): **#11 done — the public render path no longer writes to the
+database.*** `getOrCreateMainPage` *was **deleted**, not merely bypassed: its only caller in
+the whole codebase was that one render line, since the three admin creators each do their
+own inline* `prisma.page.create`*. An audit first confirmed the create branch had never
+fired — all 32* `direct` *domains already had a* `__main__` *row, 0 duplicates, 0 strays —
+so removing the safety net risked nothing that exists. Verified by rendering all 32 roots
+(200 + content), firing 12 concurrent hits at one of them, and confirming the* `Page` *row
+count was identical before and after (1195/1195, 32* `__main__`*); then by deliberately
+renaming one* `__main__` *on the development branch to prove the new path 404s and logs
+rather than silently recreating it. **Two follow-ups this document proposed were skipped
+with reasons:** the partial unique index cannot be expressed in* `schema.prisma` *and
+would reintroduce the migration drift #3 cleaned up (and a plain* `@@unique([domainId,
+slug])` *would fail outright on the 83 legitimately-colliding pairs), while the race it
+guarded against disappears once create-on-read is gone; the HealthCheck panel is covered
+more cheaply by the* `console.error`*. Also corrected two stale details in #11 itself: the
+call was at* `:316`*, not* `:65`*, and the* `hierarchical → direct` *switch lives in* `PUT`*,
+not* `PATCH`*. Unplanned win:* `getOrCreateMainPage` *was uncached by design (it could
+write), so those 32 roots had been hitting the database on every single view;*
+`getMainPage` *wraps* `unstable_cache`*. Separately,* `next/image` *for*
+`NarrativeLayout.tsx:104` *was marked **won't do** — the four* `contentType` *values in the
+database all have explicit* `case` *branches, so that layout renders for 0 of 1,198 pages.*
+
 *Revision 19 (July 28): **breadcrumb label resolution fixed, then JSON-LD shipped.**
 `buildBreadcrumbData` matched labels by slug alone; 83 (domain, slug) pairs have multiple
 pages (16.5% of the catalogue), and comparing old vs new across all 1,163 paths showed
