@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { getUserCountryFromCookies } from '@/lib/server-country';
 import { DomainService, CategoryService, type DomainWithCategory, type CategoryFull } from '@/services';
 import { buildOpenGraph, buildTwitter, SITE_NAME } from '@/lib/seo';
+import { buildOrganizationJsonLd } from '@/lib/structured-data';
+import { JsonLd } from '@/components/JsonLd';
 
 // ============================================
 // ISR Configuration
@@ -170,6 +172,22 @@ export default async function DomainIndexPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/*
+        Organization structured data — emitted ONLY here.
+
+        Tells Google that "ATNO" is a named entity with a canonical URL and a logo,
+        rather than leaving it to infer a brand from page text. It can feed a knowledge
+        panel and helps disambiguate the name in results.
+
+        ⚠️ Deliberately not on all 1,198 pages. An Organization entity belongs on the
+        site's primary entry point — `/` 308-redirects here, so this is it. Repeating an
+        identical entity everywhere adds bytes and gives Google conflicting signals
+        about which URL is the organisation's home.
+
+        Static, so it costs no database access. See src/lib/structured-data.ts.
+      */}
+      <JsonLd data={buildOrganizationJsonLd()} />
+
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Page Heading */}

@@ -13,7 +13,11 @@ import { NarrativeLayout } from '@/components/domain/NarrativeLayout';
 import { TableLayout } from '@/components/domain/TableLayout';
 import { RichTextLayout } from '@/components/domain/RichTextLayout';
 import { getUserCountryFromCookies, isContentVisibleToUser } from '@/lib/server-country';
-import { DomainService, PageService } from '@/services';
+import { DomainService, PageService, NavigationService } from '@/services';
+// JSON-LD structured data — see src/lib/structured-data.ts for what it buys us and its
+// honest limits (it is a click-through improvement, not a ranking factor).
+import { buildBreadcrumbJsonLd } from '@/lib/structured-data';
+import { JsonLd } from '@/components/JsonLd';
 import {
   stripEmoji,
   truncate,
@@ -264,67 +268,120 @@ export default async function DomainPage({ params }: Props) {
     })),
   };
 
+  /**
+   * The URL path this render corresponds to. Rebuilt from `params` rather than read
+   * from `headers()`, because reading headers would be a second reason for this route
+   * to be dynamic — and `cookies()` is already one too many (see #8-DR).
+   */
+  const contextPath = `/domain/${awaitedParams.slug.join('/')}`;
+
+  /**
+   * BreadcrumbList structured data.
+   * ==========================================================================
+   * Puts a readable hierarchy into search results in place of the raw URL:
+   *
+   *   before:  https://atno.io/domain/webdev/nocode/websitebuilders
+   *   after:   ATNO › Domains › Web Development › Website Builders (CMS)
+   *
+   * ⚠️ THIS RE-ENABLES THE BREADCRUMB QUERIES #7 JUST TURNED OFF — but deliberately,
+   * and in a different place. #7 removed them from `/api/page-context`, which the
+   * client hits on EVERY page load and which discarded the result. Here the data is
+   * actually used, and it runs on the page render instead. `getBreadcrumbData` is
+   * `cache()`-wrapped, so it executes once per request no matter how many times it is
+   * called.
+   *
+   * ⚠️ Correct labels depend on the parent-chain fix in `buildBreadcrumbData`. Before
+   * it, 20 of 1,163 paths resolved to a DIFFERENT page's title — `websitebuilders`
+   * reported "AI Website Builders" for a page actually called
+   * "Website Builders (CMS)". Feeding that to Google would have been worse than
+   * emitting nothing, which is why the fix landed first.
+   */
+  const breadcrumb = await NavigationService.getBreadcrumbData(contextPath, userCountry);
+  const breadcrumbJsonLd = buildBreadcrumbJsonLd(breadcrumb.items);
+
+  /**
+   * The page body is assigned to a variable rather than returned from each branch.
+   *
+   * WHY: this component previously had six separate `return` statements. Wrapping every
+   * one of them in a fragment alongside `<JsonLd>` would mean six chances to forget
+   * one — and a missing block is invisible, since nothing renders and no error occurs.
+   * One assignment plus one return makes it structural.
+   */
+  let content: React.ReactNode;
+
   // Top-level domain access (e.g., /domain/gdesign)
   if (restSlug.length === 0) {
     if (domain.pageType === 'direct') {
       // Direct domains: show main page with sections
       const mainPage = await PageService.getOrCreateMainPage(domain.id, domain.name);
       const childPages = await PageService.getChildPages(domain.id, mainPage.id, userCountry);
-      
-      return (
-        <SectionBasedLayout 
-          domain={domain} 
-          page={mainPage} 
-          childPages={childPages} 
-          currentPath={`/domain/${domain.slug}`} 
+
+      content = (
+        <SectionBasedLayout
+          domain={domain}
+          page={mainPage}
+          childPages={childPages}
+          currentPath={`/domain/${domain.slug}`}
         />
       );
     } else {
       // Hierarchical domains: show subcategory selection
-      return <SubcategorySelector domain={domainForComponents} />;
+      content = <SubcategorySelector domain={domainForComponents} />;
+    }
+  } else {
+    // Nested page access (e.g., /domain/webdev/courses)
+    const page = await PageService.getByPath(
+      domain.id,
+      restSlug,
+      domain.pageType as 'direct' | 'hierarchical',
+      userCountry
+    );
+
+    if (!page) return notFound();
+
+    // Transform page for component compatibility
+    const pageForComponents = {
+      ...page,
+      subPages: page.subPages.map(sp => ({
+        ...sp,
+        content: [],
+        subPages: [],
+      })),
+    };
+
+    // Render based on content type
+    switch (page.contentType) {
+      case 'section_based': {
+        const childPages = await PageService.getChildPages(domain.id, page.id, userCountry);
+        content = (
+          <SectionBasedLayout
+            page={page}
+            domain={domain}
+            childPages={childPages}
+            currentPath={`/domain/${domain.slug}/${restSlug.join('/')}`}
+          />
+        );
+        break;
+      }
+      case 'subcategory_list':
+        content = <SubcategorySelector domain={domainForComponents} page={pageForComponents} />;
+        break;
+      case 'table':
+        content = <TableLayout page={page} domain={domain} />;
+        break;
+      case 'rich_text':
+        content = <RichTextLayout page={page} domain={domain} />;
+        break;
+      default:
+        content = <NarrativeLayout page={page} domain={domain} />;
+        break;
     }
   }
 
-  // Nested page access (e.g., /domain/webdev/courses)
-  const page = await PageService.getByPath(
-    domain.id,
-    restSlug,
-    domain.pageType as 'direct' | 'hierarchical',
-    userCountry
+  return (
+    <>
+      <JsonLd data={breadcrumbJsonLd} />
+      {content}
+    </>
   );
-  
-  if (!page) return notFound();
-  
-  // Transform page for component compatibility
-  const pageForComponents = {
-    ...page,
-    subPages: page.subPages.map(sp => ({
-      ...sp,
-      content: [],
-      subPages: [],
-    })),
-  };
-  
-  // Render based on content type
-  switch (page.contentType) {
-    case 'section_based': {
-      const childPages = await PageService.getChildPages(domain.id, page.id, userCountry);
-      return (
-        <SectionBasedLayout 
-          page={page} 
-          domain={domain} 
-          childPages={childPages} 
-          currentPath={`/domain/${domain.slug}/${restSlug.join('/')}`} 
-        />
-      );
-    }
-    case 'subcategory_list':
-      return <SubcategorySelector domain={domainForComponents} page={pageForComponents} />;
-    case 'table':
-      return <TableLayout page={page} domain={domain} />;
-    case 'rich_text':
-      return <RichTextLayout page={page} domain={domain} />;
-    default:
-      return <NarrativeLayout page={page} domain={domain} />;
-  }
 }

@@ -2079,7 +2079,8 @@ The same reasoning retired `changeFrequency` and `priority` from `sitemap.ts`.
 
 | Item                                       | Why                                                                                   | Note                                                                                                                       |
 | ------------------------------------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| JSON-LD `BreadcrumbList`                   | Puts breadcrumb trails into search results — a realistic win for a deeply nested site | Data already exists in `buildBreadcrumbData` (currently orphaned, see #7 — this is the use case that justifies keeping it) |
+| ✅ JSON-LD `BreadcrumbList` — **DONE**       | Puts breadcrumb trails into search results — a realistic win for a deeply nested site | Shipped. Required fixing the slug-only label resolution first (16a) — 20 of 1,163 trails were showing the wrong page's title |
+| ✅ JSON-LD `Organization` — **DONE**         | Brand entity on the entry point | Shipped on `/domain` only |
 | JSON-LD `Organization`                     | Brand entity on the home page                                                         | Small                                                                                                                      |
 | `next/image` for `NarrativeLayout.tsx:104` | Raw `<img>` has no `width`/`height` → layout shift. **CLS is a ranking signal.**      | Also gets automatic format/size optimization                                                                               |
 | Static rendering                           | `force-dynamic` means no cached HTML and a DB hit on every crawl → slow TTFB          | **Blocked on the geo decision below**                                                                                      |
@@ -2995,7 +2996,117 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 
 ### Phase D — Polish
 
-- [ ] 16. **#14** SEO-B: JSON-LD `BreadcrumbList`, `next/image`, real page content
+- [x] 16a. **Breadcrumb label resolution fixed** — prerequisite for the JSON-LD below.
+
+      `buildBreadcrumbData` matched page labels by **slug alone within a domain**, but
+      slugs are only unique *within a parent*. Measured: **83 (domain, slug) pairs have
+      more than one page, covering 192 pages — 16.5% of the catalogue.**
+      `/domain/appdev` alone has `ytube`, `courses`, `podcasts`, `fonts`, `colors` and
+      `networking` each appearing **three times** under different parents, so
+      `.find(p => p.slug === slug)` returned whichever row Postgres happened to hand
+      back first.
+
+      **Compared old vs new labels across all 1,163 real page paths: 20 changed (1.7%).**
+
+      ```
+      /domain/webdev/nocode/websitebuilders
+        BEFORE:  No-Code Web Dev › 🖥️ AI Website Builders
+        AFTER :  No-Code Web Dev › 🏗️ Website Builders (CMS)     <- a DIFFERENT page
+
+      /domain/webdev/nocode/waysofmonetization/sellcourses
+        BEFORE:  … › 👩‍💻 Create & Sell Courses
+        AFTER :  … › 👩‍💻 Create & Sell Courses - no              <- nocode, not withcode
+
+      /domain/gdesign/facebookgroups
+        BEFORE:  🍀 Facebook Groups        AFTER:  🐼 Facebook Groups
+      ```
+
+      > ⚠️ **Correction to an earlier claim in this document.** It said "in no observed
+      > case would a completely unrelated page's title appear" — the first example
+      > disproves that. `webdev` has parallel `withcode`/`nocode` subtrees with matching
+      > page names, and the naive match crossed between them.
+
+      **The fix**, same query count as before: `__main__` is added to the slug list (so
+      a `direct` domain's synthetic root is available in the same round-trip), the chain
+      is then walked **in memory** requiring each page to be a child of the previous one
+      — a query per level would be an N+1 on paths 4 deep — and `buildCountryFilter` is
+      applied so an invisible page never supplies a label. When the chain breaks,
+      `undefined` propagates and remaining segments fall back to formatted slugs rather
+      than silently matching an unrelated branch.
+
+      > **No user-visible change, and that is expected.** The server breadcrumb is off by
+      > default (#7) and the *visible* trail comes from `bread.tsx`, which was already
+      > correct: for the last segment it prefers `currentPage.title`, resolved via
+      > `PageService.getByPath`. Every one of the 20 ambiguous cases has the ambiguous
+      > slug as a **leaf**, so `currentPage` covers it.
+      >
+      > ⚠️ `bread.tsx` does share the structural weakness — `getDomainsForNavigationFromDB`
+      > returns *every* page in the domain with no `parentId` filter, so its line 159
+      > `pages.find(p => p.slug === pageSlug)` is the same naive match. It is only saved
+      > by the ambiguous slugs all being leaves. Create an **intermediate** page whose
+      > slug duplicates another in the same domain and the visible trail would be wrong.
+
+- [x] 16b. **#14** SEO-B: JSON-LD `BreadcrumbList` + `Organization` — **DONE.**
+
+      New `src/lib/structured-data.ts` (pure builders) and
+      `src/components/JsonLd.tsx` (the script tag). Verified rendered output:
+
+      ```
+      /domain                             -> Organization
+      /domain/gdesign                     -> Domains › Graphic Designing
+      /domain/gdesign/ytube               -> Domains › Graphic Designing › YouTube Channel
+      /domain/webdev/nocode/websitebuilders
+                                          -> Domains › Web Development › No-Code Web Dev
+                                             › Website Builders (CMS)
+      /domain/webdev/withcode/definingservices/portfoliowebsite
+                                          -> 5-item trail, depth 4
+      ```
+
+      All blocks parse as valid JSON. Emoji stripped, relative URLs made absolute,
+      `position` 1-based, and the **last crumb omits `item`** as schema.org prescribes
+      (the final entry is the page you are already on).
+
+      > ⚠️ **`dangerouslySetInnerHTML` is unavoidable, and there is a real XSS vector.**
+      > React escapes text children, so `<script>{JSON.stringify(data)}</script>` turns
+      > `<` into `&lt;` *inside the script body* — HTML entities are meaningless to a
+      > JSON parser, so the block arrives corrupted and Google silently discards it.
+      >
+      > But inside a `<script>` element the HTML parser hunts for the literal bytes
+      > `</script` and does not care that they sit inside a JSON string. Page titles are
+      > plain `String` columns that never pass through the #2 sanitiser, so a title
+      > containing `</script><script>…` would break out. `escapeForScriptTag` converts
+      > `<` and `>` to `<` / `>`, which keeps the JSON semantically identical
+      > while making that byte sequence impossible. `JSON.stringify` alone does **not**
+      > help — it escapes quotes and backslashes, not angle brackets.
+      >
+      > Tested with the payload `</script><script>alert(document.cookie)</script>` as a
+      > page title: no literal `</script` survives, no raw `<` at all, and the text is
+      > still present in escaped form rather than silently dropped.
+
+      **⚠️ This re-enables the breadcrumb queries #7 removed — deliberately, and
+      elsewhere.** #7 took them out of `/api/page-context`, which the client hits on
+      every page load and which discarded the result. Here the data is used, on the page
+      render, and `getBreadcrumbData` is `cache()`-wrapped so it runs once per request.
+      Net: one extra query per page render, none on the API.
+
+      **`Organization` is emitted only on `/domain`** — the site's real entry point,
+      since `/` 308-redirects there. Repeating an identical entity across 1,198 pages
+      would add bytes and give Google conflicting signals about the organisation's home.
+
+      The page component was restructured from six `return` statements to one
+      `content` variable plus a single return. Wrapping six returns individually would
+      have meant six chances to omit the `<JsonLd>` — and a missing block is invisible,
+      since nothing renders and no error occurs.
+
+      > **Honest expectations:** structured data is **not a ranking factor** (Google has
+      > said so). It changes how a result *looks*, which affects click-through. Valid
+      > markup makes you *eligible* for a rich result, never guaranteed. And it cannot
+      > fix thin content — most pages here are lists of outbound links.
+
+      **After deploy:** validate a URL with Google's Rich Results Test, then watch
+      Search Console → Enhancements → Breadcrumbs over the following days.
+
+- [ ] 16c. **#14** SEO-B remainder: `next/image` for `NarrativeLayout.tsx:104`, real page content
 - [ ] 17. **#11** Make the render path read-only; add the `__main__` invariant + health check
 - [ ] 18. **#12** Gate or delete `/api/debug/cache-test`
 - [ ] 19. Remaining Step 7: error boundaries, structured error responses, rate limiting
@@ -3062,6 +3173,16 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 19 (July 28): **breadcrumb label resolution fixed, then JSON-LD shipped.**
+`buildBreadcrumbData` matched labels by slug alone; 83 (domain, slug) pairs have multiple
+pages (16.5% of the catalogue), and comparing old vs new across all 1,163 paths showed
+**20 changed** — including `websitebuilders` reporting "AI Website Builders" for a page
+actually named "Website Builders (CMS)". That corrects an earlier claim in this document
+that no unrelated title ever appeared. Then added `BreadcrumbList` + `Organization`
+JSON-LD with a real `</script>`-injection defence, verified against a hostile title. No
+user-visible breadcrumb change — `bread.tsx` was already correct via `currentPage.title`,
+though it shares the same latent weakness for intermediate segments.*
+
 *Revision 18 (July 28): **#7 done.** Server breadcrumb is now opt-in and off by default,
 removing three database round-trips (one of them uncached, one a query whose result was
 never read) from the hottest endpoint. The visible breadcrumb is provably unaffected:

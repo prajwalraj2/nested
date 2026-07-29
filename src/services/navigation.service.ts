@@ -184,8 +184,9 @@ export const NavigationService = {
    * nested, since it can put the trail into search results instead of a bare URL.
    * Deleting it would just mean writing it again.
    *
-   * ⚠️ Read the "KNOWN LIMITATION" note in `buildBreadcrumbData` before using this for
-   * anything user-facing: labels are matched on slug alone, so they can be wrong.
+   * Labels are resolved by walking the parent chain and are country-filtered, so they
+   * are safe for user-facing and search-facing use — see the block comment inside
+   * `buildBreadcrumbData` for why that mattered.
    */
   getBreadcrumbData: cache(async (path: string, userCountry: string) => {
     const segments = path.split('/').filter(Boolean);
@@ -527,39 +528,61 @@ async function buildBreadcrumbData(
       // Reuse the caller's array where possible — see `sharedPageSegments` above.
       const pageSegments = sharedPageSegments ?? segments.slice(2);
 
-      /**
-       * ⚠️ REMOVED FROM HERE: a `PageService.getByPath(...)` call whose result was
-       * assigned to `const page` and then **never read**. Verified across the whole
-       * function — the only other occurrences of `page` were `prisma.page`, a comment,
-       * and the string literal `'page'`.
-       *
-       * It was a database query executed solely to discard the result. The labels below
-       * come from `allPagesInPath`, a separate query.
-       */
-
       // Build breadcrumb path
       let currentPath = `/domain/${domain.slug}`;
 
       /**
-       * Fetch every page named in the path in one query, then match by slug.
+       * Resolve each segment's label by WALKING THE PARENT CHAIN.
+       * ====================================================================
        *
-       * ⚠️ KNOWN LIMITATION, inherited: this matches on slug ALONE — no parent-chain
-       * validation and no country filter. Two pages in the same domain can share a
-       * slug under different parents (`consultation` appears under several), so the
-       * label could come from the wrong branch of the tree. It also ignores
-       * `targetCountries`.
+       * ⚠️ THE BUG THIS REPLACES
+       * The previous version fetched every page whose slug appeared anywhere in the
+       * path and then matched by slug alone:
        *
-       * Harmless while nothing consumes this (see the note on `getPageContext`), but it
-       * must be fixed before enabling it for JSON-LD — otherwise wrong labels would go
-       * into search results. The removed `getByPath` call above was very likely the
-       * half-finished intent: it returns the correctly-resolved page with its parent
-       * chain and country filter already applied.
+       *     const pageData = allPagesInPath.find(p => p.slug === slug);
+       *
+       * Slugs are only unique *within a parent*, not within a domain. Measured against
+       * real data: **83 (domain, slug) pairs have more than one page, covering 192
+       * pages — 16.5% of the catalogue.** `/domain/appdev` alone has `ytube`,
+       * `courses`, `podcasts`, `fonts`, `colors` and `networking` each appearing THREE
+       * times under different parents.
+       *
+       * So `.find()` returned whichever row Postgres happened to hand back first, and
+       * the label (and `contentType`) could come from a different branch of the tree.
+       * In 20 of those 83 cases the titles genuinely differ — e.g. `facebookgroups`
+       * exists as both "🐼 Facebook Groups" and "🍀 Facebook Groups" — so the wrong
+       * one was a coin flip.
+       *
+       * It also ignored `targetCountries`, meaning a page invisible to this visitor
+       * could still supply a label.
+       *
+       * ⚠️ HOW THE FIX WORKS — same query count, correct answer
+       * Rather than trusting slugs, we reproduce the traversal that
+       * `PageService.getByPath` performs: start at the domain's root and step down one
+       * segment at a time, requiring each page to be a CHILD of the previous one.
+       *
+       * Two details make it a single query rather than one per level:
+       *
+       *   1. `__main__` is added to the slug list. For a `direct` domain, top-level
+       *      pages have `parentId = <the __main__ page's id>` rather than null, so the
+       *      walk needs that id — and fetching it in the same query avoids a second
+       *      round-trip.
+       *   2. The whole chain is resolved in memory from that one result set, exactly
+       *      as `sitemap.ts` does for URL building. Walking with a query per level
+       *      would be a textbook N+1 on paths up to 4 deep.
+       *
+       * `buildCountryFilter` is applied so a page the visitor cannot see never
+       * contributes a label.
        */
       const { prisma } = await import('@/lib/prisma');
-      const allPagesInPath = await prisma.page.findMany({
+      const { buildCountryFilter } = await import('@/lib/server-country');
+
+      const candidates = await prisma.page.findMany({
         where: {
           domainId: domain.id,
-          slug: { in: pageSegments },
+          // '__main__' is the synthetic root of a `direct` domain — see detail 1 above.
+          slug: { in: [...pageSegments, '__main__'] },
+          ...buildCountryFilter(userCountry),
         },
         select: {
           id: true,
@@ -570,17 +593,43 @@ async function buildBreadcrumbData(
         },
       });
 
-      // Build the breadcrumb path by matching slugs
+      /**
+       * Where the walk starts.
+       *
+       *   hierarchical → top-level pages have `parentId = null`
+       *   direct       → top-level pages hang off the `__main__` page
+       *
+       * If a `direct` domain is missing its `__main__` row (finding #11 — the render
+       * path used to create it lazily), `expectedParentId` stays undefined, the first
+       * lookup fails, and every label degrades to the formatted slug. Ugly but not
+       * broken, which is the right failure mode for a breadcrumb.
+       */
+      let expectedParentId: string | null | undefined =
+        domain.pageType === 'direct'
+          ? candidates.find(p => p.slug === '__main__')?.id
+          : null;
+
       for (const slug of pageSegments) {
         currentPath += `/${slug}`;
-        const pageData = allPagesInPath.find(p => p.slug === slug);
-        
+
+        // The ONLY acceptable match: right slug AND correct parent. This is the line
+        // that fixes the ambiguity — three pages named `ytube` in one domain now
+        // resolve to exactly one.
+        const pageData = expectedParentId === undefined
+          ? undefined
+          : candidates.find(p => p.slug === slug && p.parentId === expectedParentId);
+
         items.push({
           label: pageData?.title || formatSlugToTitle(slug),
           url: currentPath,
           type: 'page',
           contentType: pageData?.contentType,
         });
+
+        // Step down. Once the chain breaks, `undefined` propagates and the remaining
+        // segments fall back to formatted slugs rather than silently matching pages
+        // from an unrelated branch.
+        expectedParentId = pageData?.id;
       }
     }
   }
