@@ -43,6 +43,8 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 16  | Admin login had no brute-force limit + a user-enumeration timing leak            | 🟠 **High**     | Security           | 1.5 hrs   |
 | ~    | 17  | **Seeded `admin@example.com` was live on production with the password committed to this repo** | 🔴 **Critical** | Security | 5 min |
 | [x]  | 18  | Table data route uncached — a DB query on every view of 666 pages                 | 🟠 **High**     | Performance        | 1.5 hrs   |
+| [x]  | 19  | No error boundaries anywhere — an unhandled throw served a bare 500               | 🟡 Medium       | Resilience / UX    | 1.5 hrs   |
+| [ ]  | 20  | **6 admin pages are statically prerendered — their data is frozen until redeploy** | 🟠 **High**     | Correctness        | 30 min    |
 
 
 **Sub-items:**
@@ -3111,6 +3113,175 @@ not remove it.
 
 
 
+## 🟡 19. No Error Boundaries Anywhere
+
+**Severity:** Medium — a safety net, not a fix for a known bug.
+**Status:** ✅ **DONE, 29 Jul 2026.**
+
+### What was wrong
+
+```
+error.tsx / global-error.tsx        ->  NONE, anywhere
+ErrorBoundary / componentDidCatch   ->  none
+Sentry or similar                   ->  none
+not-found.tsx                       ->  2 (root + domain), sharing NotFoundContent.tsx
+```
+
+An unhandled throw during render had nothing to stop at, so it unwound to the root and
+Next.js served a bare unstyled 500 — no header, no navigation, no route back. In the admin
+panel that also meant losing unsaved form state with no explanation.
+
+`not-found.tsx` does not cover this. `notFound()` is a **deliberate** outcome; this is for
+the unplanned — a Neon cold start timing out mid-render, a dropped connection, malformed
+data crashing a `.map()`.
+
+### What was added — 5 new files, 0 modified
+
+| File | Catches | Fallback keeps |
+| ---- | ------- | -------------- |
+| `src/components/ErrorContent.tsx` | shared body | mirrors the `NotFoundContent.tsx` precedent |
+| `src/app/domain/error.tsx` | `/domain` + `/domain/[...slug]` | sidebar + breadcrumb |
+| `src/app/admin/error.tsx` | the 13 admin pages | admin sidebar + header |
+| `src/app/error.tsx` | `/login`, `/unauthorized`, **and throws in the two layouts above** | root layout |
+| `src/app/global-error.tsx` | throws in the **root layout itself** | nothing — supplies its own `<html>` |
+
+Three details that are easy to get wrong:
+
+- **A boundary does not catch its own layout.** An error in `domain/layout.tsx` bubbles
+  *past* `domain/error.tsx` to the parent — which is the entire reason `src/app/error.tsx`
+  exists. Those layouts are not trivial (`PageContextProvider`, `AppSidebar`, `bread.tsx`;
+  `SessionProvider`, `AdminSidebar`, `AdminHeader`). **Verified**: a layout throw produced
+  a 500 with the domain shell absent from the payload, proving `domain/error.tsx` did not
+  handle it.
+- **`global-error.tsx` must import `globals.css` itself.** It replaces the root layout, the
+  only other importer, so without that line every Tailwind class is inert and the page
+  renders as unstyled black-on-white. **Verified**: with the root layout deliberately
+  broken, the response still contained one `<html>`, one `<body>`, a linked stylesheet and
+  27 KB of content — not a blank page.
+- **The UI shows `error.digest`, not `error.message`.** In production Next strips the
+  message from Server Component errors before it reaches the browser and keeps only the
+  digest, which matches the server log line. Printing the message would look informative in
+  development and show nothing useful in production.
+
+### ⚠️ The real risk, and how it was checked
+
+`notFound()` and `redirect()` are implemented by **throwing**. `domain/[...slug]/page.tsx`
+calls `notFound()` in five places and `/` calls `redirect('/domain')`. Had a boundary
+swallowed those, **every 404 would have become a 500 and the site's entry point would have
+broken** — a spectacular regression from adding what looks like a harmless fallback.
+
+React re-throws these control-flow errors, so `not-found.tsx` and the redirect still win.
+That was **verified rather than taken from the documentation**, against a production build:
+
+```
+/                        308  redirect         <- entry point intact
+/domain                  200  ok: Domains      domain-shell
+/domain/gdesign          200  ok               domain-shell
+/domain/does-not-exist   404  404-page         <- NOT 500
+/nonexistent             404  404-page
+/login, /unauthorized    200  ok
+/robots.txt, /sitemap.xml 200 ok
+6 real deep paths from the sitemap  200  domain-shell
+server-side errors logged: none
+```
+
+Boundaries were then exercised individually with a temporary `process.env.BOOM` trigger in
+each page and layout (all five removed before commit — `grep` confirmed zero remaining):
+
+| Trigger | Result |
+| ------- | ------ |
+| domain page throws | 500, Next logged `digest: '3344484879'`, 404s and `/` unaffected |
+| admin page throws | 500, **admin shell still in the payload**, `/admin` unaffected |
+| domain layout throws | 500, **domain shell absent** — fell through, as designed |
+| root layout throws | 500, valid document with linked CSS — `global-error` territory |
+
+All four boundary UIs and their distinct log tags were confirmed present in the built
+client chunks.
+
+### ⚠️ Two honest limits on this verification
+
+**1. These boundaries render on the CLIENT.** For a 500 on a dynamic route Next 15 returns
+a minimal shell (`<html id="__next_error__">`) and streams the content as escaped JSON, so
+`Something went wrong` never appears in the server HTML. Server probing therefore proves
+the status code, the digest, which components are in the tree, and that the code shipped —
+**not the final painted DOM**. No headless browser is installed, so the visual confirmation
+is a manual browser check.
+
+**2. A correction to comments written earlier in this change.** They claimed the
+`console.error` in each boundary's `useEffect` reaches the Vercel logs. It does not —
+`useEffect` runs only in the browser. The server side is already covered by Next itself,
+which logs the real error and digest automatically (seen directly in the server log during
+the triggered throws). The comments were corrected; the `console.error` calls are useful
+mainly for CLIENT-component errors, where Next logs nothing server-side.
+
+### Deliberately skipped
+
+No `loading.tsx` files. Separate concern (Suspense fallbacks), pages already handle their
+own loading states (`TableLayout` has a Skeleton), and adding them would change perceived
+behaviour on every route for no correctness gain.
+
+---
+
+
+
+## 🟠 20. Six Admin Pages Are Statically Prerendered — Their Data Is Frozen Until Redeploy
+
+**Severity:** High — the admin panel can show data that is simply wrong.
+**Status:** ⬜ open. **Found incidentally on 29 Jul 2026** while testing #19: an error
+trigger placed in `admin/page.tsx` never fired, because that page is never executed at
+request time.
+
+### The finding
+
+```
+/admin              STATIC   initialRevalidateSeconds=false
+/admin/tables       STATIC   initialRevalidateSeconds=false
+/admin/users        STATIC   initialRevalidateSeconds=false
+/admin/categories   STATIC   initialRevalidateSeconds=false
+/admin/sections     STATIC
+/admin/rich-text    STATIC
+/admin/domains      dynamic
+/admin/pages        dynamic
+```
+
+`.next/server/app/admin.html` exists as a real file on disk and is served verbatim.
+`initialRevalidateSeconds=false` means there is **no ISR at all** — it never re-renders.
+And **no admin page declares `force-dynamic` or `revalidate`**.
+
+`src/app/admin/page.tsx` queries Prisma directly (`prisma.domain.findMany`,
+`prisma.page.findMany`) for its dashboard statistics. Because the page uses no dynamic API —
+no `cookies()`, no `headers()`, no `searchParams` — Next 15 renders it once at **build
+time** and bakes the result into HTML. So those counts and the activity feed reflect the
+state of the database at the moment of the last deploy.
+
+`/admin/domains` and `/admin/pages` escape this only by accident: they accept
+`searchParams`, which forces dynamic rendering.
+
+### Why the #5 invalidation work does not help
+
+`revalidateTag` clears the Data Cache (`unstable_cache` entries). These pages do not use
+`unstable_cache` — they call Prisma directly — so there is no tag associated with them and
+nothing to invalidate. This is a different mechanism from everything #5 fixed.
+
+### ⚠️ Needs confirmation from real use before deciding the fix
+
+This is inferred from the build manifest, not observed as a user-facing bug — the dev-branch
+data has not changed since the last build, so there was nothing to see. It is possible this
+has gone unnoticed because the pages actually used day to day (`/admin/domains`,
+`/admin/pages`) are the two dynamic ones.
+
+**Worth checking directly:** add a table in admin, then look at `/admin/tables` and the
+dashboard counts. If the new table is missing until a redeploy, this is confirmed.
+
+The fix is small — `export const dynamic = 'force-dynamic'` (or a short `revalidate`) on the
+six affected pages — but it should not be applied blind, because making six admin pages
+dynamic trades build-time rendering for a function invocation and a query per view. That is
+almost certainly the right trade for a CMS admin panel, but it is a deliberate choice.
+
+---
+
+
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -3659,6 +3830,36 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 25 (July 29): **#19 done — error boundaries added; #20 opened as a High-severity
+find.** The app had **no** `error.tsx` *anywhere, so an unhandled render throw served a bare
+unstyled 500 with no navigation — and in admin, silently lost unsaved form state. Added five
+files (a shared* `ErrorContent` *plus boundaries for* `/domain`*,* `/admin`*, the root, and*
+`global-error`*) and modified none. Three non-obvious details drove the design: a boundary
+does **not** catch its own layout (so a throw in* `domain/layout.tsx` *bubbles past its
+sibling* `error.tsx`*, which is why the root one exists — verified by observing the domain
+shell absent from the payload);* `global-error.tsx` *must import* `globals.css` *itself
+because it replaces the root layout, the only other importer; and the UI shows*
+`error.digest` *rather than* `error.message`*, which production strips from Server Component
+errors.* ⚠️ ***The real risk was that* `notFound()` *and* `redirect()` *are implemented by
+throwing*** *—* `[...slug]/page.tsx` *calls* `notFound()` *five times and* `/` *calls*
+`redirect()`*, so a boundary that swallowed them would have turned every 404 into a 500 and
+broken the site entry point. Verified against a production build rather than trusted from
+docs: 404s stayed 404,* `/` *stayed 308, and 6 real deep sitemap paths stayed 200. Each
+boundary was then exercised with a temporary* `process.env.BOOM` *trigger (all five removed;
+grep confirmed zero left).* **Two honest limits recorded:** *these boundaries render on the
+CLIENT — Next returns a minimal* `__next_error__` *shell and streams the content — so server
+probing proves status, digest, tree membership and that the code shipped, but not the painted
+DOM; no headless browser is installed, so the visual check is manual. And **a correction to
+comments written during this same change**: they claimed the* `useEffect` `console.error`
+*reaches the Vercel logs, which is wrong —* `useEffect` *runs only in the browser. Next logs
+the server error and digest by itself, which was observed directly.* **Separately, #20:** *an
+error trigger in* `admin/page.tsx` *never fired, revealing that* `/admin`*,* `/admin/tables`*,*
+`/admin/users`*,* `/admin/categories`*,* `/admin/sections` *and* `/admin/rich-text` *are
+**statically prerendered with* `initialRevalidateSeconds=false`***, so their direct Prisma
+queries ran at build time and their data is frozen until the next deploy.* `revalidateTag`
+*cannot help — they do not use* `unstable_cache`*, so nothing is tagged. Left open pending
+confirmation from real use, since dev data had not changed since the build.*
+
 *Revision 24 (July 29): **#18 done — the table data route is cached, and country tagging is
 now proven to work.*** `/api/domain/tables/by-page/[pageId]` *serves the 666* `table` *pages
 — 55% of the catalogue — and had **no caching at any layer**: no* `Cache-Control` *at all,
