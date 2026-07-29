@@ -207,40 +207,33 @@ export const PageService = {
   },
 
   /**
-   * Get the __main__ page for direct domains
+   * Get the `__main__` page for a direct domain. Returns `null` if it does not exist.
+   *
+   * ⚠️ READ-ONLY BY DESIGN — see finding #11.
+   *
+   * A sibling `getOrCreateMainPage(domainId, domainName)` used to live right here. It did
+   * the same `findFirst`, then CREATED the row when it came back empty. Its only caller
+   * was the public page renderer (`src/app/domain/[...slug]/page.tsx`), which means an
+   * anonymous `GET` — including every crawl — could insert a row. It was removed rather
+   * than kept "just in case", because an unused write helper is exactly the thing someone
+   * reaches for later without noticing it mutates on read.
+   *
+   * `__main__` is now created only by admin write paths (`POST /api/admin/domains`,
+   * the `hierarchical → direct` switch in `PUT /api/admin/domains/[id]`, and
+   * `POST /api/admin/pages`), each of which checks for an existing row first. If you need
+   * to create one, do it there — do not reintroduce a create-on-read path.
+   *
+   * DOUBLE CACHING IS INTENTIONAL, not an oversight:
+   *   - `unstable_cache` (inside `getMainPageFromDB`) caches ACROSS requests and
+   *     deployments in the Next.js Data Cache, invalidated by `revalidateTag`.
+   *   - React `cache()` here dedupes WITHIN a single render — the layout and the page can
+   *     both ask for the same domain's main page and only one lookup happens.
+   * `domainId` is a string, so `cache()` keys on it correctly (it compares arguments by
+   * identity, which would silently miss for an object or array argument).
    */
   getMainPage: cache(async (domainId: string): Promise<PageWithContent | null> => {
     return getMainPageFromDB(domainId);
   }),
-
-  /**
-   * Get or create the __main__ page for direct domains
-   * Note: Not cached because it can create data
-   */
-  getOrCreateMainPage: async (domainId: string, domainName: string): Promise<PageWithContent> => {
-    let mainPage = await prisma.page.findFirst({
-      where: {
-        domainId,
-        slug: '__main__',
-      },
-      select: pageWithContentSelect,
-    });
-
-    if (!mainPage) {
-      mainPage = await prisma.page.create({
-        data: {
-          title: domainName,
-          slug: '__main__',
-          contentType: 'section_based',
-          domainId,
-          order: 0,
-        },
-        select: pageWithContentSelect,
-      });
-    }
-
-    return mainPage as PageWithContent;
-  },
 
   /**
    * Get child pages of a parent page

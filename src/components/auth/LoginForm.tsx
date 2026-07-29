@@ -21,6 +21,36 @@ export default function LoginForm() {
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get('callbackUrl') || '/admin'
 
+  /**
+   * Turn the error code from `authorize()` into something a human can act on.
+   *
+   * WHERE `code` COMES FROM: `authorize()` in src/lib/auth.ts throws a
+   * `CredentialsSignin` subclass carrying a `code`. Auth.js puts that string in the
+   * response, which `signIn({ redirect: false })` hands back as `result.code`.
+   *
+   * ⚠️ `result.error` is NOT useful for this. It is always the generic string
+   * `"CredentialsSignin"` for any credentials failure, which is why the old code could
+   * only ever print "Invalid email or password" — it had nothing else to go on.
+   *
+   * The lockout code carries the remaining minutes as a suffix (`locked-8`) so the
+   * message can state a real number instead of a vague "try later". Parsed with a
+   * regex rather than `split('-')` so a malformed value falls through to the generic
+   * message instead of rendering "try again in undefined minutes".
+   */
+  const describeError = (code: string | undefined): string => {
+    const locked = code?.match(/^locked-(\d+)$/)
+    if (locked) {
+      const minutes = Number(locked[1])
+      return `Too many failed attempts. This account is locked for security. ` +
+        `Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`
+    }
+
+    // Everything else — unknown email, wrong password, deactivated account — is
+    // deliberately one message. The server sends a single code for all three so that
+    // the response body cannot be used to discover which emails have accounts.
+    return 'Invalid email or password'
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -34,12 +64,14 @@ export default function LoginForm() {
       })
 
       if (result?.error) {
-        setError('Invalid email or password')
+        setError(describeError(result.code))
       } else if (result?.ok) {
         router.push(callbackUrl)
         router.refresh()
       }
-    } catch (error) {
+    } catch {
+      // Reaching here means the request itself failed (offline, network error) rather
+      // than the credentials being rejected — a different situation, different message.
       setError('An error occurred. Please try again.')
     } finally {
       setIsLoading(false)

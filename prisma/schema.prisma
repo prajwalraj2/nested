@@ -206,7 +206,36 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   lastLoginAt   DateTime?
-  
+
+  // --- Brute-force protection (see src/lib/auth.ts) ---------------------------
+  //
+  // WHY THESE LIVE IN THE DATABASE rather than in memory: Vercel runs this app as
+  // serverless functions, and each instance has its own separate memory. A counter
+  // held in a JS `Map` would be reset by every cold start and would not be shared
+  // between two instances, so an attacker spreading guesses across concurrent
+  // connections would never trip it. Postgres is the one piece of state every
+  // instance already shares, which makes it the correct place to count.
+  //
+  // WHY PER-ACCOUNT rather than per-IP: an attacker can rotate IP addresses cheaply
+  // (proxies, mobile networks), which defeats IP-based limits. Locking the *account*
+  // does not care where the guesses come from.
+
+  /**
+   * Consecutive failed sign-in attempts. Reset to 0 on any successful sign-in, and
+   * also reset once an existing lock expires so each lock starts a fresh window.
+   */
+  failedLoginAttempts Int @default(0)
+
+  /**
+   * When set to a FUTURE timestamp, sign-in is refused without even checking the
+   * password. `null` (or a past timestamp) means not locked.
+   *
+   * Storing an expiry instant rather than a "locked" boolean means the lock releases
+   * itself — no scheduled job is needed to unlock accounts.
+   */
+  lockedUntil DateTime?
+
+
   // Track who created this user (for admin audit)
   createdBy     String?
   createdByUser User?     @relation("UserCreatedBy", fields: [createdBy], references: [id])

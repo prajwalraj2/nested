@@ -312,8 +312,62 @@ export default async function DomainPage({ params }: Props) {
   // Top-level domain access (e.g., /domain/gdesign)
   if (restSlug.length === 0) {
     if (domain.pageType === 'direct') {
-      // Direct domains: show main page with sections
-      const mainPage = await PageService.getOrCreateMainPage(domain.id, domain.name);
+      /**
+       * Direct domains: show the `__main__` page with its sections.
+       *
+       * ⚠️ THIS IS A READ. IT MUST STAY A READ. (finding #11)
+       *
+       * This line used to call `PageService.getOrCreateMainPage(...)`, which did a
+       * `findFirst` and then CREATED the `__main__` row if it was missing. That meant a
+       * plain `GET` from an anonymous visitor could write to the database. Three problems
+       * with that:
+       *
+       *   1. This route is `force-dynamic`, so it ran on EVERY visit to a direct
+       *      domain's root — including every Googlebot crawl. A read request must never
+       *      mutate data.
+       *
+       *   2. `findFirst`-then-`create` is not atomic, and there is no unique constraint
+       *      on `Page` for this (only a NON-unique `Page_domainId_parentId_slug_idx`).
+       *      Two concurrent first-hits could both pass the check and both insert, leaving
+       *      the domain with two competing root pages.
+       *
+       *   3. It hid a broken invariant. If `__main__` ever went missing the public site
+       *      silently repaired itself and nobody found out.
+       *
+       * SO WHO CREATES `__main__` NOW? The two admin write paths that can produce a
+       * `direct` domain, both of which check before inserting:
+       *   - `POST /api/admin/domains`           — domain created as `direct`
+       *   - `PUT  /api/admin/domains/[id]`      — `hierarchical → direct` switch (:196)
+       * plus `POST /api/admin/pages` (:171), which self-heals a missing `__main__` — and
+       * that one is fine, because it is already a write request.
+       *
+       * WAS IT SAFE TO REMOVE THE SAFETY NET? Checked against real data first: all 32
+       * `direct` domains have a `__main__` row, 0 have duplicates, and 0 `hierarchical`
+       * domains have a stray one. The create branch had never fired.
+       *
+       * BONUS: `getOrCreateMainPage` was a plain `async` function — deliberately
+       * uncached, because it could write. `getMainPage` wraps `unstable_cache`, so these
+       * 32 domain roots now hit the Data Cache instead of the database on every view.
+       */
+      const mainPage = await PageService.getMainPage(domain.id);
+
+      /**
+       * A `direct` domain with no `__main__` page has no root content to render, so 404
+       * is the honest answer — there is genuinely nothing there.
+       *
+       * The `console.error` is the point of this branch: it turns a silent
+       * self-repairing write into a visible signal in the Vercel logs, naming the exact
+       * domain so it can be fixed in the admin UI. Per the audit above this should never
+       * fire; if it does, the invariant broke and we want to know.
+       */
+      if (!mainPage) {
+        console.error(
+          `[#11] direct domain "${domain.slug}" (${domain.id}) has no __main__ page — ` +
+            `its root will 404. Re-save the domain in admin to recreate it.`
+        );
+        return notFound();
+      }
+
       const childPages = await PageService.getChildPages(domain.id, mainPage.id, userCountry);
 
       content = (
