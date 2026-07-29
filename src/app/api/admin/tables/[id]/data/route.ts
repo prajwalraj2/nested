@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
+import { invalidatePages } from '@/lib/cache-invalidation';
 import { exportTableToCsv, exportTableToJson, ensureRowsHaveTargetCountries } from '@/lib/table-utils';
 import type { TableData } from '@/types/table';
 
@@ -229,6 +230,20 @@ export async function PUT(
       }
     });
 
+    /**
+     * ⚠️ REQUIRED SINCE TABLE DATA BECAME CACHED.
+     *
+     * This handler is the one that saves actual ROWS, so it is the most-used table
+     * write there is. It previously needed no invalidation because table content was
+     * only ever behind React `cache()` — request-scoped, so every load was fresh.
+     *
+     * `table-by-page` in src/services/table.service.ts now caches the table across
+     * requests (tagged TABLES and PAGES). Without this call an admin would save rows
+     * and keep seeing the old ones for up to 60 seconds, which reads as "my edit
+     * didn't save".
+     */
+    invalidatePages();
+
     return NextResponse.json({
       message: `Table data ${operation}d successfully`,
       table: updatedTable,
@@ -297,6 +312,10 @@ export async function DELETE(
       where: { id: tableId },
       data: { data: JSON.parse(JSON.stringify(emptyData)) }
     });
+
+    // Same reason as the PUT above: rows are now cached across requests, so clearing
+    // them has to clear the cache or the page keeps showing rows that no longer exist.
+    invalidatePages();
 
     return NextResponse.json({
       message: 'Table data cleared successfully',

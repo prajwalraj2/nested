@@ -42,6 +42,7 @@ Partially-done findings show which sub-items are complete.
 | ~    | 15  | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects      | 🟡 Medium       | Correctness / Perf | 1–2 hrs   |
 | [x]  | 16  | Admin login had no brute-force limit + a user-enumeration timing leak            | 🟠 **High**     | Security           | 1.5 hrs   |
 | ~    | 17  | **Seeded `admin@example.com` was live on production with the password committed to this repo** | 🔴 **Critical** | Security | 5 min |
+| [x]  | 18  | Table data route uncached — a DB query on every view of 666 pages                 | 🟠 **High**     | Performance        | 1.5 hrs   |
 
 
 **Sub-items:**
@@ -2972,6 +2973,144 @@ deleted there too, the same way.
 
 
 
+## 🟠 18. The Table Data Route Was Completely Uncached
+
+**Severity:** High — it is one of the two hottest endpoints on the site.
+**Status:** ✅ **DONE, 29 Jul 2026.**
+
+### What was wrong
+
+`table` is the most common content type: **666 of 1,198 pages**. Every one of them fetches
+`/api/domain/tables/by-page/[pageId]` client-side from `TableLayout.tsx`. Nothing about
+that request was cached at any layer:
+
+```
+TableService.getPublicTable  ->  React cache() ONLY
+Cache-Control headers        ->  none
+```
+
+Those are two different failures that look like one:
+
+- **React `cache()` is request-scoped.** It dedupes repeat calls *within a single render*
+  and dies with the request. The route calls `getPublicTable` exactly once per request, so
+  it had nothing to deduplicate. The file's own header said "request-level deduplication",
+  which was accurate — request-level is simply the wrong level here.
+- **No `Cache-Control`** meant Vercel's CDN never stored the response.
+
+Net effect per view of a table page: **2 function invocations and 2 database round trips**,
+repeated for every visitor and every refresh.
+
+> ⚠️ **Correction to something claimed earlier in this session.** I initially assumed the
+> service layer was caching this and described the fix as "add cache headers". Reading
+> `table.service.ts` showed only React `cache()`. The service layer was the bigger half of
+> the problem.
+
+### The fix
+
+Same shape as #15.1's fix for `/api/page-context`, because it is the same problem:
+
+1. **Country moved into the URL** (`?country=IN`). A cookie-derived response is personal
+   by definition — put shared cache headers on it and the CDN stores one visitor's rows and
+   serves them to everyone. With the country in the URL, the URL fully identifies the
+   response and it becomes safely shareable. Validated against a whitelist so
+   `?country=<junk>` cannot mint unbounded CDN entries.
+2. **Shared cache headers** when the country is recognised, `private, no-store` when it
+   falls back to the cookie. Plus `X-Country-Source: url|cookie` as a one-line diagnostic.
+3. **`unstable_cache` in the service layer**, so a CDN miss still does not reach Postgres.
+4. **`TableLayout.tsx` sends the country**, via the same synchronous
+   `getUserCountryFromCookie` reader `buildPageContextUrl` uses (the `useUserCountry()`
+   hook returns `DEFAULT_COUNTRY` on first render, so a fetch built from it would use the
+   wrong country or fire twice).
+5. **Deleted 85 lines of dead code** — the route file was 150 lines, of which 85 were
+   commented-out pre-refactor Prisma code.
+
+### ⚠️ The cached value deliberately excludes the country
+
+The obvious implementation is `unstable_cache(fn, [pageId, country])`. This does something
+better: it caches the **unfiltered** table (which is identical for every visitor) and runs
+`filterRowsByCountry` *after* the cache, per request.
+
+- **Country cannot leak.** There is no country-specific value in the cache to hand to the
+  wrong person; the filter always runs against the caller's own country.
+- One entry per table instead of one per (table × country) — 6× fewer entries.
+
+The in-memory filter is trivial: 8,050 rows across 651 tables, ~12 rows each.
+
+### ⚠️ THREE MISSING INVALIDATIONS — this change would have shipped a stale-data bug
+
+Caching table content is only safe if edits invalidate it. Auditing every table-writing
+route found that **three of four did not invalidate at all**:
+
+| Route + handler | What it writes | Invalidated before? |
+| --------------- | -------------- | ------------------- |
+| `tables/route.ts` POST | creates a table | ✅ yes |
+| `tables/[id]/route.ts` **PUT** | name, schema, settings | ❌ **no** |
+| `tables/[id]/route.ts` DELETE | deletes the table | ✅ yes |
+| `tables/[id]/data/route.ts` **PUT** | **the actual rows** | ❌ **no** |
+| `tables/[id]/data/route.ts` **DELETE** | clears all rows | ❌ **no** |
+
+The row-data `PUT` is the most-used table write there is. All three now call
+`invalidatePages()`.
+
+This was legitimate before: table content was only behind React `cache()`, so every load
+was already fresh and invalidation was genuinely unnecessary — this document said so
+explicitly. Caching the content silently invalidated that reasoning. **The comment block in
+`cache-invalidation.ts` that documented "table content is never cached" was corrected in
+the same change**, along with the tag census: `CACHE_TAGS.TABLES` had **no subscriber
+anywhere** in the codebase, so `revalidateTag(TABLES)` was a no-op. The new entry is tagged
+both `TABLES` and `PAGES` — `PAGES` because that is what the admin routes already fire, and
+`TABLES` so the tag finally means something. `invalidatePages()` now fires it too.
+
+### How it was verified
+
+Country tagging was **unused** — 0 of 8,050 rows were tagged — so correctness could not be
+observed from existing data. Rows were tagged on the development branch covering every rule
+in `filterRowsByCountry`, then driven through the real HTTP endpoint. **17 checks, all
+passing:**
+
+```
+US  sees: ALL, US-only, IN+US, untagged, empty-tag
+IN  sees: ALL, IN-only, IN+US, lowercase, spaced, untagged, empty-tag
+GB  sees: ALL, spaced, untagged, empty-tag
+ALL sees: ALL, untagged, empty-tag
+```
+
+- US never sees `IN-only`; IN never sees `US-only`; every country sees `ALL`
+- a lowercase tag (`in`) matches `IN`; whitespace in `" IN , GB "` is trimmed
+- untagged and empty-tag rows are visible to everyone (the documented default)
+- `targetCountries` is stripped from both the public schema and the public rows
+- **6 interleaved US/IN round trips never leaked** — the actual risk of this change
+- `?country=IN` → `public, max-age=0, s-maxage=60, stale-while-revalidate=300`;
+  no param → `private, no-store`; `?country=ZZ` → `private, no-store`
+- an admin row edit through the real API was visible **immediately**, proving invalidation
+  fires rather than relying on the TTL
+
+Then, separately, **the cache was proven to be real** rather than merely present in the
+source: rows were changed via Prisma directly, bypassing the API so nothing invalidated,
+and the endpoint still returned the old 10 rows. Before this change it would have shown the
+new data instantly, because nothing was cached.
+
+`?country=ALL` returns only globally-targeted rows, not every row — consistent with how
+`/api/page-context` treats `ALL`.
+
+> **One observation worth knowing.** After the 60-second TTL lapsed, a single request still
+> returned stale rows and the *next* one was fresh. That is `unstable_cache`'s
+> stale-while-revalidate behaviour, not a bug: TTL expiry serves stale once while
+> refreshing in the background. It matters only for TTL-driven refreshes — `revalidateTag`
+> is immediate, which is why the three invalidation fixes above are what actually keeps
+> admin edits instant.
+
+### What it does not fix
+
+The second round trip is still there — the table arrives via a client-side fetch, so the
+page still renders empty and fills in. Removing that means server-rendering the table,
+which is #8 territory and blocked on **#8-DR**. This makes the round trip cheap; it does
+not remove it.
+
+---
+
+
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -3520,6 +3659,34 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 24 (July 29): **#18 done — the table data route is cached, and country tagging is
+now proven to work.*** `/api/domain/tables/by-page/[pageId]` *serves the 666* `table` *pages
+— 55% of the catalogue — and had **no caching at any layer**: no* `Cache-Control` *at all,
+and* `TableService.getPublicTable` *wrapped in React* `cache()` *only, which is
+request-scoped and therefore deduplicated nothing, since the route calls it once per
+request. Every view of every table page cost 2 function invocations and 2 database round
+trips. Fixed with #15.1's pattern — country into the URL, shared cache headers only when it
+is a recognised value,* `unstable_cache` *in the service layer — plus 85 lines of
+commented-out dead code deleted from a 150-line file. **The cached value deliberately
+excludes the country:** it caches the unfiltered table and filters per request, so there is
+no country-specific value in the cache to hand to the wrong visitor, and there is one entry
+per table instead of one per (table × country).* ⚠️ ***Auditing invalidation before shipping
+found three of four table-writing handlers invalidated nothing*** *—* `tables/[id]` *PUT,
+and both* `tables/[id]/data` *PUT and DELETE, the first of which is the most-used table
+write there is. That was legitimate while table content was uncached (this document said so
+explicitly); caching it silently broke the reasoning, so all three now call*
+`invalidatePages()` *and the stale comment block in* `cache-invalidation.ts` *was corrected.*
+`CACHE_TAGS.TABLES` *had **no subscriber anywhere**, making* `revalidateTag(TABLES)` *a
+no-op; the new entry is tagged both TABLES and PAGES. **Verified with 17 checks against the
+real endpoint**, after tagging rows on the dev branch — country tagging was entirely unused
+(0 of 8,050 rows), so correctness was unobservable from existing data. US never sees
+IN-only, IN never sees US-only, everyone sees ALL, lowercase and whitespace-padded tags
+match, and **6 interleaved US/IN round trips never leaked**. An admin edit through the real
+API appeared immediately. The cache was then proven real by changing rows via Prisma
+directly, bypassing invalidation, and confirming the endpoint still served the old data.
+Noted for future reference:* `unstable_cache` *TTL expiry is stale-while-revalidate, so one
+request past the TTL still sees old data —* `revalidateTag` *is the immediate path.*
+
 *Revision 23 (July 29): **#17's seed script fixed — kept rather than deleted.** Deleting*
 `prisma/seed-admin.ts` *was considered and rejected: creating an admin through the app
 requires* `requireAdmin()`*, so a database with no users has no way in at all, and this

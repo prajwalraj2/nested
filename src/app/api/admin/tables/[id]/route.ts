@@ -164,6 +164,11 @@ export async function PUT(
       }
     });
 
+    // Required since `table-by-page` began caching tables across requests: this handler
+    // changes the name, schema and settings, all of which are inside the cached value.
+    // Only the DELETE below used to invalidate, because it also touched `contentType`.
+    invalidatePages();
+
     return NextResponse.json({
       message: 'Table updated successfully',
       table: updatedTable
