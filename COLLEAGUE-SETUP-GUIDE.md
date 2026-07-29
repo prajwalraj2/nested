@@ -74,12 +74,41 @@ openssl rand -base64 32
 # Generate Prisma client
 npx prisma generate
 
-# Run database migrations to create tables
-npx prisma db push
-
-# (Optional) Seed the database with initial data
-npm run seed:admin
+# Apply the migration history to create the tables.
+# Use `migrate deploy`, NOT `db push`: `db push` syncs the schema without recording
+# anything in _prisma_migrations, which is how this project ended up with no migration
+# history at all and two entire feature schemas missing from it.
+npx prisma migrate deploy
 ```
+
+### Create your admin account
+
+The tables exist but there are no users yet, and there is no way to sign in until one
+exists — `POST /api/admin/users` requires you to already be an admin. So this step is
+**not optional** on a fresh database.
+
+You must supply the credentials yourself; the script has no default and will refuse to
+run without them.
+
+```bash
+# bash / git bash
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<a strong password>' npm run seed:admin
+```
+
+```powershell
+# PowerShell — note there is no inline VAR=value prefix in PowerShell
+$env:ADMIN_EMAIL='you@example.com'; $env:ADMIN_PASSWORD='<a strong password>'; npm run seed:admin
+```
+
+The password must satisfy the same policy the admin panel enforces: at least 8
+characters with an uppercase letter, a lowercase letter, a number and a special
+character. Prefer passing the variables on the command line rather than adding them to
+`.env`, so the password does not sit on disk after you are done.
+
+> **Why no default?** This script used to ship with `admin@example.com` / `Admin123!`
+> hardcoded, behind a `// ← Change this` comment nobody acted on. That account went live
+> on production and stayed usable for about ten months. A convenient default is exactly
+> how that happens, so there deliberately isn't one.
 
 ## Step 6: Run the Development Server
 
@@ -116,12 +145,18 @@ npm start
 npm run lint
 
 # Database operations
-npx prisma generate     # Generate Prisma client
-npx prisma db push     # Push schema changes to database
-npx prisma studio      # Open database browser
-npm run seed           # Seed database
-npm run seed:admin     # Seed admin data
+npx prisma generate         # Generate Prisma client
+npx prisma migrate deploy   # Apply pending migrations (use this, not `db push`)
+npx prisma migrate status   # Show which migrations are applied / pending
+npx prisma studio           # Open database browser
+
+# Create the first admin. Requires ADMIN_EMAIL and ADMIN_PASSWORD — no defaults.
+npm run seed:admin
 ```
+
+> ⚠️ `npm run build` runs `prisma generate`, **not** `prisma migrate deploy`, so
+> migrations do **not** apply themselves on deploy. When a migration adds columns the new
+> code reads, apply it to the target database *before* shipping the code.
 
 ## 📁 Project Structure
 

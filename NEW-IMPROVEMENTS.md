@@ -40,6 +40,8 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 13  | No `robots.txt` / `sitemap.xml` (404s in Vercel logs)                            | 🟢 Low          | SEO                | 30 min    |
 | ~    | 14  | **Every page shares one title** — no per-page metadata                           | 🟠 **High**     | SEO / Growth       | 2 hrs (A) |
 | ~    | 15  | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects      | 🟡 Medium       | Correctness / Perf | 1–2 hrs   |
+| [x]  | 16  | Admin login had no brute-force limit + a user-enumeration timing leak            | 🟠 **High**     | Security           | 1.5 hrs   |
+| ~    | 17  | **Seeded `admin@example.com` was live on production with the password committed to this repo** | 🔴 **Critical** | Security | 5 min |
 
 
 **Sub-items:**
@@ -2728,6 +2730,248 @@ property in any future caching work: **never wrap row-filtered table data in**
 
 
 
+## 🟠 16. Admin Login Had No Brute-Force Limit — and Leaked Which Emails Exist
+
+**Severity:** High — the account it protects can edit all 1,198 pages.
+**Status:** ✅ **DONE, 29 Jul 2026.**
+
+### What was wrong
+
+Two separate problems in the same function, `authorize()` in `src/lib/auth.ts`.
+
+**1. Unlimited password guesses.** Verified by search, not assumption:
+
+```
+rate limiting anywhere in src/     : none
+account lockout / attempt counting : none
+bcrypt cost                        : 12  (~438 ms per compare, measured)
+```
+
+`POST /api/auth/callback/credentials` accepted guesses forever. The only brake was
+bcrypt's cost, which caps one attacker at roughly 200,000 guesses/day — and that is
+parallelisable across connections. Survivable against a strong password; not a control
+worth relying on alone for the account that owns the whole CMS.
+
+**2. A user-enumeration timing side channel.** The old code returned `null` the moment
+the email was not found, *before* reaching bcrypt:
+
+```
+unknown email               -> one indexed SELECT     ~5 ms
+real email, wrong password  -> SELECT + bcrypt        ~438 ms
+```
+
+An ~85× gap is trivially measurable over a network, so anyone could discover which
+emails have accounts without ever logging in. The `isActive: false` early-return leaked
+deactivated accounts the same way.
+
+### ⚠️ The finding that decided the implementation
+
+The obvious place for a rate limit is middleware — but `api/auth` is **excluded from the
+matcher** (`src/middleware.ts`), deliberately, because checking the session inside
+middleware would recurse into NextAuth's own handler. **So middleware cannot protect the
+login endpoint at all.** The logic had to live inside `authorize()`.
+
+### Why per-account lockout in Postgres, not IP rate limiting in Redis
+
+| Option | Verdict |
+| ------ | ------- |
+| In-memory `Map` counter | ❌ Vercel gives each serverless instance its own memory. A counter would reset on every cold start and would not be shared between instances, so guesses spread across concurrent connections would never trip it. |
+| Upstash Redis + `@upstash/ratelimit` | ⚠️ Correct, but adds an external service and dependency to solve a problem this app does not yet have. |
+| **Per-account counters in Postgres** | ✅ Chosen. Postgres is the state every instance already shares. And locking the *account* beats limiting by IP, which an attacker defeats by rotating proxies. |
+
+### What changed
+
+- **`prisma/schema.prisma`** + migration `20260729100000_add_login_lockout` —
+  `failedLoginAttempts Int @default(0)` and `lockedUntil DateTime?`. Both additive with
+  safe defaults, so the migration is backward compatible with the deployed code.
+- **`src/lib/auth.ts`** — 5 failures ⇒ 15-minute lock; counters cleared on success;
+  a locked account is refused *before* bcrypt runs; **always** runs bcrypt against a
+  real cost-12 decoy hash when the user is missing, closing the timing gap; the
+  deactivated-account check moved after bcrypt for the same reason; one shared
+  `invalid_credentials` code for unknown email / wrong password / deactivated, so the
+  response body cannot leak what the timing no longer does; `safeParse` instead of
+  `parse`-in-`try` so a validation failure and a database outage stop taking the
+  identical path.
+- **`src/components/auth/LoginForm.tsx`** — reads `result.code` to explain a lockout with
+  the real minutes remaining. (`result.error` is useless for this: it is always the
+  literal string `"CredentialsSignin"`, which is why the form could previously only ever
+  say "Invalid email or password".)
+
+Lock duration is deliberately temporary, not permanent: a permanent lock would hand an
+attacker a denial-of-service against the real admin by simply guessing wrong five times.
+
+**Acknowledged trade-off:** the lockout message reveals that an account exists for that
+email — the very thing the timing fix hides elsewhere. Accepted, because an admin who is
+locked out and told only "invalid password" will conclude their password is broken and
+never learn to just wait. Reaching that state already requires five failures.
+
+### How it was verified
+
+End-to-end against a running production build and a throwaway user, driving the real
+CSRF + credentials-callback flow exactly as the browser does:
+
+| Check | Result |
+| ----- | ------ |
+| 5 wrong passwords increment `failedLoginAttempts` 1→5 | ✅ |
+| Lock set on the 5th, and **reported on that same attempt** | ✅ `locked-15` |
+| Counter does not climb past the limit once locked | ✅ stays 5 |
+| **The correct password is refused while locked** | ✅ no session issued |
+| After expiry, correct password works and both counters reset | ✅ `0` / `null` |
+| Unknown email and deactivated account share one code | ✅ `invalid_credentials` |
+| Lock logged for the operator | ✅ `[auth] account … locked for 15m after 5 failed attempts` |
+| All three real accounts left untouched | ✅ `attempts=0 lockedUntil=null` |
+
+**Timing, measured as medians of 5 samples each:**
+
+```
+unknown email              : 485 ms
+real email, wrong password : 689 ms
+ratio                      : 1.42x   (was ~85x)
+```
+
+⚠️ **Honest limit — the gap is reduced, not eliminated.** The residual ~200 ms is the
+extra `UPDATE` the real-account path performs to record the failed attempt. Distinguishing
+485 ms from 689 ms through internet jitter needs many samples per email and yields only
+"this address has an account", so this was accepted rather than chased further. Claiming it
+is fully constant-time would be wrong.
+
+### ⚠️ Deploy order matters for this one
+
+`npm run build` runs `prisma generate`, **not** `prisma migrate deploy` — migrations never
+apply themselves on Vercel. Because both columns are additive with defaults, the safe
+order is: **apply the migration to production first, then deploy the code.** Deploying the
+code first would have it query columns that do not exist yet.
+
+---
+
+
+
+## 🔴 17. The Seeded `admin@example.com` Account Is Live on Production — With the Password Committed to This Repository
+
+**Severity:** Critical. **Status:** ⬜ open — needs a decision, see below.
+**Found 29 Jul 2026,** incidentally, while confirming that the #16 lockout test had not
+left counters on any real account.
+
+`prisma/seed-admin.ts` hardcodes a default administrator:
+
+```typescript
+email:    'admin@example.com',   // ← Change this to your email
+password: 'Admin123!',           // ← Change this to your preferred password
+```
+
+Those comments were never acted on. Reading production **read-only**:
+
+```
+PRODUCTION accounts:
+  admin@example.com                  admin=true active=true lastLogin=2025-09-14
+  priyanshupriyadarshi222@gmail.com  admin=true active=true lastLogin=2026-07-26
+  prajwalraj2709@gmail.com           admin=true active=true lastLogin=2026-07-28
+```
+
+And the stored hash was compared against the committed string **locally**, so no sign-in
+attempt was made against production and nothing was written:
+
+```
+password === "Admin123!"  ->  true
+```
+
+**So `admin@example.com` / `Admin123!` grants full administrator access to atno.io right
+now, and the password is in this repository's git history.** The account was genuinely
+used once (14 Sep 2025), so it is not a phantom row.
+
+This outranks everything else still open in this document. #1 put authentication in front
+of the admin API and #16 slowed brute-force guessing — neither helps when the credential
+is published. A guessed password is not brute force; five attempts is not a limit when
+one attempt succeeds.
+
+### Options
+
+1. **Delete the row.** Cleanest, but it is a `User` with relations
+   (`createdUsers`, `accounts`, `sessions`) — check what references it first.
+2. **Deactivate it** (`isActive: false`). One field; #16's logic already refuses
+   inactive accounts *after* bcrypt, so it fails closed.
+3. **Rotate the password** to something random. Keeps the row and its audit trail.
+
+Whichever is chosen, **`prisma/seed-admin.ts` must stop shipping a real password** —
+read it from an environment variable, or generate one with the existing
+`PasswordUtils.generateSecurePassword()` and print it once.
+
+⚠️ Note that removing the credential from the file does **not** remove it from git
+history. It stays valid until the account is changed in the database, which is why the
+database change is the actual fix and the file edit is only hygiene.
+
+### ✅ Half done — 29 Jul 2026
+
+**The live credential is revoked.** Option 1 was taken: the row was deleted via the Neon
+console. Confirmed read-only against production afterwards:
+
+```
+PRODUCTION accounts (2):
+  prajwalraj2709@gmail.com           admin=true active=true
+  priyanshupriyadarshi222@gmail.com  admin=true active=true
+
+  ✅ admin@example.com no longer exists on production
+```
+
+Row counts unchanged either side of the deletion — `domains=34 pages=1197 tables=651
+richTextContent=415` — so nothing cascaded through the `createdUsers` / `accounts` /
+`sessions` relations that were the reason to check before deleting.
+
+### ✅ Seed script fixed — 29 Jul 2026
+
+The script was **kept, not deleted.** Deleting it was considered and rejected: creating an
+admin through the app requires `requireAdmin()`, so a database with no users has no way to
+sign in at all — this script is the only thing that breaks that chicken-and-egg. Removing
+it would have fixed the security problem by deleting the disaster-recovery path.
+
+`prisma/seed-admin.ts` now reads `ADMIN_EMAIL`, `ADMIN_PASSWORD` and optionally
+`ADMIN_NAME` from the environment, with **no default and no fallback** — a default is
+precisely how a placeholder became a production credential, so the convenient path and the
+safe path have to be the same one. It also now:
+
+- validates the password against `PasswordUtils.validatePassword()`, the same policy the
+  admin UI enforces. A bootstrap account is the last place to accept a weak password.
+- sanity-checks the email format, since a typo silently creates an account nobody can use
+- **stops printing the password.** The old version echoed it in full, copying it into
+  terminal scrollback and any CI log — the same class of mistake as committing it.
+- stays idempotent: re-running reports the existing user and changes nothing, rather than
+  overwriting a password or re-enabling a deactivated account
+
+**Verified** on the development branch — all four refusal paths exit non-zero (no
+credentials; email without password; weak password, listing each policy failure; malformed
+email), a valid run creates a working account (hash verifies at cost 12, wrong password
+rejected, `isAdmin`/`isActive` true, #16's new columns defaulted correctly), a second run
+is idempotent, and the supplied password appears nowhere in stdout. Probe account deleted
+afterwards. `tsc` and `eslint` clean.
+
+**Also fixed:** `package.json` had `"seed": "npx tsx prisma/seed.ts"` — and
+`prisma/seed.ts` **does not exist**. That script had been dead for some time; the entry is
+removed. `COLLEAGUE-SETUP-GUIDE.md` was telling new developers to run `npm run seed:admin`
+with no credentials (it would now refuse) and `npx prisma db push` instead of
+`migrate deploy` — the very command that caused #3's missing migration history. Both
+corrected, plus a note that `npm run build` does not apply migrations.
+
+⚠️ `eslint.config.mjs` needed no change: its exemption globs `prisma/**/*.ts`, not a
+filename.
+
+### ⬜ Remaining: the development branch still has the row
+
+Production is clean, but the **development** Neon branch is a copy-on-write clone taken
+before the deletion, so `admin@example.com` still exists there:
+
+```
+remaining users on dev: admin@example.com, priyanshupriyadarshi222@gmail.com, prajwalraj2709@gmail.com
+```
+
+Lower risk — that branch is not deployed and is only reachable with the connection string.
+But it is still a live credential whose password is public, and it would come back to
+production if that branch were ever promoted or used to reset production. It should be
+deleted there too, the same way.
+
+---
+
+
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -3276,6 +3520,67 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 23 (July 29): **#17's seed script fixed — kept rather than deleted.** Deleting*
+`prisma/seed-admin.ts` *was considered and rejected: creating an admin through the app
+requires* `requireAdmin()`*, so a database with no users has no way in at all, and this
+script is the only thing that breaks that chicken-and-egg — removing it would have fixed
+the security hole by deleting the disaster-recovery path. It now reads* `ADMIN_EMAIL`*/*
+`ADMIN_PASSWORD` *from the environment with **no default and no fallback**, validates the
+password against the same* `PasswordUtils.validatePassword()` *policy the admin UI uses,
+checks the email format, stays idempotent on re-run, and **no longer echoes the password**
+(the old version printed it in full, copying it into scrollback and CI logs). All four
+refusal paths and the happy path were verified on the development branch, then the probe
+account deleted. **Two more problems surfaced while wiring this up:*** `package.json`
+*declared* `"seed": "npx tsx prisma/seed.ts"` *and* `prisma/seed.ts` ***does not exist*** *—
+a dead script, now removed; and* `COLLEAGUE-SETUP-GUIDE.md` *instructed new developers to
+run* `npx prisma db push` *rather than* `migrate deploy`*, which is exactly the command that
+produced #3's missing migration history. Both corrected.* `eslint.config.mjs` *needed
+nothing — its exemption globs* `prisma/**/*.ts`*, not a filename.* ⬜ *One piece remains:
+the **development** Neon branch is a clone taken before the deletion, so*
+`admin@example.com` *still exists there and would return to production if that branch were
+ever promoted.*
+
+*Revision 22 (July 29): **#17's live credential revoked and #16's migration applied to
+production.*** `admin@example.com` *was deleted from the production* `User` *table; verified
+read-only afterwards (2 accounts remain, and* `domains=34 pages=1197 tables=651
+richTextContent=415` *unchanged, so nothing cascaded through its* `createdUsers`*/*
+`accounts`*/*`sessions` *relations).* `20260729100000_add_login_lockout` *was then applied
+to production with* `prisma migrate deploy` *— status showed exactly one pending migration
+and no drift beforehand, and afterwards* `failedLoginAttempts` *(integer, NOT NULL, default
+0) and* `lockedUntil` *(nullable timestamp) exist with both existing rows carrying the
+default rather than NULL. The migration went in **before** the code deploy, which is the
+required order since* `npm run build` *runs only* `prisma generate`*.* `.env` *was switched
+to production for the operation and switched straight back to the development branch, with
+the procedure now documented in the file itself (*`.env` *is gitignored, so none of this was
+committable).* ⬜ *#17 is only **half** closed:* `prisma/seed-admin.ts` *still hardcodes*
+`Admin123!`*, so* `npm run seed:admin` *would recreate the deleted account — the finding
+regresses until that script reads its credentials from the environment.*
+
+*Revision 21 (July 29): **#16 done — admin login now locks after 5 failed attempts**, and
+**#17 opened as Critical.** The lockout had to go inside* `authorize()` *rather than
+middleware, because* `api/auth` *is excluded from the middleware matcher by design
+(checking the session there would recurse into NextAuth's own handler) — so the obvious
+integration point was unavailable. Counters live in Postgres rather than memory because
+each Vercel instance has its own memory, and per-account rather than per-IP because IPs
+rotate cheaply. The same change closed a **user-enumeration timing side channel**: the old
+code returned* `null` *for an unknown email before reaching bcrypt, making an unknown email
+(~5 ms) and a real email with a wrong password (~438 ms) differ by ~85x; both paths now run
+bcrypt, one against a decoy cost-12 hash. Measured after the fix: 485 ms vs 689 ms, a
+**1.42x** ratio — reduced, **not eliminated**, the remainder being the extra UPDATE that
+records the failed attempt; that residue was accepted rather than chased. Verified
+end-to-end through the real CSRF + credentials-callback flow on a throwaway user: counter
+climbs 1→5, lock reported on the fifth attempt itself, the **correct** password refused
+while locked, counters reset after expiry, and all three real accounts left untouched.
+⚠️ Deploy order is not free here —* `npm run build` *runs* `prisma generate`*, not*
+`prisma migrate deploy`*, so the migration must be applied to production BEFORE the code
+ships (both columns are additive with defaults, so that order is safe). **Then, while
+confirming the test had left no residue, found #17:*** `prisma/seed-admin.ts` *hardcodes*
+`admin@example.com` */* `Admin123!`*, that account is **live on production as an active
+admin** (last used 14 Sep 2025), and comparing the stored hash against the committed string
+locally confirmed **the default password still works**. That outranks every other open
+item: authentication (#1) and brute-force limits (#16) do not help when the credential is
+published.*
+
 *Revision 20 (July 29): **#11 done — the public render path no longer writes to the
 database.*** `getOrCreateMainPage` *was **deleted**, not merely bypassed: its only caller in
 the whole codebase was that one render line, since the three admin creators each do their
