@@ -6,6 +6,18 @@ import { TablesManager } from '@/components/admin/tables/TablesManager';
 import type { TableStats } from '@/types/table';
 
 /**
+ * ⚠️ DO NOT REMOVE — finding #20. This page calls `prisma.table.findMany` and
+ * `prisma.domain.findMany` during render and uses no dynamic API, so Next 15 would
+ * prerender it at BUILD time and serve frozen HTML — a table created or deleted after the
+ * last deploy would not show up here at all. This is one of the screens the reported
+ * symptom ("changes don't show up in the Admin UI") was actually about.
+ *
+ * `revalidateTag` cannot help — this reads Prisma directly, so nothing is tagged. See the
+ * full explanation in src/app/admin/page.tsx.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * Main Tables Management Dashboard
  * 
  * This page provides the interface for managing all data tables in the system.

@@ -9,6 +9,16 @@ const roboto = Roboto({
 });
 
 /**
+ * ⚠️ DO NOT REMOVE — finding #20. This page calls `prisma.domainCategory.findMany` during
+ * render and uses no dynamic API, so Next 15 would prerender it at BUILD time and serve
+ * frozen HTML: a newly created or renamed category would not appear until the next deploy.
+ *
+ * `revalidateTag` cannot help — this reads Prisma directly, so nothing is tagged. See the
+ * full explanation in src/app/admin/page.tsx.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * Admin Categories Management Page
  * 
  * Main page for managing domain categories with:

@@ -4,6 +4,19 @@ import { prisma } from '@/lib/prisma';
 import { TableCreationWizard } from '@/components/admin/tables/TableCreationWizard';
 
 /**
+ * ⚠️ DO NOT REMOVE — finding #20, and this is the clearest reproduction of it.
+ *
+ * Step 1 of the wizard is a domain picker fed by `prisma.domain.findMany` during render.
+ * With no dynamic API on the page, Next 15 prerendered it at BUILD time — so creating a new
+ * domain and then opening this wizard showed a dropdown that simply did not contain it.
+ * No error, no empty state, no clue: the domain was just absent.
+ *
+ * `revalidateTag` cannot help — this reads Prisma directly, so nothing is tagged. See the
+ * full explanation in src/app/admin/page.tsx.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * Table Creation Wizard Page
  * 
  * Multi-step interface for creating new data tables:
