@@ -5,6 +5,19 @@ import { prisma } from '@/lib/prisma';
 import { SectionsManager } from '@/components/admin/sections/SectionsManager';
 
 /**
+ * ⚠️ DO NOT REMOVE — finding #20. This page calls `prisma.domain.findMany` during render
+ * and uses no dynamic API, so Next 15 would prerender it at BUILD time and serve frozen
+ * HTML: a newly created domain would be missing from the picker until the next deploy.
+ *
+ * `revalidateTag` cannot help — this reads Prisma directly, so nothing is tagged. See the
+ * full explanation in src/app/admin/page.tsx.
+ *
+ * Note the `Suspense` boundary below does NOT make this dynamic. Suspense controls when
+ * parts of the tree stream in; it does not opt a route out of static rendering.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * Main Sections Management Page
  * 
  * This page provides the interface for configuring how child pages

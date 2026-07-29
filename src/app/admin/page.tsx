@@ -5,6 +5,52 @@ import { ActivityFeed } from '@/components/admin/dashboard/ActivityFeed';
 import { HealthCheck } from '@/components/admin/dashboard/HealthCheck';
 
 /**
+ * ⚠️ DO NOT REMOVE — THIS FIXES A REAL, USER-REPORTED BUG (finding #20)
+ * ============================================================================
+ *
+ * THE SYMPTOM
+ * -----------
+ * "When I change/update/create — some things do happen on the live website. But so many
+ * things don't show up in the Admin UI." Create a domain, and the public site updates
+ * while the dashboard counts, the tables list and the New Table dropdown keep showing the
+ * old data — until the next deploy.
+ *
+ * THE CAUSE
+ * ---------
+ * Next 15 renders a page STATICALLY when it touches no dynamic API — no `cookies()`, no
+ * `headers()`, no `searchParams`. This page has none of those; it just calls Prisma
+ * directly. So Next ran these queries **once at build time**, baked the numbers into HTML,
+ * and shipped `.next/server/app/admin.html` as a real file on disk. Every visit served
+ * that file. `initialRevalidateSeconds` was `false`, meaning no ISR either — it could
+ * never refresh.
+ *
+ * Note this is the OPPOSITE trade-off from the public pages. There, static rendering is
+ * the goal (see #8-DR) because 1,198 pages × crawler traffic makes it genuinely valuable.
+ * Here the audience is a handful of admins and the data must be correct, so one function
+ * invocation and one query per view is obviously the right price.
+ *
+ * WHY `revalidateTag` COULD NOT HAVE FIXED IT
+ * ------------------------------------------
+ * All the invalidation work in #5 and #18 clears the **Data Cache** (`unstable_cache`
+ * entries). This page does not use `unstable_cache` — it calls Prisma directly — so no tag
+ * is associated with it and there is nothing for `revalidateTag` to clear. Every
+ * `invalidatePages()` call in the codebase is powerless against a statically prerendered
+ * page. That is exactly why all that earlier work never made the admin panel any fresher.
+ *
+ * WHY THE OTHER ADMIN SCREENS DIFFER
+ * ----------------------------------
+ * `/admin/domains` and `/admin/pages` were already live, but only **by accident** — they
+ * accept `searchParams`, which forces dynamic rendering. If a refactor ever drops that
+ * prop they will silently freeze too, and this comment is the explanation to reach for.
+ *
+ * `/admin/users`, `/admin/users/new` and `/admin/rich-text` are also statically rendered
+ * and are deliberately left that way: they fetch through `useEffect` + `fetch('/api/…')`
+ * on the client, so their data is already live and a static shell costs nothing. Being
+ * static is not the bug — being static **while reading the database during render** is.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * Admin Dashboard Page
  * 
  * Main landing page for the admin panel that provides:

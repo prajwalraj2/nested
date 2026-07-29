@@ -44,7 +44,7 @@ Partially-done findings show which sub-items are complete.
 | ~    | 17  | **Seeded `admin@example.com` was live on production with the password committed to this repo** | 🔴 **Critical** | Security | 5 min |
 | [x]  | 18  | Table data route uncached — a DB query on every view of 666 pages                 | 🟠 **High**     | Performance        | 1.5 hrs   |
 | [x]  | 19  | No error boundaries anywhere — an unhandled throw served a bare 500               | 🟡 Medium       | Resilience / UX    | 1.5 hrs   |
-| [ ]  | 20  | **CONFIRMED BUG: 5 admin screens are frozen at build time — edits never appear**   | 🔴 **Critical** | Correctness / UX   | 1 hr      |
+| [x]  | 20  | **CONFIRMED BUG: 5 admin screens are frozen at build time — edits never appear**   | 🔴 **Critical** | Correctness / UX   | 1 hr      |
 | ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
 
 
@@ -3328,6 +3328,78 @@ the code explaining why these exports exist — the next person to see
 `export const dynamic = 'force-dynamic'` on an admin page will otherwise assume it is
 cargo-culted from the public routes and delete it.
 
+### ✅ DONE — 29 Jul 2026
+
+`export const dynamic = 'force-dynamic'` added to exactly the five screens that read the
+database during render. Each carries a `⚠️ DO NOT REMOVE` comment naming this finding;
+`src/app/admin/page.tsx` holds the full explanation and the others cross-reference it. That
+was the point of the note above — the export looks like cargo-culting from the public routes
+and would otherwise be a tempting deletion.
+
+**Result, measured from the build manifest:**
+
+```
+/admin                          dynamic  reads DB  fixed  [force-dynamic]
+/admin/categories               dynamic  reads DB  fixed  [force-dynamic]
+/admin/sections                 dynamic  reads DB  fixed  [force-dynamic]
+/admin/tables                   dynamic  reads DB  fixed  [force-dynamic]
+/admin/tables/new               dynamic  reads DB  fixed  [force-dynamic]
+/admin/domains                  dynamic  reads DB  (was already, via searchParams)
+/admin/pages                    dynamic  reads DB  (was already, via searchParams)
+/admin/rich-text                STATIC   no        fine — client-fetched
+/admin/users                    STATIC   no        fine — client-fetched
+/admin/users/new                STATIC   no        fine — pure client form
+/admin/tables/[id]              dynamic
+/admin/users/edit/[id]          dynamic
+/admin/rich-text/edit/[pageId]  dynamic
+
+screens reading the DB while static: 0
+prerendered routes: 16 -> 11   (exactly the five moved; nothing else changed)
+```
+
+Deliberately **not** applied to the three static-but-client-fetching screens: their data is
+already live, so making them dynamic would add a function invocation per view for nothing.
+
+#### Verified with the reproduction from this finding
+
+Against a running production build, signed in as a throwaway admin on the development
+branch, creating a domain through the **real admin API** — no rebuild, no restart, no waiting:
+
+| Check | Result |
+| ----- | ------ |
+| dashboard "Total Domains" before | 34 |
+| dashboard "Total Domains" after | **35** — incremented immediately |
+| new domain in `/admin/tables` | **appears** |
+| new domain in `/admin/sections` | **appears** |
+| `/admin/categories`, `/admin/sections` still render | ✅ |
+
+> ⚠️ **A test expectation of mine was wrong, and it is worth recording because it looks
+> exactly like a bug.** The new domain did **not** appear in the New Table wizard, and the
+> first instinct was that the fix had failed. It had not —
+> `src/app/admin/tables/new/page.tsx:75` filters to domains that already have a page whose
+> `contentType` is `table` or `narrative`:
+>
+> ```typescript
+> const availableDomains = domains.filter(domain => domain.pages.length > 0);
+> ```
+>
+> A brand-new domain has only its `__main__` page (`section_based`), so it is **correctly**
+> excluded. Re-tested by creating a `table`-type page in the domain first, after which it
+> appeared immediately. So the wizard is fresh; it simply has a design rule.
+>
+> Whether that rule is good UX is a separate question — a new domain silently missing from
+> the picker with no empty state or explanation is confusing, and it is exactly the kind of
+> thing the planned admin audit should catalogue. **Not a #20 defect.**
+
+Development branch verified clean afterwards: probe domain, its pages and the throwaway
+admin all removed, 0 residue.
+
+> **Note on a baseline number**, so it does not cause confusion later: the development branch
+> has **1,195** `Page` rows while production has **1,197**. Both are correct — the dev branch
+> is a copy-on-write clone taken at an earlier point. A cleanup assertion in this session
+> briefly flagged 1,195 as "residue found" purely because it was compared against
+> production's figure.
+
 ---
 
 
@@ -3562,6 +3634,37 @@ a visitor sees.
 `bg-gray-50`→`bg-background`, `bg-white`→`bg-card`, `text-gray-900`→`text-foreground`,
 `text-gray-500`→`text-muted-foreground`, `border-gray-200/300`→`border-border`, and the
 `AdminSidebar` rewrite above.
+
+> **⚠️ REVISED DIRECTION (29 Jul, user request): rebuild on shadcn primitives rather than
+> swap colour classes one by one.**
+>
+> The stated preference is to use shadcn components "as much as we could" — specifically the
+> [sidebar block](https://ui.shadcn.com/blocks/sidebar), plus `button`, `breadcrumb`, `sheet`
+> and others as they fit.
+>
+> That is a better plan than a find-and-replace sweep, and probably *less* work, for a
+> concrete reason: shadcn components are already written against the theme tokens. Replacing
+> `AdminSidebar`'s hand-rolled `bg-gray-900 text-white` markup with the sidebar block does not
+> "fix its colours" — it deletes them. Every hardcoded class in a replaced component
+> disappears rather than needing a swap.
+>
+> It also fixes things a colour sweep would not touch: the admin panel currently has **no
+> responsive/mobile handling** in its shell (`w-64` fixed sidebar), no keyboard-accessible
+> collapse, and its own bespoke breadcrumb markup — all of which the shadcn primitives provide.
+> The public site already uses the same `ui/sidebar` primitive, so this also converges the two
+> halves of the app on one system instead of two.
+>
+> **Suggested order for Phase 2:**
+> 1. `AdminLayout` + `AdminSidebar` + `AdminHeader` → shadcn sidebar block, `breadcrumb`,
+>    `sheet` for mobile. This is the shell, so it fixes the most visible surface first.
+> 2. Shared primitives across the 32 admin components — `button`, `input`, `select`, `dialog`,
+>    `table`, `badge` — replacing hand-rolled equivalents. Most of the 1,146 occurrences live
+>    in these.
+> 3. Token swap for whatever genuinely bespoke markup is left.
+>
+> ⚠️ **This is a rewrite of admin markup, not a restyle.** It will touch the same files as any
+> functional fixes, which is why the **admin audit should come first** — fixing behaviour in
+> markup that is about to be replaced would waste the work twice over.
 
 > ⚠️ **Sequence this after #20.** Both touch many of the same admin files, and #20 is a
 > confirmed bug while this is cosmetic. Doing dark mode first would mean editing those files
@@ -4250,6 +4353,32 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 29 (July 29): **#20 FIXED — the five frozen admin screens are dynamic again.***
+`export const dynamic = 'force-dynamic'` *added to* `/admin`*,* `/admin/categories`*,*
+`/admin/sections`*,* `/admin/tables` *and* `/admin/tables/new` *— the exact five that read the
+database during render — each with a* `⚠️ DO NOT REMOVE` *comment, since the export looks like
+cargo-culting from the public routes and would otherwise be a tempting deletion. Prerendered
+routes went **16 → 11**, exactly the five, nothing else; **0 screens now read the DB while
+static**. Deliberately not applied to the three static-but-client-fetching screens
+(*`/admin/rich-text`*,* `/admin/users`*,* `/admin/users/new`*), whose data is already live.
+**Verified with the finding's own reproduction**: signed in as a throwaway admin on the dev
+branch and created a domain through the real admin API — the dashboard count went 34 → 35
+immediately, and the domain appeared in* `/admin/tables` *and* `/admin/sections` *with no
+rebuild, restart or wait.* ⚠️ ***A test expectation of mine was wrong in a way that looked
+exactly like a failure***: the new domain did **not** show in the New Table wizard, but
+`tables/new/page.tsx:75` *filters to domains that already have a* `table`*- or* `narrative`
+*-type page, and a fresh domain has only its* `section_based` `__main__`*. Re-tested with a
+table page created first and it appeared at once — so the wizard is fresh, it just has a design
+rule. Whether that rule is good UX (a new domain silently missing from the picker, no empty
+state) is a question for the planned admin audit, not a #20 defect. **Also recorded: #21 Phase
+2 direction revised at the user's request** — rebuild the admin shell on shadcn primitives (the
+sidebar block,* `button`*,* `breadcrumb`*,* `sheet`*) rather than swapping 1,146 colour classes.
+Better and probably less work, because shadcn components are already written against the theme
+tokens, so replacing hand-rolled markup **deletes** its hardcoded colours instead of requiring
+a swap — and it also brings responsive/mobile handling and keyboard-accessible collapse, which
+the admin shell has none of today. **The admin audit still comes first**, since fixing behaviour
+inside markup that is about to be replaced would waste the work twice.*
+
 *Revision 28 (July 29): **#21 Phase 1 shipped — the public site now has a working light/dark
 theme.** 2 new files (*`ThemeProvider`*,* `ThemeToggle`*) and 8 modified.* `next-themes` *is
 finally wired (it had been an installed-but-never-imported dependency),* `<html>` *carries*
