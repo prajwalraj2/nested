@@ -42,6 +42,9 @@ Partially-done findings show which sub-items are complete.
 | ~    | 15  | Geo implementation — stale cookie, dead CDN cache, lost cookie on redirects      | 🟡 Medium       | Correctness / Perf | 1–2 hrs   |
 | [x]  | 16  | Admin login had no brute-force limit + a user-enumeration timing leak            | 🟠 **High**     | Security           | 1.5 hrs   |
 | ~    | 17  | **Seeded `admin@example.com` was live on production with the password committed to this repo** | 🔴 **Critical** | Security | 5 min |
+| [x]  | 18  | Table data route uncached — a DB query on every view of 666 pages                 | 🟠 **High**     | Performance        | 1.5 hrs   |
+| [x]  | 19  | No error boundaries anywhere — an unhandled throw served a bare 500               | 🟡 Medium       | Resilience / UX    | 1.5 hrs   |
+| [ ]  | 20  | **6 admin pages are statically prerendered — their data is frozen until redeploy** | 🟠 **High**     | Correctness        | 30 min    |
 
 
 **Sub-items:**
@@ -2972,6 +2975,313 @@ deleted there too, the same way.
 
 
 
+## 🟠 18. The Table Data Route Was Completely Uncached
+
+**Severity:** High — it is one of the two hottest endpoints on the site.
+**Status:** ✅ **DONE, 29 Jul 2026.**
+
+### What was wrong
+
+`table` is the most common content type: **666 of 1,198 pages**. Every one of them fetches
+`/api/domain/tables/by-page/[pageId]` client-side from `TableLayout.tsx`. Nothing about
+that request was cached at any layer:
+
+```
+TableService.getPublicTable  ->  React cache() ONLY
+Cache-Control headers        ->  none
+```
+
+Those are two different failures that look like one:
+
+- **React `cache()` is request-scoped.** It dedupes repeat calls *within a single render*
+  and dies with the request. The route calls `getPublicTable` exactly once per request, so
+  it had nothing to deduplicate. The file's own header said "request-level deduplication",
+  which was accurate — request-level is simply the wrong level here.
+- **No `Cache-Control`** meant Vercel's CDN never stored the response.
+
+Net effect per view of a table page: **2 function invocations and 2 database round trips**,
+repeated for every visitor and every refresh.
+
+> ⚠️ **Correction to something claimed earlier in this session.** I initially assumed the
+> service layer was caching this and described the fix as "add cache headers". Reading
+> `table.service.ts` showed only React `cache()`. The service layer was the bigger half of
+> the problem.
+
+### The fix
+
+Same shape as #15.1's fix for `/api/page-context`, because it is the same problem:
+
+1. **Country moved into the URL** (`?country=IN`). A cookie-derived response is personal
+   by definition — put shared cache headers on it and the CDN stores one visitor's rows and
+   serves them to everyone. With the country in the URL, the URL fully identifies the
+   response and it becomes safely shareable. Validated against a whitelist so
+   `?country=<junk>` cannot mint unbounded CDN entries.
+2. **Shared cache headers** when the country is recognised, `private, no-store` when it
+   falls back to the cookie. Plus `X-Country-Source: url|cookie` as a one-line diagnostic.
+3. **`unstable_cache` in the service layer**, so a CDN miss still does not reach Postgres.
+4. **`TableLayout.tsx` sends the country**, via the same synchronous
+   `getUserCountryFromCookie` reader `buildPageContextUrl` uses (the `useUserCountry()`
+   hook returns `DEFAULT_COUNTRY` on first render, so a fetch built from it would use the
+   wrong country or fire twice).
+5. **Deleted 85 lines of dead code** — the route file was 150 lines, of which 85 were
+   commented-out pre-refactor Prisma code.
+
+### ⚠️ The cached value deliberately excludes the country
+
+The obvious implementation is `unstable_cache(fn, [pageId, country])`. This does something
+better: it caches the **unfiltered** table (which is identical for every visitor) and runs
+`filterRowsByCountry` *after* the cache, per request.
+
+- **Country cannot leak.** There is no country-specific value in the cache to hand to the
+  wrong person; the filter always runs against the caller's own country.
+- One entry per table instead of one per (table × country) — 6× fewer entries.
+
+The in-memory filter is trivial: 8,050 rows across 651 tables, ~12 rows each.
+
+### ⚠️ THREE MISSING INVALIDATIONS — this change would have shipped a stale-data bug
+
+Caching table content is only safe if edits invalidate it. Auditing every table-writing
+route found that **three of four did not invalidate at all**:
+
+| Route + handler | What it writes | Invalidated before? |
+| --------------- | -------------- | ------------------- |
+| `tables/route.ts` POST | creates a table | ✅ yes |
+| `tables/[id]/route.ts` **PUT** | name, schema, settings | ❌ **no** |
+| `tables/[id]/route.ts` DELETE | deletes the table | ✅ yes |
+| `tables/[id]/data/route.ts` **PUT** | **the actual rows** | ❌ **no** |
+| `tables/[id]/data/route.ts` **DELETE** | clears all rows | ❌ **no** |
+
+The row-data `PUT` is the most-used table write there is. All three now call
+`invalidatePages()`.
+
+This was legitimate before: table content was only behind React `cache()`, so every load
+was already fresh and invalidation was genuinely unnecessary — this document said so
+explicitly. Caching the content silently invalidated that reasoning. **The comment block in
+`cache-invalidation.ts` that documented "table content is never cached" was corrected in
+the same change**, along with the tag census: `CACHE_TAGS.TABLES` had **no subscriber
+anywhere** in the codebase, so `revalidateTag(TABLES)` was a no-op. The new entry is tagged
+both `TABLES` and `PAGES` — `PAGES` because that is what the admin routes already fire, and
+`TABLES` so the tag finally means something. `invalidatePages()` now fires it too.
+
+### How it was verified
+
+Country tagging was **unused** — 0 of 8,050 rows were tagged — so correctness could not be
+observed from existing data. Rows were tagged on the development branch covering every rule
+in `filterRowsByCountry`, then driven through the real HTTP endpoint. **17 checks, all
+passing:**
+
+```
+US  sees: ALL, US-only, IN+US, untagged, empty-tag
+IN  sees: ALL, IN-only, IN+US, lowercase, spaced, untagged, empty-tag
+GB  sees: ALL, spaced, untagged, empty-tag
+ALL sees: ALL, untagged, empty-tag
+```
+
+- US never sees `IN-only`; IN never sees `US-only`; every country sees `ALL`
+- a lowercase tag (`in`) matches `IN`; whitespace in `" IN , GB "` is trimmed
+- untagged and empty-tag rows are visible to everyone (the documented default)
+- `targetCountries` is stripped from both the public schema and the public rows
+- **6 interleaved US/IN round trips never leaked** — the actual risk of this change
+- `?country=IN` → `public, max-age=0, s-maxage=60, stale-while-revalidate=300`;
+  no param → `private, no-store`; `?country=ZZ` → `private, no-store`
+- an admin row edit through the real API was visible **immediately**, proving invalidation
+  fires rather than relying on the TTL
+
+Then, separately, **the cache was proven to be real** rather than merely present in the
+source: rows were changed via Prisma directly, bypassing the API so nothing invalidated,
+and the endpoint still returned the old 10 rows. Before this change it would have shown the
+new data instantly, because nothing was cached.
+
+`?country=ALL` returns only globally-targeted rows, not every row — consistent with how
+`/api/page-context` treats `ALL`.
+
+> **One observation worth knowing.** After the 60-second TTL lapsed, a single request still
+> returned stale rows and the *next* one was fresh. That is `unstable_cache`'s
+> stale-while-revalidate behaviour, not a bug: TTL expiry serves stale once while
+> refreshing in the background. It matters only for TTL-driven refreshes — `revalidateTag`
+> is immediate, which is why the three invalidation fixes above are what actually keeps
+> admin edits instant.
+
+### What it does not fix
+
+The second round trip is still there — the table arrives via a client-side fetch, so the
+page still renders empty and fills in. Removing that means server-rendering the table,
+which is #8 territory and blocked on **#8-DR**. This makes the round trip cheap; it does
+not remove it.
+
+---
+
+
+
+## 🟡 19. No Error Boundaries Anywhere
+
+**Severity:** Medium — a safety net, not a fix for a known bug.
+**Status:** ✅ **DONE, 29 Jul 2026.**
+
+### What was wrong
+
+```
+error.tsx / global-error.tsx        ->  NONE, anywhere
+ErrorBoundary / componentDidCatch   ->  none
+Sentry or similar                   ->  none
+not-found.tsx                       ->  2 (root + domain), sharing NotFoundContent.tsx
+```
+
+An unhandled throw during render had nothing to stop at, so it unwound to the root and
+Next.js served a bare unstyled 500 — no header, no navigation, no route back. In the admin
+panel that also meant losing unsaved form state with no explanation.
+
+`not-found.tsx` does not cover this. `notFound()` is a **deliberate** outcome; this is for
+the unplanned — a Neon cold start timing out mid-render, a dropped connection, malformed
+data crashing a `.map()`.
+
+### What was added — 5 new files, 0 modified
+
+| File | Catches | Fallback keeps |
+| ---- | ------- | -------------- |
+| `src/components/ErrorContent.tsx` | shared body | mirrors the `NotFoundContent.tsx` precedent |
+| `src/app/domain/error.tsx` | `/domain` + `/domain/[...slug]` | sidebar + breadcrumb |
+| `src/app/admin/error.tsx` | the 13 admin pages | admin sidebar + header |
+| `src/app/error.tsx` | `/login`, `/unauthorized`, **and throws in the two layouts above** | root layout |
+| `src/app/global-error.tsx` | throws in the **root layout itself** | nothing — supplies its own `<html>` |
+
+Three details that are easy to get wrong:
+
+- **A boundary does not catch its own layout.** An error in `domain/layout.tsx` bubbles
+  *past* `domain/error.tsx` to the parent — which is the entire reason `src/app/error.tsx`
+  exists. Those layouts are not trivial (`PageContextProvider`, `AppSidebar`, `bread.tsx`;
+  `SessionProvider`, `AdminSidebar`, `AdminHeader`). **Verified**: a layout throw produced
+  a 500 with the domain shell absent from the payload, proving `domain/error.tsx` did not
+  handle it.
+- **`global-error.tsx` must import `globals.css` itself.** It replaces the root layout, the
+  only other importer, so without that line every Tailwind class is inert and the page
+  renders as unstyled black-on-white. **Verified**: with the root layout deliberately
+  broken, the response still contained one `<html>`, one `<body>`, a linked stylesheet and
+  27 KB of content — not a blank page.
+- **The UI shows `error.digest`, not `error.message`.** In production Next strips the
+  message from Server Component errors before it reaches the browser and keeps only the
+  digest, which matches the server log line. Printing the message would look informative in
+  development and show nothing useful in production.
+
+### ⚠️ The real risk, and how it was checked
+
+`notFound()` and `redirect()` are implemented by **throwing**. `domain/[...slug]/page.tsx`
+calls `notFound()` in five places and `/` calls `redirect('/domain')`. Had a boundary
+swallowed those, **every 404 would have become a 500 and the site's entry point would have
+broken** — a spectacular regression from adding what looks like a harmless fallback.
+
+React re-throws these control-flow errors, so `not-found.tsx` and the redirect still win.
+That was **verified rather than taken from the documentation**, against a production build:
+
+```
+/                        308  redirect         <- entry point intact
+/domain                  200  ok: Domains      domain-shell
+/domain/gdesign          200  ok               domain-shell
+/domain/does-not-exist   404  404-page         <- NOT 500
+/nonexistent             404  404-page
+/login, /unauthorized    200  ok
+/robots.txt, /sitemap.xml 200 ok
+6 real deep paths from the sitemap  200  domain-shell
+server-side errors logged: none
+```
+
+Boundaries were then exercised individually with a temporary `process.env.BOOM` trigger in
+each page and layout (all five removed before commit — `grep` confirmed zero remaining):
+
+| Trigger | Result |
+| ------- | ------ |
+| domain page throws | 500, Next logged `digest: '3344484879'`, 404s and `/` unaffected |
+| admin page throws | 500, **admin shell still in the payload**, `/admin` unaffected |
+| domain layout throws | 500, **domain shell absent** — fell through, as designed |
+| root layout throws | 500, valid document with linked CSS — `global-error` territory |
+
+All four boundary UIs and their distinct log tags were confirmed present in the built
+client chunks.
+
+### ⚠️ Two honest limits on this verification
+
+**1. These boundaries render on the CLIENT.** For a 500 on a dynamic route Next 15 returns
+a minimal shell (`<html id="__next_error__">`) and streams the content as escaped JSON, so
+`Something went wrong` never appears in the server HTML. Server probing therefore proves
+the status code, the digest, which components are in the tree, and that the code shipped —
+**not the final painted DOM**. No headless browser is installed, so the visual confirmation
+is a manual browser check.
+
+**2. A correction to comments written earlier in this change.** They claimed the
+`console.error` in each boundary's `useEffect` reaches the Vercel logs. It does not —
+`useEffect` runs only in the browser. The server side is already covered by Next itself,
+which logs the real error and digest automatically (seen directly in the server log during
+the triggered throws). The comments were corrected; the `console.error` calls are useful
+mainly for CLIENT-component errors, where Next logs nothing server-side.
+
+### Deliberately skipped
+
+No `loading.tsx` files. Separate concern (Suspense fallbacks), pages already handle their
+own loading states (`TableLayout` has a Skeleton), and adding them would change perceived
+behaviour on every route for no correctness gain.
+
+---
+
+
+
+## 🟠 20. Six Admin Pages Are Statically Prerendered — Their Data Is Frozen Until Redeploy
+
+**Severity:** High — the admin panel can show data that is simply wrong.
+**Status:** ⬜ open. **Found incidentally on 29 Jul 2026** while testing #19: an error
+trigger placed in `admin/page.tsx` never fired, because that page is never executed at
+request time.
+
+### The finding
+
+```
+/admin              STATIC   initialRevalidateSeconds=false
+/admin/tables       STATIC   initialRevalidateSeconds=false
+/admin/users        STATIC   initialRevalidateSeconds=false
+/admin/categories   STATIC   initialRevalidateSeconds=false
+/admin/sections     STATIC
+/admin/rich-text    STATIC
+/admin/domains      dynamic
+/admin/pages        dynamic
+```
+
+`.next/server/app/admin.html` exists as a real file on disk and is served verbatim.
+`initialRevalidateSeconds=false` means there is **no ISR at all** — it never re-renders.
+And **no admin page declares `force-dynamic` or `revalidate`**.
+
+`src/app/admin/page.tsx` queries Prisma directly (`prisma.domain.findMany`,
+`prisma.page.findMany`) for its dashboard statistics. Because the page uses no dynamic API —
+no `cookies()`, no `headers()`, no `searchParams` — Next 15 renders it once at **build
+time** and bakes the result into HTML. So those counts and the activity feed reflect the
+state of the database at the moment of the last deploy.
+
+`/admin/domains` and `/admin/pages` escape this only by accident: they accept
+`searchParams`, which forces dynamic rendering.
+
+### Why the #5 invalidation work does not help
+
+`revalidateTag` clears the Data Cache (`unstable_cache` entries). These pages do not use
+`unstable_cache` — they call Prisma directly — so there is no tag associated with them and
+nothing to invalidate. This is a different mechanism from everything #5 fixed.
+
+### ⚠️ Needs confirmation from real use before deciding the fix
+
+This is inferred from the build manifest, not observed as a user-facing bug — the dev-branch
+data has not changed since the last build, so there was nothing to see. It is possible this
+has gone unnoticed because the pages actually used day to day (`/admin/domains`,
+`/admin/pages`) are the two dynamic ones.
+
+**Worth checking directly:** add a table in admin, then look at `/admin/tables` and the
+dashboard counts. If the new table is missing until a redeploy, this is confirmed.
+
+The fix is small — `export const dynamic = 'force-dynamic'` (or a short `revalidate`) on the
+six affected pages — but it should not be applied blind, because making six admin pages
+dynamic trades build-time rendering for a function invocation and a query per view. That is
+almost certainly the right trade for a CMS admin panel, but it is a deliberate choice.
+
+---
+
+
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -3520,6 +3830,64 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 25 (July 29): **#19 done — error boundaries added; #20 opened as a High-severity
+find.** The app had **no** `error.tsx` *anywhere, so an unhandled render throw served a bare
+unstyled 500 with no navigation — and in admin, silently lost unsaved form state. Added five
+files (a shared* `ErrorContent` *plus boundaries for* `/domain`*,* `/admin`*, the root, and*
+`global-error`*) and modified none. Three non-obvious details drove the design: a boundary
+does **not** catch its own layout (so a throw in* `domain/layout.tsx` *bubbles past its
+sibling* `error.tsx`*, which is why the root one exists — verified by observing the domain
+shell absent from the payload);* `global-error.tsx` *must import* `globals.css` *itself
+because it replaces the root layout, the only other importer; and the UI shows*
+`error.digest` *rather than* `error.message`*, which production strips from Server Component
+errors.* ⚠️ ***The real risk was that* `notFound()` *and* `redirect()` *are implemented by
+throwing*** *—* `[...slug]/page.tsx` *calls* `notFound()` *five times and* `/` *calls*
+`redirect()`*, so a boundary that swallowed them would have turned every 404 into a 500 and
+broken the site entry point. Verified against a production build rather than trusted from
+docs: 404s stayed 404,* `/` *stayed 308, and 6 real deep sitemap paths stayed 200. Each
+boundary was then exercised with a temporary* `process.env.BOOM` *trigger (all five removed;
+grep confirmed zero left).* **Two honest limits recorded:** *these boundaries render on the
+CLIENT — Next returns a minimal* `__next_error__` *shell and streams the content — so server
+probing proves status, digest, tree membership and that the code shipped, but not the painted
+DOM; no headless browser is installed, so the visual check is manual. And **a correction to
+comments written during this same change**: they claimed the* `useEffect` `console.error`
+*reaches the Vercel logs, which is wrong —* `useEffect` *runs only in the browser. Next logs
+the server error and digest by itself, which was observed directly.* **Separately, #20:** *an
+error trigger in* `admin/page.tsx` *never fired, revealing that* `/admin`*,* `/admin/tables`*,*
+`/admin/users`*,* `/admin/categories`*,* `/admin/sections` *and* `/admin/rich-text` *are
+**statically prerendered with* `initialRevalidateSeconds=false`***, so their direct Prisma
+queries ran at build time and their data is frozen until the next deploy.* `revalidateTag`
+*cannot help — they do not use* `unstable_cache`*, so nothing is tagged. Left open pending
+confirmation from real use, since dev data had not changed since the build.*
+
+*Revision 24 (July 29): **#18 done — the table data route is cached, and country tagging is
+now proven to work.*** `/api/domain/tables/by-page/[pageId]` *serves the 666* `table` *pages
+— 55% of the catalogue — and had **no caching at any layer**: no* `Cache-Control` *at all,
+and* `TableService.getPublicTable` *wrapped in React* `cache()` *only, which is
+request-scoped and therefore deduplicated nothing, since the route calls it once per
+request. Every view of every table page cost 2 function invocations and 2 database round
+trips. Fixed with #15.1's pattern — country into the URL, shared cache headers only when it
+is a recognised value,* `unstable_cache` *in the service layer — plus 85 lines of
+commented-out dead code deleted from a 150-line file. **The cached value deliberately
+excludes the country:** it caches the unfiltered table and filters per request, so there is
+no country-specific value in the cache to hand to the wrong visitor, and there is one entry
+per table instead of one per (table × country).* ⚠️ ***Auditing invalidation before shipping
+found three of four table-writing handlers invalidated nothing*** *—* `tables/[id]` *PUT,
+and both* `tables/[id]/data` *PUT and DELETE, the first of which is the most-used table
+write there is. That was legitimate while table content was uncached (this document said so
+explicitly); caching it silently broke the reasoning, so all three now call*
+`invalidatePages()` *and the stale comment block in* `cache-invalidation.ts` *was corrected.*
+`CACHE_TAGS.TABLES` *had **no subscriber anywhere**, making* `revalidateTag(TABLES)` *a
+no-op; the new entry is tagged both TABLES and PAGES. **Verified with 17 checks against the
+real endpoint**, after tagging rows on the dev branch — country tagging was entirely unused
+(0 of 8,050 rows), so correctness was unobservable from existing data. US never sees
+IN-only, IN never sees US-only, everyone sees ALL, lowercase and whitespace-padded tags
+match, and **6 interleaved US/IN round trips never leaked**. An admin edit through the real
+API appeared immediately. The cache was then proven real by changing rows via Prisma
+directly, bypassing invalidation, and confirming the endpoint still served the old data.
+Noted for future reference:* `unstable_cache` *TTL expiry is stale-while-revalidate, so one
+request past the TTL still sees old data —* `revalidateTag` *is the immediate path.*
+
 *Revision 23 (July 29): **#17's seed script fixed — kept rather than deleted.** Deleting*
 `prisma/seed-admin.ts` *was considered and rejected: creating an admin through the app
 requires* `requireAdmin()`*, so a database with no users has no way in at all, and this

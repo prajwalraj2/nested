@@ -5,7 +5,34 @@
 import React, { useEffect, useState } from 'react';
 import { DataTable } from '@/components/table/DataTable';
 import { Skeleton } from '@/components/ui/skeleton';
+// Synchronous, validated cookie reader — NOT the useUserCountry() hook. Same reasoning
+// as buildPageContextUrl in src/hooks/usePageContext.ts: the hook returns
+// DEFAULT_COUNTRY on first render and corrects itself in an effect, so a fetch built
+// from it would either use the wrong country or fire twice. `document.cookie` is
+// synchronous, so the very first request already carries the right value.
+import { getUserCountryFromCookie } from '@/hooks/useUserCountry';
 import type { TableSchema, TableData, ColumnType } from '@/types/table';
+
+/**
+ * Build the table-data URL with the visitor's country in the QUERY STRING.
+ *
+ * ⚠️ THE `country` PARAM IS WHAT MAKES THE RESPONSE CACHEABLE — it is not cosmetic.
+ *
+ * The route sends shared CDN cache headers only when it sees a recognised `country` in
+ * the URL. Omit it and the route falls back to reading the cookie, which it must then
+ * mark `private, no-store`, because a cookie-derived response cannot be shared between
+ * visitors. Correct either way — just uncached, which for the ~666 table pages means a
+ * function invocation plus a database round trip on every single view.
+ *
+ * `getUserCountryFromCookie` validates against SUPPORTED_COUNTRIES, so a junk cookie
+ * value degrades to DEFAULT_COUNTRY rather than minting a useless cache entry.
+ */
+function buildTableDataUrl(pageId: string): string {
+  const country = getUserCountryFromCookie(
+    typeof document === 'undefined' ? null : document.cookie
+  );
+  return `/api/domain/tables/by-page/${pageId}?country=${encodeURIComponent(country)}`;
+}
 
 type Domain = {
   id: string;
@@ -47,10 +74,10 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
         setIsLoading(true);
         setError(null);
 
-        // Fetch table data from API
-        const response = await fetch(`/api/domain/tables/by-page/${page.id}`);
+        // `country` is passed EXPLICITLY in the URL so the response is CDN-cacheable —
+        // see buildTableDataUrl above for why that matters.
+        const response = await fetch(buildTableDataUrl(page.id));
 
-        
 
         if (!response.ok) {
           if (response.status === 404) {

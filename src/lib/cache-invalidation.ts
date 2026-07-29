@@ -17,34 +17,43 @@ import { CACHE_TAGS } from './cache'
  * ---------------------------------------------------------------------------
  * WHICH TAGS ACTUALLY HAVE SUBSCRIBERS
  * ---------------------------------------------------------------------------
- * Worth knowing before adding calls, because `revalidateTag('tables')` looks like
- * it does something and does not. There are exactly nine `unstable_cache()` wrappers
- * in the whole app, and between them they subscribe to only FOUR tags:
+ * Worth knowing before adding calls, because a `revalidateTag` for a tag nothing
+ * subscribes to looks like it does something and does not. There are ten
+ * `unstable_cache()` wrappers in the whole app, and between them they subscribe to
+ * five tags:
  *
  *   DOMAINS      -> domains-all, domain-by-slug, domain-with-pages, domains-navigation
- *   PAGES        -> page-main, page-by-id, domain-with-pages
+ *   PAGES        -> page-main, page-by-id, domain-with-pages, table-by-page
  *   CATEGORIES   -> categories-active, category-by-slug, category-by-id
  *   NAVIGATION   -> domains-navigation
+ *   TABLES       -> table-by-page
  *
- * The other eight definitions in CACHE_TAGS — DOMAIN(slug), PAGE(id), HEADER,
- * SIDEBAR, BREADCRUMB, TABLES, TABLE(id), COUNTRY(code) — have NO subscribers.
- * Calling `revalidateTag` with any of them is a silent no-op. They are kept in
- * cache.ts for future use; just don't mistake them for working invalidation.
+ * The remaining seven definitions in CACHE_TAGS — DOMAIN(slug), PAGE(id), HEADER,
+ * SIDEBAR, BREADCRUMB, TABLE(id), COUNTRY(code) — have NO subscribers. Calling
+ * `revalidateTag` with any of them is a silent no-op. They are kept in cache.ts for
+ * future use; just don't mistake them for working invalidation.
  *
  * ---------------------------------------------------------------------------
- * TABLE AND RICH-TEXT CONTENT: MOSTLY NOT CACHED — BUT WATCH FOR contentType
+ * TABLE CONTENT **IS** NOW CACHED — RICH TEXT IS NOT
  * ---------------------------------------------------------------------------
- * The *content* of those pages is never held in `unstable_cache`:
+ * ⚠️ This section previously said table content was never held in `unstable_cache`.
+ * That changed: `table-by-page` in src/services/table.service.ts now caches the raw
+ * table across requests, and `/api/domain/tables/by-page/[pageId]` sends shared cache
+ * headers. So **table row edits now depend on invalidation to become visible** — they
+ * are no longer automatically fresh on the next load.
  *
- *   - `TableService.getPublicTable` uses React `cache()` only, which is
- *     request-scoped and dies with the request.
- *   - `/api/domain/tables/by-page/[pageId]` sets no cache headers at all.
- *   - Rich text arrives via `PageService.getByPath`, also React `cache()` only.
+ * That is why `invalidatePages()` below fires TABLES, and why the cache entry carries
+ * the PAGES tag as well: the two admin table routes already call `invalidatePages()`,
+ * so they cover the new entry without needing new call sites.
  *
- * So editing a table's rows or a page's HTML is visible on the very next load, and
- * `tables/[id]/data` and both rich-text routes need no invalidation.
+ * The cached value is deliberately the **unfiltered** table. Country filtering happens
+ * after the cache, per request, so no country-specific value is ever stored where the
+ * wrong visitor could receive it. Do not "optimise" that by moving the filter inside.
  *
- * ⚠️ BUT two table routes DO need it, and the reason is easy to miss:
+ * Rich text is still uncached — it arrives via `PageService.getByPath`, React `cache()`
+ * only — so both rich-text routes still need no invalidation.
+ *
+ * ⚠️ Two table routes need it for a second, easier-to-miss reason:
  *
  *     tables/route.ts        POST   -> tx.page.update({ contentType: 'table' })
  *     tables/[id]/route.ts   DELETE -> tx.page.update({ contentType: 'narrative' })
@@ -110,11 +119,16 @@ export function invalidateDomains(): void {
  * Clears DOMAINS and NAVIGATION too: the sidebar and header payloads embed page
  * lists inside their domain objects, so a page rename leaves a stale label in the
  * navigation unless those are dropped as well.
+ *
+ * Also clears TABLES, which is what the two admin **table** routes rely on — they call
+ * this function, and `table-by-page` is now a real cached entry. Before that entry
+ * existed, TABLES had no subscriber and this call would have been a no-op.
  */
 export function invalidatePages(): void {
   revalidateTag(CACHE_TAGS.PAGES)
   revalidateTag(CACHE_TAGS.DOMAINS)
   revalidateTag(CACHE_TAGS.NAVIGATION)
+  revalidateTag(CACHE_TAGS.TABLES)
 }
 
 /**
