@@ -79,7 +79,10 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    // `bg-gray-50` was hardcoded here: a permanently light page behind a themed Card, so
+    // in dark mode the card would have gone dark while the page around it stayed pale
+    // grey. `bg-muted` is the token equivalent — subtly off-background in both themes.
+    <div className="min-h-screen flex items-center justify-center bg-muted py-12 px-4 sm:px-6 lg:px-8">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl text-center">

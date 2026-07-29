@@ -111,7 +111,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
         <div className="max-w-7xl mx-auto px-6 py-8">
           {/* Header */}
           <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-          <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+          <div className="border-b border-border mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
 
           {/* Table skeleton */}
           <div className="rounded-lg border border-border overflow-hidden">
@@ -177,7 +177,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
           <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-          <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+          <div className="border-b border-border mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -198,7 +198,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
           <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-          <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+          <div className="border-b border-border mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -219,7 +219,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
         <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-        <div className="border-b border-gray-300 mt-1 mb-15" style={{ borderBottomWidth: '1px' }}></div>
+        <div className="border-b border-border mt-1 mb-15" style={{ borderBottomWidth: '1px' }}></div>
 
         {/* Professional DataTable from DataTable.tsx */}
         <DataTable

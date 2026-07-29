@@ -74,7 +74,7 @@ export function SubcategorySelector({ domain, page }: {
       {/* Header */}
       <div className="max-w-7xl mx-auto px-6 py-8">
         <h1 className="text-3xl font-bold text-foreground">{title}</h1>
-        <div className="border-b border-gray-300 mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+        <div className="border-b border-border mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
       </div>
 
       {/* 3-Column Grid Layout */}

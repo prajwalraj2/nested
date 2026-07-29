@@ -150,7 +150,25 @@
    ⚠️ Sanitising happens on WRITE, so the 398 existing handlers stay in the
    database until each page is next saved. They are harmless meanwhile, and this
    rule means the hover behaves identically before and after — no data migration
-   required. */
+   required.
+
+   ⚠️ DARK MODE: THIS RULE IS STILL CORRECT AND NEEDS NO `.dark` VARIANT.
+   ------------------------------------------------------------------
+   Pure black on hover looks like an obvious dark-mode bug — a black link on a
+   near-black page would be invisible. It is not a bug here, because the rich-text
+   card is deliberately kept LIGHT in both themes (`bg-neutral-100` in
+   RichTextLayout.tsx). Its surface never goes dark, so `#000` never sits on a dark
+   background.
+
+   That is not an accident of styling; it is forced by the data. 395 of the 415
+   stored rich-text rows carry colours in inline `style` attributes — 2,519
+   declarations, 574 of them dark — and an inline style beats any stylesheet rule.
+   Theming that surface would make 574 author-specified colours vanish. See finding
+   #21.4 for the full measurement and the options considered.
+
+   So: if the rich-text card is ever made theme-following (option C — a migration
+   stripping those inline colours), THIS RULE MUST GAIN A DARK VARIANT at the same
+   time. Until then, leave it alone. */
 .rich-text-content a:hover {
   color: #000 !important;
 }

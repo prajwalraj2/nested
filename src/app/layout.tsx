@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import AppHeader from "@/components/header/AppHeader";
+import { ThemeProvider } from "@/components/ThemeProvider";
 // Single source of truth for the brand name and canonical origin — shared with the
 // per-page generateMetadata functions and (later) sitemap.ts, so they can't drift.
 import { SITE_NAME, SITE_URL, TITLE_SEPARATOR, buildOpenGraph, buildTwitter } from "@/lib/seo";
@@ -164,12 +164,37 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    /**
+     * ⚠️ `suppressHydrationWarning` IS REQUIRED HERE — it is not papering over a bug.
+     *
+     * `next-themes` injects a small BLOCKING script into `<head>` that reads the stored
+     * preference and sets `class="dark"` on this element *before the first paint*. That
+     * script is the entire reason there is no flash of the wrong theme on load.
+     *
+     * But it also means the HTML the server sent (`<html lang="en">`) and the HTML the
+     * browser holds at hydration (`<html lang="en" class="dark" style="color-scheme:dark">`)
+     * differ on this one element. React sees that and logs a hydration mismatch error on
+     * every single page load.
+     *
+     * The server cannot avoid it: the preference lives in `localStorage`, which does not
+     * exist on the server, so there is no correct value to render. This attribute tells
+     * React to skip the check for THIS ELEMENT ONLY — it does not disable hydration
+     * checking for the app, and it is the documented approach.
+     */
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {/* <AppHeader /> */}
-        {children}
+        {/*
+          Wraps everything so the theme reaches BOTH React trees — the public pages under
+          `domain/layout.tsx` and the admin panel under `admin/layout.tsx`, which sits
+          inside its own `SessionProvider`. Being here rather than in either subtree also
+          means `/login`, `/unauthorized` and both error boundaries are themed.
+
+          `children` stays server-rendered: only the provider itself is a client
+          component (see the note in src/components/ThemeProvider.tsx).
+        */}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

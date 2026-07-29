@@ -44,7 +44,8 @@ Partially-done findings show which sub-items are complete.
 | ~    | 17  | **Seeded `admin@example.com` was live on production with the password committed to this repo** | 🔴 **Critical** | Security | 5 min |
 | [x]  | 18  | Table data route uncached — a DB query on every view of 666 pages                 | 🟠 **High**     | Performance        | 1.5 hrs   |
 | [x]  | 19  | No error boundaries anywhere — an unhandled throw served a bare 500               | 🟡 Medium       | Resilience / UX    | 1.5 hrs   |
-| [ ]  | 20  | **6 admin pages are statically prerendered — their data is frozen until redeploy** | 🟠 **High**     | Correctness        | 30 min    |
+| [ ]  | 20  | **CONFIRMED BUG: 5 admin screens are frozen at build time — edits never appear**   | 🔴 **Critical** | Correctness / UX   | 1 hr      |
+| ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
 
 
 **Sub-items:**
@@ -3224,59 +3225,478 @@ behaviour on every route for no correctness gain.
 
 
 
-## 🟠 20. Six Admin Pages Are Statically Prerendered — Their Data Is Frozen Until Redeploy
+## 🔴 20. CONFIRMED BUG — Five Admin Screens Are Frozen at Build Time, So Edits Never Appear
 
-**Severity:** High — the admin panel can show data that is simply wrong.
-**Status:** ⬜ open. **Found incidentally on 29 Jul 2026** while testing #19: an error
-trigger placed in `admin/page.tsx` never fired, because that page is never executed at
-request time.
+**Severity:** Critical — the CMS lies to the person operating it.
+**Status:** ⬜ open, and this is the **top priority** of the remaining items.
 
-### The finding
+**Found incidentally on 29 Jul 2026** while testing #19: an error trigger placed in
+`admin/page.tsx` never fired, because that page is never executed at request time.
+
+### ✅ CONFIRMED BY REAL-WORLD USE — not an inference
+
+The user, unprompted, described exactly this symptom:
+
+> "When I change/update/create — some things, it does happen in live website. But so many
+> things don't show up in the Admin UI — and that's a very glitch in the admin UI."
+
+That is the signature of this bug precisely. The public pages are `force-dynamic`, so they
+re-query on every view and updates appear. The affected admin screens are static HTML built
+once at deploy time, so they cannot change no matter what is edited. **The live site being
+correct while the admin panel is wrong is not a coincidence — it is the same root cause seen
+from both sides.**
+
+### The measurement
+
+Every admin screen, by rendering mode:
 
 ```
-/admin              STATIC   initialRevalidateSeconds=false
-/admin/tables       STATIC   initialRevalidateSeconds=false
-/admin/users        STATIC   initialRevalidateSeconds=false
-/admin/categories   STATIC   initialRevalidateSeconds=false
-/admin/sections     STATIC
-/admin/rich-text    STATIC
-/admin/domains      dynamic
-/admin/pages        dynamic
+/admin                            STATIC     FROZEN at build  <-- reads DB
+/admin/categories                 STATIC     FROZEN at build  <-- reads DB
+/admin/sections                   STATIC     FROZEN at build  <-- reads DB
+/admin/tables                     STATIC     FROZEN at build  <-- reads DB
+/admin/tables/new                 STATIC     FROZEN at build  <-- reads DB
+/admin/rich-text                  STATIC     (fetches client-side — fine)
+/admin/users                      STATIC     (fetches client-side — fine)
+/admin/users/new                  STATIC     (pure client form — fine)
+/admin/domains                    dynamic    live
+/admin/pages                      dynamic    live
+/admin/tables/[id]                per-param  live
+/admin/users/edit/[id]            per-param  live
+/admin/rich-text/edit/[pageId]    per-param  live
+
+8 of 13 screens are static; 5 of those actually serve stale data.
 ```
 
-`.next/server/app/admin.html` exists as a real file on disk and is served verbatim.
-`initialRevalidateSeconds=false` means there is **no ISR at all** — it never re-renders.
-And **no admin page declares `force-dynamic` or `revalidate`**.
+> ⚠️ **Correction to this document's first version of this finding**, written hours earlier:
+> it said "six admin pages". The real count of static screens is **eight** — `/admin/tables/new`
+> and `/admin/users/new` were missed. But only **five** are genuinely broken, because three of
+> the eight get their data from `useEffect` + `fetch('/api/admin/...')` on the client, so a
+> static shell is harmless for them. Being static is not the bug; being static **while reading
+> the database during server render** is.
 
-`src/app/admin/page.tsx` queries Prisma directly (`prisma.domain.findMany`,
-`prisma.page.findMany`) for its dashboard statistics. Because the page uses no dynamic API —
-no `cookies()`, no `headers()`, no `searchParams` — Next 15 renders it once at **build
-time** and bakes the result into HTML. So those counts and the activity feed reflect the
-state of the database at the moment of the last deploy.
+### Why it happens
 
-`/admin/domains` and `/admin/pages` escape this only by accident: they accept
-`searchParams`, which forces dynamic rendering.
+`initialRevalidateSeconds=false` on each — there is **no ISR at all**, they never re-render.
+`.next/server/app/admin.html` exists as a real file on disk and is served verbatim. And **no
+admin page declares `force-dynamic` or `revalidate`**.
+
+Next 15 renders a page statically when it uses no dynamic API — no `cookies()`, no
+`headers()`, no `searchParams`. These five call Prisma directly during render, so those
+queries ran once at build time and the results were baked into HTML:
+
+| Screen | Queries frozen into the HTML |
+| ------ | --------------------------- |
+| `/admin` | `domain.findMany`, `page.findMany`, `contentBlock.count`, `domainCategory.findMany` |
+| `/admin/categories` | `domainCategory.findMany` |
+| `/admin/sections` | `domain.findMany` |
+| `/admin/tables` | `table.findMany`, `domain.findMany` |
+| `/admin/tables/new` | `domain.findMany` |
+
+`/admin/domains` and `/admin/pages` escape only **by accident**: they accept `searchParams`,
+which forces dynamic rendering. Nothing about them was a deliberate choice, which is worth
+knowing — a future refactor that dropped the `searchParams` prop would silently freeze them
+too.
+
+A concrete example of how this bites: create a new domain, then open **New Table**. The
+domain is missing from the dropdown, because that `domain.findMany` ran at build time. There
+is no error and no clue — the domain simply is not there.
 
 ### Why the #5 invalidation work does not help
 
 `revalidateTag` clears the Data Cache (`unstable_cache` entries). These pages do not use
 `unstable_cache` — they call Prisma directly — so there is no tag associated with them and
-nothing to invalidate. This is a different mechanism from everything #5 fixed.
+nothing to invalidate. Every `invalidatePages()` call in the codebase is powerless here.
+**This is a different mechanism from everything #5 and #18 fixed**, which is why all that
+invalidation work did not make the admin panel any fresher.
 
-### ⚠️ Needs confirmation from real use before deciding the fix
+### The fix
 
-This is inferred from the build manifest, not observed as a user-facing bug — the dev-branch
-data has not changed since the last build, so there was nothing to see. It is possible this
-has gone unnoticed because the pages actually used day to day (`/admin/domains`,
-`/admin/pages`) are the two dynamic ones.
+`export const dynamic = 'force-dynamic'` on the five screens that read the database.
 
-**Worth checking directly:** add a table in admin, then look at `/admin/tables` and the
-dashboard counts. If the new table is missing until a redeploy, this is confirmed.
+Deliberately **not** applied to the three static-but-client-fetching screens: they are
+already live, and making them dynamic would add a function invocation per view for no gain.
 
-The fix is small — `export const dynamic = 'force-dynamic'` (or a short `revalidate`) on the
-six affected pages — but it should not be applied blind, because making six admin pages
-dynamic trades build-time rendering for a function invocation and a query per view. That is
-almost certainly the right trade for a CMS admin panel, but it is a deliberate choice.
+The trade-off is explicit: build-time rendering is exchanged for one function invocation and
+one query per view. For a CMS admin panel used by a handful of people, that is obviously the
+right side of the trade — correctness matters and traffic is negligible. It is the opposite
+of the public-page calculus in **#8-DR**, where 1,198 pages × crawler traffic makes static
+rendering genuinely valuable.
+
+**Also worth doing at the same time:** an audit for the same pattern elsewhere, and a note in
+the code explaining why these exports exist — the next person to see
+`export const dynamic = 'force-dynamic'` on an admin page will otherwise assume it is
+cargo-culted from the public routes and delete it.
+
+---
+
+
+
+## 🔵 21. Dark / Light Mode — Audit and Implementation Plan
+
+**Type:** Feature request (not a defect). **Status:** ⬜ open, not started.
+**Audited 29 Jul 2026** across all 106 `.tsx` files, `globals.css`, `package.json` and the
+415 stored rich-text rows, before writing any code.
+
+---
+
+### 21.1 — The foundation already exists and is correct
+
+This was the surprise. Everything shadcn's dark mode needs is already in the repository:
+
+```
+next-themes 0.4.6      installed  ✅   ...but NEVER imported anywhere — a dead dependency
+Tailwind v4            @custom-variant dark (&:is(.dark *))   ✅  class-based, not media-query
+globals.css :root      31 colour tokens + --radius            ✅
+globals.css .dark      all 31 colour tokens — FULL parity     ✅
+@theme inline          maps --color-* -> var(--*)             ✅
+body                   @apply bg-background text-foreground   ✅
+```
+
+`grep -rn "next-themes\|ThemeProvider\|useTheme" src/` returns **nothing**. The package is
+in `package.json`, has never been used, and has presumably been shipped in the bundle
+manifest since it was installed.
+
+> ⚠️ **Correction to a claim made during this audit.** A first pass reported that `.dark`
+> was missing all 31 tokens that `:root` defines. That was wrong — the parsing script had
+> matched Tailwind v4's `@theme inline` block (whose variables are named `--color-*`)
+> instead of the real `.dark` rule. Reading `globals.css:81-113` directly shows `.dark`
+> defines every token. **The tokens are complete; nothing is missing there.**
+
+`@custom-variant dark (&:is(.dark *))` is the important line: dark styling activates from a
+`.dark` **class on an ancestor**, not from the OS `prefers-color-scheme` media query. So the
+operating system's dark setting currently does nothing at all, and cannot, until something
+puts that class on `<html>`.
+
+**Three pieces are missing, and only three:**
+
+1. A `ThemeProvider` (next-themes) wrapping the app, to set `.dark` on `<html>`
+2. `suppressHydrationWarning` on the `<html>` element in `src/app/layout.tsx`
+3. A toggle control — **there is none anywhere in the codebase**
+
+On (2): next-themes injects a small blocking script that reads `localStorage` and sets the
+class *before* first paint — that is what prevents a flash of the wrong theme. But it means
+the HTML the server sent and the HTML the browser has at hydration differ on that one
+element, which React reports as a hydration mismatch. `suppressHydrationWarning` on `<html>`
+silences it for that element only. Omitting it produces a console error on every page load.
+
+> The screenshots that prompted this request show a sun/moon toggle button. Nothing like it
+> exists in `src/` — no `Moon`/`Sun` icon import, no `setTheme` call — so those are a design
+> reference for what to build, not the current state.
+
+---
+
+### 21.2 — The scale: 1,220 hardcoded colour classes in 60 of 106 files
+
+A hardcoded class like `bg-gray-50` or `text-white` is a fixed value. It ignores the theme
+entirely, so it stays exactly as-is when `.dark` is applied — which is what produces a
+half-themed page.
+
+Distribution is extremely lopsided:
+
+| Area | Occurrences | Files | Verdict |
+| ---- | ----------- | ----- | ------- |
+| `src/components/admin` | **984** | 32 | the bulk of the work |
+| `src/app/admin` | **162** | 13 | same |
+| `src/components/domain` | 30 | 5 | mostly unreachable — see below |
+| `src/components/table` | 20 | 1 | `DataTable`, already partly done |
+| `src/components/header` | 12 | 1 | **dead code** — see below |
+| `src/app/domain` | 3 | 2 | trivial |
+| `src/components/ui` (shadcn) | 4 | 4 | effectively clean |
+| `src/components/sidebar` | **0** | 0 | fully token-based already |
+| `src/components/bread` | **0** | 0 | fully token-based already |
+| `src/components/auth` | 1 | 1 | trivial |
+
+**admin 1,146 vs public 66.** The public site was largely built on theme tokens; the admin
+panel was not.
+
+The `ui/` primitives are in good shape: 68 token-based background classes against only 4
+hardcoded, and all 4 are legitimate — `bg-black` for the dialog and sheet overlay scrims
+(which should be black in both themes) and `text-white` on primary buttons.
+
+Existing `dark:` variants in the whole codebase: **29**, spread across the shadcn primitives
+plus `DataTable` and `RichTextLayout`.
+
+---
+
+### 21.3 — Half the public "problem" is code that never runs
+
+Two files account for 33 of the 66 public occurrences, and neither renders:
+
+- **`src/components/header/AppHeader.tsx` (12).** Imported in *both* `src/app/layout.tsx:4`
+  and `src/app/domain/layout.tsx:6`, and **commented out in both** (`{/* <AppHeader /> */}`).
+  Dead code, along with its two dead imports.
+- **`src/components/domain/NarrativeLayout.tsx` (21).** Only reachable via the `default:`
+  branch of the layout switch, and the database contains only four `contentType` values —
+  `table` (666), `rich_text` (418), `subcategory_list` (74), `section_based` (37) — each of
+  which has an explicit `case`. It renders for **0 of 1,198 pages**. This is the same
+  conclusion already recorded for the `next/image` decision in #14's SEO-B table.
+
+**So the public site's real surface is ~33 occurrences across 8 files:**
+
+```
+DataTable.tsx           20   badge/boolean/rating accent colours (partly done already)
+TableLayout.tsx          4   border-gray-300 ×4
+SectionBasedLayout.tsx   2   border-gray-300 ×2
+RichTextLayout.tsx       2   border-gray-300, bg-gray-100
+app/domain/layout.tsx    2   text-gray-500 / text-gray-700  (the sidebar trigger)
+SubcategorySelector.tsx  1   border-gray-300
+app/domain/page.tsx      1   border-gray-300
+auth/LoginForm.tsx       1   bg-gray-50  (the page background)
+```
+
+**Eight of those are `border-gray-300`** — decorative horizontal rules. `border-border` is a
+drop-in replacement for every one.
+
+And `DataTable` was already being done correctly by someone:
+
+```tsx
+<span className="font-medium text-green-600 dark:text-green-400 font-mono">   // currency
+value ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' // boolean
+star <= stars ? 'text-yellow-500' : 'text-muted-foreground/30'                  // rating
+```
+
+Its remaining colours (`bg-blue-600 text-blue-100` badge variants, the green/red status dots,
+the yellow stars) are **semantic accents** — a green "Yes" indicator should stay green in
+both themes. Saturated 500/600 shades read acceptably on light and dark, so most need no
+change; a few may want `dark:` tuning for contrast.
+
+**Conclusion: the public site is roughly 90% dark-mode-ready.**
+
+---
+
+### 21.4 — ⚠️ The genuinely hard problem: inline colours in stored rich-text HTML
+
+This is the part that cannot be solved by editing components, and it needs a decision.
+
+Measured across all 415 `RichTextContent` rows:
+
+```
+rich-text rows                        : 415
+rows with an inline text colour       : 395   (95%)
+rows with an inline background colour :  57
+total inline colour declarations      : 2,519
+  ...dark enough to vanish on a dark background : 574
+
+most-used inline colours:
+   1331  #9ca3af            (mid grey — acceptable on both)
+    216  #000000            \
+    168  rgb(0, 0, 0)        |  384 pure-black declarations
+    168  #292727             |  -> invisible on a dark background
+     10  #1a1a1a            /
+    180  #767c7c            (mid grey — acceptable on both)
+    168  #9b9696            (light grey — fine on dark, weak on light)
+    168  rgb(255, 255, 255) (white — presumably paired with the 57 inline backgrounds)
+     87  #afb6b5
+     19  #f3f4f6
+      4  white
+```
+
+**Why CSS cannot fix this:** an inline `style` attribute beats any stylesheet rule on
+specificity. A `.dark .rich-text-content { color: … }` rule simply loses to
+`<span style="color:#000000">`. The only CSS lever is `!important`, which then overrides
+*every* author colour indiscriminately — including the 168 white-text declarations that are
+presumably deliberate on top of the 57 coloured backgrounds, which would become white on
+white.
+
+**There is also an existing rule that actively breaks in dark mode.** From #2's sanitiser
+work, `globals.css:154`:
+
+```css
+.rich-text-content a:hover { color: #000 !important; }
+```
+
+Every hovered link would turn pure black on a near-black background — **invisible**. That
+rule needs a dark-mode counterpart regardless of which option below is chosen.
+
+React inline styles were also checked: `grep -rnE "style=\{\{[^}]*(color|background)"` across
+all `.tsx` returns **0**. So the problem is confined to stored HTML, not component code.
+
+#### The three options
+
+| | Approach | Trade-off |
+| - | -------- | --------- |
+| **A** | **Content islands** — keep `.rich-text-content` on a light surface even in dark mode (an explicitly light card inside the dark page), and give the link-hover rule a light-surface-appropriate colour. | Cheapest, zero data loss, no author intent destroyed. The page chrome themes; the article body stays light. This is standard practice for user-generated HTML. **Recommended.** |
+| B | `!important` overrides scoped to `.dark .rich-text-content` | Forces readability but discards all author colour, and **breaks** the white-on-coloured-background rows. |
+| C | Data migration stripping inline colours from 395 rows, letting CSS theme the content | Content becomes fully themeable, but author styling is permanently and irreversibly lost across the whole catalogue. Needs a product decision and a backup. |
+
+Note that option C interacts with #2: sanitising happens on **write**, so those inline styles
+persist until each page is next saved. A migration would be a deliberate one-off pass, not
+something that happens naturally.
+
+---
+
+### 21.5 — One thing that is already effectively "dark"
+
+`src/components/admin/layout/AdminSidebar.tsx:121` is:
+
+```tsx
+<div className="w-64 bg-gray-900 text-white flex flex-col">
+```
+
+A **permanently dark** sidebar, sitting next to `AdminLayout`'s `bg-gray-50` page and
+`bg-white` content area (`AdminLayout.tsx:30,44`) and `AdminHeader`'s `bg-white`
+(`AdminHeader.tsx:94`). That is why the admin panel already looks half-dark: it is not a
+broken theme, it is a hardcoded one. Any real theming work has to replace this with tokens
+(`bg-sidebar text-sidebar-foreground` — both of which are already defined for light and dark
+in `globals.css`).
+
+---
+
+### 21.6 — Implementation plan
+
+**Phase 1 — public site, ~2 hours.** Delivers a complete, working dark mode for everything
+a visitor sees.
+
+| File | Change |
+| ---- | ------ |
+| `src/app/layout.tsx` | add `suppressHydrationWarning` to `<html>`; wrap children in a `ThemeProvider` |
+| `src/components/ThemeProvider.tsx` *(new)* | thin `'use client'` wrapper around next-themes, `attribute="class"`, `defaultTheme="system"` |
+| `src/components/ThemeToggle.tsx` *(new)* | sun/moon button; must render a stable placeholder until mounted, or it hydration-mismatches |
+| `src/app/domain/layout.tsx` | mount the toggle in the breadcrumb bar; fix `text-gray-500/700` |
+| 6 public components | `border-gray-300` → `border-border`, `bg-gray-100` → `bg-muted`, `bg-gray-50` → `bg-background` |
+| `src/app/globals.css` | dark counterpart for `.rich-text-content a:hover`; light-surface island for `.rich-text-content` (option A) |
+| *cleanup* | delete the two dead `AppHeader` imports while in these files |
+
+**Phase 2 — admin panel, ~1 day.** 1,146 occurrences across 45 files. Mechanical but large:
+`bg-gray-50`→`bg-background`, `bg-white`→`bg-card`, `text-gray-900`→`text-foreground`,
+`text-gray-500`→`text-muted-foreground`, `border-gray-200/300`→`border-border`, and the
+`AdminSidebar` rewrite above.
+
+> ⚠️ **Sequence this after #20.** Both touch many of the same admin files, and #20 is a
+> confirmed bug while this is cosmetic. Doing dark mode first would mean editing those files
+> twice and reviewing a much noisier diff.
+
+**Phase 3 — optional.** The rich-text colour migration (option C), only if the content itself
+should be themeable.
+
+#### Things that will need testing, not assuming
+
+- **No flash of the wrong theme** on first paint — the reason next-themes' blocking script
+  exists; verify against a production build, not `next dev`.
+- **No hydration warnings** in the console on any route.
+- **The toggle inside `SidebarProvider`** — `src/app/domain/layout.tsx` already nests several
+  client providers; the toggle must not remount the tree or reset sidebar state.
+- **The admin panel is a separate React tree** (`SessionProvider` → `AdminLayout`) and needs
+  the provider to reach it too, which it will from the root layout — but worth confirming
+  rather than assuming.
+- **`prefers-color-scheme` currently does nothing**, so "system" theme behaviour is entirely
+  new and untested in this codebase.
+
+---
+
+### 21.7 — ✅ Phase 1 DONE (public site), 29 Jul 2026
+
+**2 new files, 8 modified.** The public site now has a working light/dark theme.
+
+| File | Change |
+| ---- | ------ |
+| `src/components/ThemeProvider.tsx` **(new)** | `'use client'` boundary around next-themes: `attribute="class"`, `defaultTheme="system"`, `enableSystem`, `disableTransitionOnChange` |
+| `src/components/ThemeToggle.tsx` **(new)** | sun/moon button with a `mounted` guard and a same-size placeholder |
+| `src/app/layout.tsx` | `suppressHydrationWarning` on `<html>`; wrapped children in `ThemeProvider`; **deleted the dead `AppHeader` import** |
+| `src/app/domain/layout.tsx` | mounted the toggle (`ml-auto`) in the breadcrumb bar; `text-gray-500/700` → `text-muted-foreground`/`text-foreground`; **deleted the dead `AppHeader` import and its commented-out JSX** |
+| `TableLayout.tsx` ×4, `SectionBasedLayout.tsx` ×2, `SubcategorySelector.tsx`, `app/domain/page.tsx` | `border-gray-300` → `border-border` |
+| `LoginForm.tsx` | `bg-gray-50` → `bg-muted` (a fixed-light page behind a themed Card) |
+| `RichTextLayout.tsx` | the light content island — see below |
+| `globals.css` | documented why `.rich-text-content a:hover { color:#000 }` needs **no** dark variant |
+
+#### Why the `mounted` guard in the toggle is mandatory
+
+The active theme lives in `localStorage`, which does not exist on the server, so
+`resolvedTheme` is `undefined` during server render and there is no correct icon to draw.
+Whatever the server guesses, the client often disagrees once it reads storage — a hydration
+mismatch. The component therefore renders a **same-size** `aria-hidden` placeholder until
+mounted. Same-size matters: returning `null` would make the breadcrumb row reflow the instant
+hydration completed, so the bar would visibly jump on every page load.
+
+It reads `resolvedTheme`, not `theme`: `theme` can be the literal `"system"`, which is not a
+drawable icon, and would leave the button showing the wrong state for everyone on the default
+setting — which is everyone until they first click it.
+
+#### Rich text: option A implemented (light content island)
+
+`RichTextLayout`'s card is now `bg-neutral-100 text-neutral-900` — **fixed values, on
+purpose**, the one place in the public site that must not follow the theme. Rationale is in
+21.4: 574 of 2,519 inline colour declarations are dark, inline styles beat stylesheets, so a
+dark surface would make those 574 vanish and `!important` would break the 168 deliberate
+white-text rows.
+
+Two traps found and fixed while implementing it:
+
+- `dark:prose-invert` was already on the prose wrapper. On a permanently-light card it would
+  have inverted headings and lists to near-white **on light**. Removed.
+- The **empty state** inside that card used `text-foreground` / `text-muted-foreground`, which
+  resolve to near-white in dark mode — invisible on the light card. Switched to fixed
+  `text-neutral-900` / `text-neutral-600`. This is the same bug the card comment warns about,
+  found by looking rather than by reasoning.
+
+#### What was verified, and how
+
+`tsc --noEmit` clean, production build clean, then probed against a running production build
+(dev is useless here — `next dev` behaves differently):
+
+```
+PATH                        ST   antiflash  toggle  stale-gray  island
+/                          308   –          –       none        –
+/domain                    200   YES        YES     none        –
+/domain/gdesign            200   YES        YES     none        –
+rich-text page             200   YES        YES     none        YES
+/login                     200   YES        –       none        –
+/unauthorized              200   YES        –       none        –
+/nonexistent -> 404        404   no         –       none        –
+/robots.txt                200   –          –       none        –
+server errors: none
+```
+
+**No flash of the wrong theme — confirmed by byte position, not assumed.** The injected
+script sits as the *first* thing inside `<body>`, before any visible markup:
+
+```
+</head><body class="geist… antialiased">
+  <div hidden=""><template id="B:0"></template></div>
+  <script>…("class","theme","system",null,["light","dark"],null,true,true)</script>
+  <div class="flex flex-col min-h-screen">   <- visible content starts here
+```
+
+Those arguments also confirm the configuration landed: `attribute="class"`,
+`storageKey="theme"`, `defaultTheme="system"`, `enableSystem`, and `style.colorScheme` set
+(so native scrollbars and form controls match the theme).
+
+> ⚠️ **A wrong conclusion drawn and corrected during this work.** A first check compared the
+> script's byte offset against the position of `<body>`, found it later, and concluded "a
+> flash is possible". That test was meaningless — what matters is whether the script precedes
+> **visible content**, not the `<body>` tag itself. Reading the actual bytes showed it is the
+> first child of `<body>`.
+
+#### ⚠️ Known limitation: 404 and error pages flash light before hydration
+
+The `__next_error__` shell that Next 15 serves for `notFound()` and for errors **does not
+carry the blocking script** (`localStorage` appears nowhere in that response). The
+`ThemeProvider` *is* in the payload — `next-themes` and the root layout's body class are both
+present — so the theme does apply, but only after hydration. A dark-mode visitor hitting a
+404 sees a brief light flash.
+
+Not fixed: it affects only error paths, and the shell is generated by Next, not by us.
+Recorded so it is not rediscovered as a new bug.
+
+#### Also recorded: a stale-cache 404 during testing
+
+The regression sweep showed `/domain/affiliatemarketing` returning **404**. Chased rather than
+dismissed: the database was verified intact (all 32 direct domains have `__main__`), and
+repeated requests returned 200 from the second onwards. It was the stale `null` cached by
+**#11's** test, which renamed that exact domain's `__main__` and restored it via Prisma —
+bypassing the API, so no `revalidateTag` fired. Identical stale-while-revalidate behaviour to
+the one documented in #18. Development-branch artifact; production was never involved.
+
+#### Not done in Phase 1
+
+- `DataTable`'s remaining 20 hardcoded colours: one is inside a commented-out column-resizer
+  block, the rest are **semantic accents** (`bg-blue-600 text-blue-100` badge variants,
+  green/red status dots, yellow stars). A green "Yes" indicator should stay green in both
+  themes, and 600-on-100 contrast reads acceptably on either surface. `dark:` tuning is
+  optional polish, not correctness.
+- **Phase 2 (the admin panel, 1,146 occurrences across 45 files) — still open, and still
+  sequenced after #20.**
 
 ---
 
@@ -3830,6 +4250,79 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 28 (July 29): **#21 Phase 1 shipped — the public site now has a working light/dark
+theme.** 2 new files (*`ThemeProvider`*,* `ThemeToggle`*) and 8 modified.* `next-themes` *is
+finally wired (it had been an installed-but-never-imported dependency),* `<html>` *carries*
+`suppressHydrationWarning` *because the anti-flash script mutates that element before
+hydration, and the toggle sits at* `ml-auto` *in the breadcrumb bar so it does not shift as
+breadcrumb trails change length in a sticky bar. **No flash of the wrong theme — confirmed by
+reading the served bytes**, where the injected script is the first child of* `<body>`*, ahead
+of all visible markup; its arguments also confirm the config landed
+(*`"class","theme","system"`*, enableSystem, colorScheme).* ⚠️ *A **wrong conclusion was drawn
+and corrected mid-task**: an initial check compared the script's offset against the* `<body>`
+*tag, found it later, and reported "a flash is possible" — a meaningless test, since what
+matters is whether the script precedes **visible content**. **Rich text uses option A**: the
+card is fixed* `bg-neutral-100 text-neutral-900`*, a light island in a dark page, because 574
+of its 2,519 inline colour declarations are dark and inline styles beat stylesheets. Two traps
+surfaced there —* `dark:prose-invert` *was already present and would have inverted headings to
+white **on light**, and the card's empty state used* `text-foreground`*/*`text-muted-foreground`
+*which resolve near-white in dark mode, invisible on that light card; both fixed. **Known
+limitation recorded:** the* `__next_error__` *shell Next serves for 404s and errors carries no
+blocking script, so those pages flash light before hydration — the provider is in the payload,
+so the theme does apply, just late. Also recorded: a* `/domain/affiliatemarketing` *404 during
+the regression sweep was chased rather than dismissed and proved to be the stale* `null`
+*cached by **#11's** test, which had renamed that domain's* `__main__` *and restored it via
+Prisma without invalidating — the database was verified intact and the route self-healed on
+the second request.* `DataTable`*'s 20 remaining colours were left deliberately: semantic
+badge/status accents that should stay coloured in both themes. **Phase 2 (admin, 1,146
+occurrences) remains open and still sequenced after #20.***
+
+*Revision 27 (July 29): **#21 added — dark/light mode audited before writing any code.** The
+finding that reframes the work:* **the entire shadcn dark-mode foundation is already present
+and correct** *—* `next-themes 0.4.6` *is installed (and has **never been imported** — a dead
+dependency), Tailwind v4 declares* `@custom-variant dark (&:is(.dark *))`*, and* `globals.css`
+*defines all 31 colour tokens in both* `:root` *and* `.dark` *at full parity. Only three
+pieces are missing: a* `ThemeProvider` *to put* `.dark` *on* `<html>`*,*
+`suppressHydrationWarning` *on that element, and a toggle — which does not exist anywhere, so
+the screenshots that prompted the request are a design reference rather than current state.*
+⚠️ *This entry also **corrects a claim made during the audit itself**: a first pass reported*
+`.dark` *was missing every token, which was a script error — it had parsed the* `@theme inline`
+*block, whose variables are named* `--color-*`*. Measured **1,220 hardcoded colour classes in
+60 of 106 files**, distributed very unevenly: **1,146 in admin, 66 public**, with*
+`components/sidebar` *and* `components/bread` *at **zero** and the shadcn* `ui/` *primitives
+effectively clean. **Half the public count is unreachable code** —* `AppHeader` *(12) is
+commented out in both layouts and* `NarrativeLayout` *(21) renders for 0 of 1,198 pages —
+leaving ~33 real occurrences across 8 files, eight of which are* `border-gray-300` *decorative
+rules.* `DataTable` *already has correct* `dark:` *variants. **The one hard problem is stored
+rich-text HTML:** 395 of 415 rows carry inline colours (2,519 declarations, 574 dark enough to
+vanish on a dark background, plus 168 white-text and 57 inline-background rows). Inline styles
+beat stylesheets, so CSS cannot retheme them — and the* `.rich-text-content a:hover { color:
+#000 !important }` *rule added for #2 would make every hovered link invisible in dark mode.
+Three options recorded, with light "content islands" recommended over blanket* `!important`
+*or a destructive migration. Also noted:* `AdminSidebar` *is hardcoded* `bg-gray-900
+text-white`*, which is why the admin panel already looks half-dark — a hardcoded theme, not a
+broken one. **Phase 2 (the admin sweep) is explicitly sequenced after #20**, since both touch
+the same 45 files and #20 is a confirmed bug while this is cosmetic.*
+
+*Revision 26 (July 29): **#20 CONFIRMED and raised to Critical — it is a real, felt bug, not
+an inference.** The user described the symptom unprompted: changes appear on the live site but
+"so many things don't show up in the Admin UI — and that's a very glitch in the admin UI".
+That is this bug's exact signature, seen from both sides of one root cause: public pages are*
+`force-dynamic` *so they re-query per view, while the affected admin screens are static HTML
+built once at deploy time and cannot change. Re-measured every admin screen and **corrected
+this document's own earlier count**: **8 of 13** are static, not six —* `/admin/tables/new`
+*and* `/admin/users/new` *were missed — but only **5** actually serve stale data
+(*`/admin`*,* `/admin/categories`*,* `/admin/sections`*,* `/admin/tables`*,*
+`/admin/tables/new`*), because three of the eight fetch client-side via* `useEffect` *+*
+`fetch('/api/admin/…')` *and are therefore fine. Being static is not the bug; being static
+**while reading the database during server render** is. Also noted:* `/admin/domains` *and*
+`/admin/pages` *are live only **by accident**, because they accept* `searchParams` *— a
+refactor dropping that prop would silently freeze them too. And a concrete reproduction:
+create a domain, open **New Table**, and the domain is absent from the dropdown because that*
+`domain.findMany` *ran at build time. Fix is* `force-dynamic` *on the five, which is the
+opposite call from #8-DR for public pages — correct, because admin traffic is negligible and
+correctness is not optional in the tool used to edit the site.*
+
 *Revision 25 (July 29): **#19 done — error boundaries added; #20 opened as a High-severity
 find.** The app had **no** `error.tsx` *anywhere, so an unhandled render throw served a bare
 unstyled 500 with no navigation — and in admin, silently lost unsaved form state. Added five
