@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 import { invalidatePages } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
+// Finding #22.4 — one shared parent-chain traversal. See src/lib/page-path.ts.
+import { buildPageUrl, toPageMap, type PagePathNode } from '@/lib/page-path';
 
 /**
  * Individual Page API Routes
@@ -517,33 +519,19 @@ function validateAndProcessTargetCountries(targetCountries: any, existingValue: 
 /**
  * Generate preview URL for a page based on domain type and hierarchy
  */
-function generatePagePreviewUrl(page: any, domain: any, allPages: any[]): string {
+/**
+ * Build a page's public preview URL.
+ *
+ * ⚠️ This was a **byte-identical copy** of the same function in
+ * `api/admin/pages/route.ts` — 30 duplicated lines, both missing a cycle guard and both
+ * O(n²) via `allPages.find(...)` inside a recursive walk (finding #22.4). Both now
+ * delegate to the one implementation in `src/lib/page-path.ts`.
+ */
+function generatePagePreviewUrl(
+  page: PagePathNode,
+  domain: { slug: string } | null | undefined,
+  allPages: PagePathNode[]
+): string {
   if (!domain) return '#';
-  
-  // Skip __main__ pages - they represent the domain root
-  if (page.slug === '__main__') {
-    return `/domain/${domain.slug}`;
-  }
-  
-  // Build full path considering parent hierarchy
-  const buildPath = (pageId: string): string => {
-    const currentPage = allPages.find(p => p.id === pageId);
-    if (!currentPage) return '';
-    
-    // If this page's parent is __main__, don't include __main__ in path
-    if (currentPage.parentId) {
-      const parent = allPages.find(p => p.id === currentPage.parentId);
-      if (parent && parent.slug === '__main__') {
-        return currentPage.slug;
-      } else if (parent) {
-        const parentPath = buildPath(parent.id);
-        return parentPath ? `${parentPath}/${currentPage.slug}` : currentPage.slug;
-      }
-    }
-    
-    return currentPage.slug;
-  };
-  
-  const fullPath = buildPath(page.id);
-  return `/domain/${domain.slug}/${fullPath}`;
+  return buildPageUrl(page, domain.slug, toPageMap(allPages)) ?? '#';
 }

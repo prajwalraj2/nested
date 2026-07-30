@@ -17,6 +17,8 @@ import { prisma } from '@/lib/prisma';
 // Finding #2: stored HTML is rendered with dangerouslySetInnerHTML to every public
 // visitor, so it is cleaned before it reaches the database.
 import { sanitizeRichTextHtml, htmlToPlainText } from '@/lib/sanitize-html';
+// Finding #22.4 — correct public URLs need the parent chain walked, not two slugs joined.
+import { buildPageUrl, toPageMap } from '@/lib/page-path';
 
 /**
  * GET /api/admin/rich-text
@@ -70,9 +72,45 @@ export async function GET(request: NextRequest) {
       ]
     });
 
+    /**
+     * ⚠️ WHY A SECOND QUERY — AND WHY `previewUrl` IS COMPUTED HERE, NOT IN THE CLIENT
+     *
+     * `RichTextManager` used to build its Preview link as
+     * `/domain/${page.domain.slug}/${page.slug}`. That is only correct for a page one
+     * level below the domain root. Measured across the database: **323 of 418 rich-text
+     * pages (77.3%) got a URL that 404s** (finding #22.4) — e.g.
+     *
+     *     emitted : /domain/webdev/shopifystore
+     *     correct : /domain/webdev/nocode/definingservices/shopifystore
+     *
+     * The client cannot fix this itself: the response above contains only `rich_text`
+     * pages, and the ancestors are usually `section_based` or `subcategory_list`, so the
+     * chain simply is not present in the payload. Fetching it here is the only place the
+     * data exists.
+     *
+     * The query is cheap and deliberately narrow — three columns for every page in ONE
+     * domain (tens of rows, not the 1,195-row table). Selecting only what
+     * `PagePathNode` needs also keeps this from becoming another #22.1-style over-fetch.
+     */
+    const chainPages = await prisma.page.findMany({
+      where: { domainId: domainId },
+      select: { id: true, slug: true, parentId: true },
+    });
+    const pagesById = toPageMap(chainPages);
+
+    const pagesWithUrls = pages.map(page => ({
+      ...page,
+      /**
+       * `null` when the page has no reachable public URL — the client renders a disabled
+       * control rather than a link it knows is broken. That is the actual fix: the old
+       * code always produced *a* link, which is why 433 of them silently 404'd.
+       */
+      previewUrl: buildPageUrl(page, page.domain.slug, pagesById),
+    }));
+
     return NextResponse.json({
       success: true,
-      pages: pages,
+      pages: pagesWithUrls,
       total: pages.length
     });
 

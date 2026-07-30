@@ -46,6 +46,7 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 19  | No error boundaries anywhere — an unhandled throw served a bare 500               | 🟡 Medium       | Resilience / UX    | 1.5 hrs   |
 | [x]  | 20  | **CONFIRMED BUG: 5 admin screens are frozen at build time — edits never appear**   | 🔴 **Critical** | Correctness / UX   | 1 hr      |
 | ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
+| ~    | 22  | **Admin audit — 22.4 DONE (433 links); 8.19 MB tables page + write-once data open** | 🔴 **Critical** | Functionality      | multi-day |
 
 
 **Sub-items:**
@@ -3805,6 +3806,615 @@ the one documented in #18. Development-branch artifact; production was never inv
 
 
 
+## 🔴 22. Admin Panel Audit — Findings and Fixes
+
+**Audited 29 Jul 2026**, after #20 was fixed — which had to come first, because a stale screen
+and a broken screen are indistinguishable from the outside. Prompted by "I don't like the whole
+UI/UX of the admin panel" and a specific report that table editing does not work.
+
+**Method.** All 13 admin screens were loaded against a production build with a real admin
+session on the development branch; every finding was then traced to code, and anything
+involving data was measured against the database. Two automated passes produced mostly false
+positives and were discarded rather than reported — see 22.6.
+
+### 22.0 — All 13 screens: load status and payload
+
+Every screen returns HTTP 200. No screen is dead. But one is dramatically wrong:
+
+| Screen | HTTP | Payload | Note |
+| ------ | ---- | ------- | ---- |
+| `/admin` Dashboard | 200 | 50 KB | |
+| `/admin/categories` | 200 | 51 KB | |
+| `/admin/domains` | 200 | 133 KB | |
+| `/admin/pages` | 200 | 37 KB | |
+| `/admin/sections` | 200 | 231 KB | large but legitimate — all pages, for the picker |
+| **`/admin/tables`** | 200 | **8,592,689 B ≈ 8.19 MB** | 🔴 **37× the next biggest — see 22.1** |
+| `/admin/tables/new` | 200 | 212 KB | |
+| `/admin/tables/[id]` | 200 | 96 KB | |
+| `/admin/rich-text` | 200 | 25 KB | |
+| `/admin/rich-text/edit/[pageId]` | 200 | 25 KB | |
+| `/admin/users` | 200 | 33 KB | |
+| `/admin/users/new` | 200 | 35 KB | |
+| `/admin/users/edit/[id]` | 200 | 24 KB | |
+
+---
+
+### 22.1 🔴 `/admin/tables` ships 8.19 MB to render a list
+
+**The single worst thing found.** The screen that lists tables loads the complete contents of
+every table — twice — to display names and row counts.
+
+`src/app/admin/tables/page.tsx` runs two queries, and both pull the big JSON columns:
+
+```typescript
+// query 1 — `include` with no `select` on Table returns EVERY column, `data` and `schema` included
+const tables = await prisma.table.findMany({
+  include: { page: { include: { domain: { select: { id: true, name: true, slug: true } } } } },
+  orderBy: { updatedAt: 'desc' }
+});
+
+// query 2 — `table: true` pulls the whole table again, for every table-type page
+const domains = await prisma.domain.findMany({
+  include: { pages: { where: { contentType: 'table' }, include: { table: true, … } }, … }
+});
+```
+
+**Measured on the development branch:**
+
+```
+tables                        : 652
+total rows                    : 8,065
+Table.data  serialised        : 1.97 MB
+Table.schema serialised       : 0.48 MB
+data + schema                 : 2.45 MB
+loaded TWICE by this page     : 4.90 MB
+actual page payload           : 8.19 MB   (RSC escaping inflates it further)
+
+what the list view displays   : name, domain, page title, row count, updatedAt
+genuinely needed              : ~0.16 MB
+waste ratio                   : ~16x on the data, ~50x on the shipped page
+```
+
+Every visit to that screen transfers 8.19 MB. On a mobile connection that is tens of seconds,
+and it is 8.19 MB of Vercel egress per view. Note this got *worse* with #20: the page is now
+dynamic, so it is rebuilt on every request rather than served as one frozen file — the right
+fix for correctness, but it makes this over-fetch bite on every view.
+
+#### ✅ The fix
+
+Replace both `include`s with explicit `select`s that omit `data` and `schema`, and compute the
+row count in the query rather than in JavaScript.
+
+```typescript
+const tables = await prisma.table.findMany({
+  select: {
+    id: true, name: true, updatedAt: true,
+    page: { select: { id: true, title: true, slug: true,
+      domain: { select: { id: true, name: true, slug: true } } } },
+  },
+  orderBy: { updatedAt: 'desc' },
+});
+```
+
+The row count is the only thing that genuinely needs `data`. Two options, in order of
+preference:
+
+1. **A denormalised `rowCount` column on `Table`**, maintained by the write paths that already
+   exist (`tables/route.ts` POST and `tables/[id]/data` PUT/DELETE). Costs a migration; makes
+   the list query trivially cheap forever.
+2. **A raw query** — `SELECT id, jsonb_array_length(data->'rows') AS "rowCount" FROM "Table"` —
+   no migration, still avoids transferring the rows, but adds a second query and raw SQL.
+
+The second query's purpose also needs checking: it appears to feed a domain/page picker, and
+almost certainly does not need `table: true` at all — `table: { select: { id: true } }` would
+answer "does this page already have a table?" for a fraction of the bytes.
+
+**Effort:** ~1 hour for the `select` narrowing alone, which removes most of the 8 MB. The
+`rowCount` column is a further ~30 minutes plus a migration.
+
+---
+
+### 22.2 🔴 Table data is WRITE-ONCE — the finding that prompted this audit
+
+**The report was right: there is no way to edit a table after creating it.**
+
+`TableEditor` (`/admin/tables/[id]`) has four tabs. **None of them can change anything:**
+
+| Tab | What it actually is |
+| --- | ------------------- |
+| **Data** | Read-only. It renders `src/components/table/DataTable.tsx` — the **public** viewer. Sort, filter and search work; nothing is editable. |
+| **Schema** | Read-only *display*. Column list with badges (`Required`, `Sortable`, `Filterable`). No inputs, no save button. |
+| **Import** | A placeholder: *"CSV Import Coming Soon — Advanced CSV import functionality with column mapping and validation will be available in the next update."* |
+| **Settings** | A placeholder: *"Settings Editor Coming Soon"* |
+
+What *does* work in that screen: **Export** (CSV and JSON, both wired to a real handler) and
+**Delete table**.
+
+**Confirmed by search, not by reading:** a grep across all 32 admin components for
+`addRow|deleteRow|editRow|updateRow|handleCellChange|onCellEdit|editable` returns **zero
+matches**. There is no row-editing UI anywhere in the application.
+
+#### ⚠️ The capability exists in the API and nothing calls it
+
+```
+PUT    /api/admin/tables/[id]/data   -> replaces or appends rows   ... called from: NOWHERE
+DELETE /api/admin/tables/[id]/data   -> clears all rows            ... called from: NOWHERE
+```
+
+Both are fully implemented — `PUT` even supports `operation: 'replace' | 'append'`, and this
+document's own #18 test drove it successfully over HTTP. The only UI reference to that path is
+an export call (`GET …/data?format=csv&download=true`) and a broken link (22.2).
+
+**So the practical consequence: to change one cell, the only route available is to delete the
+table and rebuild it from a fresh CSV.** `TableSchemaEditor.tsx` exists as a component but is
+only used by the creation wizard, so columns cannot be changed after creation either.
+
+#### ✅ The fix
+
+The backend is done. This is entirely UI work, and it splits into three independently
+shippable pieces:
+
+**(a) Re-import — smallest useful fix, ~2 hours.**
+Replace the "CSV Import Coming Soon" placeholder with the `CSVUploadInterface` component that
+**already exists** and is already used by the creation wizard. Wire its output to
+`PUT /api/admin/tables/[id]/data` with `operation: 'replace'` or `'append'` — both already
+supported. This alone turns the table from write-once into editable-in-bulk, which for
+spreadsheet-sourced content may be all that is actually wanted.
+
+⚠️ Two things to get right: `'replace'` destroys existing rows, so it needs a confirmation
+step showing the before/after row count; and the uploaded CSV's columns must be validated
+against the existing schema, or a mismatched file silently produces rows the table cannot
+render.
+
+**(b) Row-level editing — the real feature, ~1–2 days.**
+Add/edit/delete individual rows. Needs a genuinely editable grid, which the current read-only
+`DataTable` is not — it is the public viewer and should stay that way rather than growing an
+`editable` prop, since that would put admin-only code in the public bundle. Build a separate
+`AdminDataGrid` and keep `PUT …/data` as the save endpoint (send the full row set), which
+avoids designing a per-row API.
+
+⚠️ `targetCountries` must be editable here. It is a real column that the public site filters
+on (verified working in #18), and it is stripped from public responses — so the admin grid is
+the *only* place it can ever be set. Today there is no way to geo-target a row at all through
+the UI, which makes the whole geo feature unreachable for content editors.
+
+**(c) Schema editing — ~half a day.**
+`TableSchemaEditor.tsx` already exists and is already wired in the creation wizard. Mount it in
+the Schema tab and save via `PUT /api/admin/tables/[id]`, which exists.
+
+⚠️ Renaming or removing a column orphans the corresponding key in every stored row. That needs
+a deliberate decision (migrate the data, or refuse the change) rather than being discovered
+later as data loss.
+
+**Also replace the two "Coming Soon" placeholders with something honest in the meantime** — a
+disabled control with a short explanation, as `AdminHeader`'s "Account Settings" already does
+correctly with its "Soon" badge. A placeholder that looks like a feature is worse than a
+visibly unavailable one.
+
+---
+
+### 22.3 🔴 The "Manage Data" button 404s
+
+`TablesManager` renders the tables list in two view modes, and the **same-labelled button
+goes to two different places**:
+
+```
+card view  (TablesManager.tsx:316) -> /admin/tables/${id}        (identical to "Edit")
+list view  (TablesManager.tsx:383) -> /admin/tables/${id}/data   <- NO SUCH PAGE
+```
+
+`src/app/admin/tables/[id]/` contains only `page.tsx`. The `/data` path exists **only** as an
+API route (`src/app/api/admin/tables/[id]/data/route.ts`). So in list view the button that
+should lead to data management leads to a 404, and in card view it silently duplicates "Edit".
+
+This is consistent with 22.2: the feature was planned, the link was written, the page was
+never built.
+
+#### ✅ The fix
+
+Two options, and the choice depends on whether 22.2(b) gets built:
+
+- **If a data editor is built:** make `/admin/tables/[id]/data` a real page hosting it, and
+  point *both* buttons at it. The route being linked already implies this was the intent.
+- **If not:** point both at `/admin/tables/${id}` and rename one — two menu items with
+  different labels doing the same thing is its own small confusion.
+
+Either way this is a 5-minute change; the value is that it stops a 404 today.
+
+**Effort:** 5 minutes for the repoint, or fold it into 22.2(b).
+
+---
+
+### 22.4 🔴 433 broken "Preview" / "view on site" links
+
+Two places build a **flat** two-segment URL for a page that may be nested several levels deep:
+
+```tsx
+// RichTextManager.tsx:223
+<Link href={`/domain/${page.domain.slug}/${page.slug}`} target="_blank">👁️ Preview</Link>
+
+// app/admin/tables/[id]/page.tsx:83
+<a href={`/domain/${table.page.domain.slug}/${table.page.slug}`} target="_blank">
+```
+
+`src/app/sitemap.ts` solves exactly this correctly, by walking the `parentId` chain
+(`buildPagePath`). These two do not. **Measured against every page in the database:**
+
+| Button | Wrong URLs |
+| ------ | ---------- |
+| `RichTextManager` "Preview" | **323 of 418** rich-text pages — **77.3%** |
+| `admin/tables/[id]` "view on site" | **110 of 668** table pages — **16.5%** |
+
+```
+emits : /domain/animation/clientquestionnaire
+should: /domain/animation/questionaries/clientquestionnaire
+
+emits : /domain/webdev/shopifystore
+should: /domain/webdev/nocode/definingservices/shopifystore
+
+emits : /domain/webdev/ytube
+should: /domain/webdev/withcode/ytube
+```
+
+Every one of those 433 opens a 404 in a new tab.
+
+#### ✅ The fix
+
+Extract the sitemap's `buildPagePath` into a shared helper and use it in both places. The
+logic already exists and is already correct — it walks `parentId` upward, skips the synthetic
+`__main__` root, and has a cycle guard. It just lives privately inside `src/app/sitemap.ts`.
+
+```
+src/lib/page-path.ts  (new)
+  buildPagePath(page, pagesById) -> string | null      <- moved out of sitemap.ts
+  sitemap.ts imports it                               <- no behaviour change
+  RichTextManager + admin/tables/[id] import it        <- 433 links fixed
+```
+
+⚠️ The two admin call sites currently have only the page's own row, not the whole page map that
+`buildPagePath` needs. So each needs its query widened to include the ancestor chain — either
+by fetching `parentId` recursively, or by adding a `path` field the API returns. **The simpler
+option:** have the two admin queries `select` the parent chain (max depth is 4, measured) and
+resolve server-side, so the button receives a finished URL rather than assembling one.
+
+**Alternative worth considering:** store the resolved path on `Page` as a column, maintained on
+write. That would fix these two call sites, remove the traversal from `sitemap.ts`, and make
+any future "link to this page" feature correct by default. Costs a migration and write-path
+maintenance, and needs care when a page is re-parented (every descendant's path changes).
+
+**Effort:** ~1 hour for the shared helper, and this is the **highest value-per-hour item in
+this whole finding** — 433 broken links fixed by one extraction.
+
+#### ✅ DONE — 30 Jul 2026
+
+**The scope turned out to be larger than "extract one function": the traversal existed FOUR
+times, in three different states of correctness.**
+
+| # | Location | State before |
+| - | -------- | ------------ |
+| 1 | `sitemap.ts` `buildPagePath` | ✅ correct — cycle-guarded, Map-based |
+| 2 | `api/admin/pages/route.ts` `generatePagePreviewUrl` | ⚠️ copy with **no cycle guard**, O(n²) via `allPages.find()` |
+| 3 | `api/admin/pages/[id]/route.ts` `generatePagePreviewUrl` | ⚠️ **byte-identical duplicate of (2)** |
+| 4 | `RichTextManager` + `admin/tables/[id]` | ❌ no traversal at all — two slugs joined |
+
+Case (1) was moved verbatim into **`src/lib/page-path.ts`** and the other three now use it.
+That means the two admin API routes gained a cycle guard they never had: `parentId` is an
+unconstrained self-relation, and because those copies *recursed* rather than looped, one
+corrupt row would have overflowed the stack and returned an opaque 500.
+
+**Files changed**
+
+```
+src/lib/page-path.ts                          NEW — buildPagePath, buildPageUrl, toPageMap,
+                                                    MAIN_PAGE_SLUG, PagePathNode
+src/app/sitemap.ts                            imports it; ~50 lines of local copy deleted
+src/app/api/admin/pages/route.ts              30-line copy -> 3-line wrapper
+src/app/api/admin/pages/[id]/route.ts         30-line copy -> 3-line wrapper
+src/app/api/admin/rich-text/route.ts          now returns `previewUrl` per page
+src/components/admin/rich-text/RichTextManager.tsx  uses previewUrl; DISABLES when null
+src/app/admin/tables/[id]/page.tsx            resolves `publicUrl`; DISABLES when null
+```
+
+**Why the rich-text URL had to move server-side.** `GET /api/admin/rich-text` returns only
+`rich_text` pages, but the ancestors are `section_based`/`subcategory_list` pages — so the
+chain simply is not in the payload and the client *cannot* compute the path. One extra query
+per request, scoped to a single domain and selecting only the three columns `PagePathNode`
+needs (deliberately not `include`, so this cannot become another #22.1 over-fetch).
+
+**Both call sites now render a DISABLED control when the URL resolves to `null`**, rather than
+linking somewhere known-broken. That is the actual behavioural fix — the old code always
+produced *a* link, which is why 433 of them silently 404'd.
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. Sitemap must be unchanged — highest regression risk, it drives SEO for ~1,200 URLs**
+
+| Check | Expected |
+| ----- | -------- |
+| `GET /sitemap.xml` | 200 |
+| URL count | matches `1 + published domains + reachable pages` **computed from current data** |
+| Duplicates | none |
+| Any URL containing `__main__` | none |
+| All URLs absolute `https://atno.io/` | yes |
+| Depth ≥ 4 URLs still present | yes (451 on the dev branch) |
+
+> ⚠️ **Do not assert a hardcoded 1198.** The first run of this test did, failed with "got
+> 1201", and looked like a refactor regression. It was not — the dev branch's page set had
+> changed since that figure was recorded on 27 Jul. Computing the expected total from live
+> data (1 + 35 roots + 1165 pages = 1201) matched exactly.
+
+**B. Old vs new must agree where the old code was already right**
+
+Reproduce the old `generatePagePreviewUrl` verbatim and diff it against the shared helper for
+**every page in the database**. Result: **1,198 identical, 0 differing** — so the
+`/api/admin/pages` `previewUrl` field is unchanged for every existing consumer, and the only
+gain there is the cycle guard.
+
+**C. The two broken call sites**
+
+| | Pages | Old flat URL was wrong for | Now resolve to `null` |
+| - | ----- | -------------------------- | --------------------- |
+| RichTextManager Preview | 418 | **323 (77.3%)** | 0 |
+| `tables/[id]` View Live | 668 | **110 (16.5%)** | 0 |
+
+**D. Sampled against the running site** — for each fixed case, the NEW url returns 200 **and**
+the OLD url is confirmed broken:
+
+```
+NEW /domain/animation/questionaries/clientquestionnaire        200
+OLD /domain/animation/clientquestionnaire                     404
+NEW /domain/webdev/nocode/definingservices/shopifystore        200
+OLD /domain/webdev/shopifystore                                404
+NEW /domain/webdev/withcode/ytube                              200
+OLD /domain/webdev/ytube                                       404
+```
+
+> ⚠️ **A trap in writing this test.** The first version re-derived the page from the new
+> URL's tail via `allPages.find(x => url.endsWith('/' + x.slug))`. With **83 ambiguous
+> (domain, slug) pairs** in this database that returns an arbitrary match — sometimes in a
+> *different domain* — so it probed the wrong flat URL and reported three spurious 200s that
+> looked like the fix failing. Carry both URLs through the sample together instead of
+> reconstructing either.
+
+**E. End-to-end through the real API and page**
+
+```
+GET /api/admin/rich-text?domainId=<webdev>   200
+  previewUrl present on all 46 pages          yes
+  every previewUrl matches the helper         46/46
+  nested deeper than /domain/x/y              46/46
+  4 sampled URLs fetched                      all 200
+GET /admin/tables/<id>                        200, contains the resolved URL
+```
+
+##### What else could this have affected — checked
+
+- **`/sitemap.xml`** — verified above; the moved function is byte-identical and the country-
+  filter `null` semantics it depends on are preserved and documented at the new location.
+- **`/api/admin/pages` and `/api/admin/pages/[id]` `previewUrl`** — 1,198/1,198 identical, so
+  `PagesManager` and any other consumer are unaffected.
+- **`/admin/pages` screen** — unchanged; it already consumed the server-computed `previewUrl`.
+- **`robots.txt`, JSON-LD breadcrumbs** — do not use this code path; `buildBreadcrumbData` has
+  its own (separately fixed in #7) parent-chain walk.
+- **Public page resolution** (`PageService.getByPath`) — untouched. Confirmed independently:
+  `/domain/webdev/ytube` still correctly 404s, so nothing widened what resolves publicly.
+
+---
+
+### 22.5 🟡 Two genuinely dead buttons
+
+`TablesManager.tsx:319` and `:387` — the **📤 Export** dropdown items in both view modes have
+no `onClick`, no `asChild` and no link. They render, they are clickable, they do nothing.
+
+(Export itself is not missing — it works inside `TableEditor`. It is only the shortcut from
+the list that is dead.)
+
+#### ✅ The fix
+
+`TableEditor.handleExport` already does exactly the right thing — it hits
+`GET /api/admin/tables/[id]/data?format=csv&download=true`, takes the blob and triggers a
+download. Lift that into a small shared hook or helper and call it from these two menu items.
+
+Or, if the shortcut is not wanted, **delete the menu items**. A button that does nothing is
+worse than no button, because it teaches the user that the panel is unreliable — which is
+directly relevant to "I don't like the whole UI/UX".
+
+**Effort:** 20 minutes.
+
+---
+
+### 22.6 🟡 Mutation UX patterns worth replacing
+
+Not bugs, but they are a large part of why the panel feels rough:
+
+- **6 × `window.location.reload()`** after a successful mutation —
+  `CategoryForm.tsx:170`, `CategoryList.tsx:369,626`, `DomainForm.tsx:227`,
+  `DomainsTable.tsx:142,443`. A full document reload discards scroll position, form state and
+  the client router cache, and is noticeably slower than `router.refresh()`, which re-fetches
+  server data while keeping the page mounted.
+- **8 × `alert()` and 3 × `confirm()`** across 7 files, including for destructive confirmation
+  (`TableEditor.tsx:88` guards table deletion with a native `confirm`). Native dialogs cannot
+  be styled, ignore the new dark theme entirely, and look like a browser warning rather than
+  part of the product. `dialog` and a toast component are already available in `ui/`.
+- Two minor stale TODOs: `CategoryList.tsx:451` (a column pre-select that was never wired) and
+  `DomainsTable.tsx:310` (a missing actions dropdown).
+
+#### ✅ The fix
+
+**Replace `window.location.reload()` with `router.refresh()`** (6 sites). In the App Router
+that re-runs the server component and swaps in fresh data while keeping React state, scroll
+position and the client cache. It is a near drop-in change — `const router = useRouter()` plus
+the call — and it is a large part of why the panel feels heavy: today every save visibly
+reloads the whole document.
+
+⚠️ One caveat: `router.refresh()` refreshes *server* data. Anything held in client state
+(a dialog's open flag, a form's fields) is deliberately kept, so any component relying on the
+reload to reset itself needs its own reset. That is a real behaviour change to check per site,
+not a blind find-and-replace.
+
+**Replace `alert()` / `confirm()` with UI components** (8 + 3 sites). `dialog` is already in
+`ui/`, and shadcn's `alert-dialog` is the correct primitive for destructive confirmation.
+Native dialogs cannot be themed, so they now look doubly wrong next to the dark mode shipped
+in #21 Phase 1.
+
+⚠️ `confirm()` is *synchronous* — code after it runs immediately with the answer. A dialog
+component is not, so each call site has to be restructured into an "open the dialog, act in its
+callback" shape. `TableEditor.tsx:88` (table deletion) is the important one.
+
+**Effort:** `router.refresh()` ~1 hour; dialogs ~2–3 hours. Both are better folded into #21
+Phase 2, since the shadcn rebuild touches these files anyway — see 22.9.
+
+---
+
+### 22.7 ✅ Checked and NOT problems
+
+Recorded deliberately — each of these looked like a finding and is not, so nobody re-reports
+them:
+
+| Looked wrong | Actually |
+| ------------ | -------- |
+| Sidebar links to `/admin/advanced-tables` and `/admin/editor` — neither route exists | **Commented out** under "Future features". Not rendered. |
+| `AdminHeader.tsx:157` "Account Settings" has no handler | Intentional — carries `disabled` and a "Soon" badge. |
+| Four `⋮` buttons and "Add New Admin" have no `onClick` | Wrapped in `DropdownMenuTrigger asChild` / `DialogTrigger asChild`. They work. |
+| `DomainsTable.tsx:430` "TODO: Implement actual API call" | A **stale comment** — the `DELETE` call is implemented directly beneath it. |
+| A new domain is missing from the New Table wizard | A deliberate filter (`tables/new/page.tsx:75`) to domains that already have a `table`/`narrative` page. See #20. |
+
+> ⚠️ **Two of this audit's own automated passes produced mostly false positives**, and the
+> method failures are worth recording:
+>
+> - A dead-button detector flagged **9**; only **2** were real. It did not know that a `Button`
+>   inside `DropdownMenuTrigger asChild` is interactive.
+> - An "unreachable API endpoint" detector flagged **20**; nearly all were wrong, because the
+>   real call sites build the URL into a variable first —
+>   `const url = isEditMode ? \`/api/admin/domains/${id}\` : '/api/admin/domains'` — which a
+>   regex looking for a literal inside `fetch(` never sees. That output was discarded rather
+>   than reported.
+>
+> The lesson that generalises: a static-analysis pass over JSX needs verifying case by case
+> before any of it becomes a finding.
+
+---
+
+### 22.8 The CSV question: where does an uploaded file go?
+
+Asked directly, so recorded here.
+
+**It never leaves the browser.** `CSVUploadInterface.tsx:102` calls `Papa.parse(file, …)`,
+which reads the file client-side. What is sent to the server is the resulting **JSON rows**,
+not the file:
+
+```
+no FormData    no multipart    no writeFile    no S3/Cloudinary    no /uploads directory
+```
+
+The rows are stored in the `Table.data` **JSON column** in Postgres. The original `.csv` is
+held in browser memory only and is discarded when the tab closes — it is never persisted and
+cannot be recovered or re-downloaded. (Export regenerates a CSV *from the stored rows*; it is
+not the original file.)
+
+---
+
+### 22.9 ✅ Write flows exercised end to end — all three work
+
+The first pass of this audit verified that every screen *loads* and traced every interactive
+element in code, but three write paths were read rather than driven. That gap is now closed:
+each was exercised over HTTP against a production build with a real admin session, and the
+effect verified directly in the database.
+
+**Category — create / update / delete: all pass**
+
+```
+POST   /api/admin/categories        HTTP 200   row created
+PUT    /api/admin/categories/[id]   HTTP 200   rename persisted
+DELETE /api/admin/categories/[id]   HTTP 200   row removed
+```
+
+**Section layout — pass**
+
+```
+PUT /api/admin/sections/[id]        HTTP 200   sections persisted
+```
+
+> ⚠️ **A field-name trap worth knowing before touching this route.** The first attempt was
+> rejected with `"Each section must have a valid column (1, 2, or 3)"`. The stored shape is:
+>
+> ```json
+> { "order": 1, "title": "Skill Development", "column": 1, "pageIds": ["…"] }
+> ```
+>
+> The field is **`column`**, not `columnPosition` — and `columnPosition` *is* the correct name
+> on `DomainCategory`, which is exactly why it is easy to get wrong. The route also validates
+> that every `pageId` is a real child of the page being updated, which is good and means a
+> stale client cannot corrupt the layout.
+
+**Rich text — create / update: all pass, and the #2 sanitiser is confirmed live on both**
+
+```
+POST /api/admin/rich-text           HTTP 200   content stored, wordCount computed (3)
+PUT  /api/admin/rich-text/[pageId]  HTTP 200
+```
+
+Deliberately hostile input was sent through the `PUT`:
+
+```html
+<div><p onclick="alert(1)">x</p><script>alert(2)</script>
+     <a href="https://ok.com" onmouseover="bad()">y</a></div>
+```
+
+and what was stored is:
+
+```html
+<div><p>x</p><a href="https://ok.com">y</a></div>
+```
+
+`<script>` gone, both `on*` handlers gone, the safe markup and the `href` intact. **That is
+finding #2 working correctly on a real write path** — previously verified against stored data,
+now verified end to end through the API.
+
+Development branch confirmed fully restored afterwards: 7 categories, 0 probe rows, 415
+`richTextContent` rows, 0 pages holding probe sections.
+
+**Conclusion: the three flows not covered by the first pass are all healthy.** The failures in
+this finding are concentrated in the **table** feature (22.1, 22.2, 22.3) and in **link
+construction** (22.4) — not in the basic CRUD plumbing, which works.
+
+---
+
+### 22.10 Fix order, with reasoning
+
+Ordered by value per hour, and sequenced so nothing is built twice.
+
+| # | Item | Effort | Why here |
+| - | ---- | ------ | -------- |
+| 1 | **22.4** — 433 broken preview links | ~1 hr | Highest value-per-hour anywhere in this document. One helper extraction, no redesign, no schema change, fixes 433 user-facing 404s. |
+| 2 | **22.1** — narrow the `/admin/tables` queries | ~1 hr | Removes ~8 MB per page view. Pure query change, no UI touched, cannot conflict with anything later. |
+| 3 | **22.3** + **22.5** — the 404 button and the dead Export items | ~30 min | Trivial, and they are the most visible "this panel is broken" signals. |
+| 4 | **22.2(a)** — re-import via the existing CSV component | ~2 hrs | Turns tables from write-once to editable using components and an endpoint that both already exist. Largest capability gain for the effort. |
+| 5 | **#21 Phase 2** — shadcn shell rebuild | ~1 day | Do this **before** 22.2(b) and 22.6, not after. |
+| 6 | **22.2(b)+(c)** — row editing and schema editing | ~2 days | Build inside the new shell. |
+| 7 | **22.6** — `router.refresh()` and dialogs | folded into 5 | Do not port `alert()` calls into freshly written components. |
+
+⚠️ **Why Phase 2 sits in the middle rather than last.** Items 1–4 are query changes, link fixes
+and wiring up existing components — none of them design new UI, so the shadcn rebuild will not
+invalidate them. Items 6–7 *are* new UI, and building a data grid or a confirmation dialog in
+the old hand-rolled markup means rewriting it days later. So: fix the cheap correctness bugs
+first, rebuild the shell, then build the new features into it.
+
+### What this audit does and does not cover
+
+**Covered:** all 13 screens loaded with a real session; every interactive element traced in
+code; domain, page, table, user, category, section-layout and rich-text write flows all driven
+end to end over HTTP with the result verified in the database (22.9).
+
+**Not covered:** the CSV upload path was traced in code (22.8) but not driven with an actual
+file, since it is parsed in the browser and cannot be exercised over HTTP. Browser-only
+behaviour generally — drag-and-drop, client-side validation messages, responsive layout below
+tablet width — was not tested; there is no headless browser installed.
+
+---
+
+
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -4353,6 +4963,103 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 33 (July 30): **#22.4 FIXED — 433 broken admin links, via a four-way consolidation
+that turned out larger than "extract one function".** The parent-chain traversal existed **four
+times in three states of correctness**:* `sitemap.ts` *had it right (cycle-guarded, Map-based);*
+`api/admin/pages/route.ts` *and* `api/admin/pages/[id]/route.ts` *each held a **byte-identical
+copy with NO cycle guard** that recursed and used* `allPages.find()` *inside the recursion
+(O(n²)); and the two broken UI call sites had no traversal at all. The correct version moved
+verbatim into* `src/lib/page-path.ts` *and the other three now import it — which means **both
+admin API routes gained a cycle guard they never had**, and since they recursed, one corrupt*
+`parentId` *row would previously have overflowed the stack into an opaque 500. The rich-text
+preview URL had to move server-side because the API returns only* `rich_text` *pages while the
+ancestors are* `section_based`*/*`subcategory_list`*, so the chain is genuinely absent from the
+client payload. **Both call sites now render a DISABLED control when the URL resolves to null**
+rather than linking somewhere known-broken — the old code always produced *a* link, which is
+exactly why 433 silently 404'd.* **Test cases recorded in the finding, as newly requested for
+every change.** *Verified: sitemap unchanged (1201 served = 1 + 35 roots + 1165 pages, computed
+from live data); **old vs new agree on 1,198 of 1,198 pages** so no existing consumer changes;
+323/418 rich-text and 110/668 table URLs corrected; sampled NEW urls return 200 while the OLD
+ones 404; and end-to-end the API returns* `previewUrl` *on 46/46 pages, all matching the helper
+and all resolving.* ⚠️ ***Two of my own test assertions were wrong and are documented so they
+are not repeated***: asserting a hardcoded sitemap count of 1198 reported a **data** change as a
+refactor regression, and re-deriving a page from a URL tail via* `allPages.find(...)` *returned
+an arbitrary match among the **83 ambiguous (domain, slug) pairs** — sometimes from a different
+domain — producing three spurious 200s that looked like the fix failing. Also confirmed
+untouched:* `PageService.getByPath` *still 404s* `/domain/webdev/ytube`*, so nothing widened what
+resolves publicly.*
+
+*Revision 32 (July 30): **#22's remaining gap closed — the three untested write flows were
+driven end to end and all three work.** The previous revision flagged that category,
+section-layout and rich-text writes had been **read but not run**. Each was then exercised over
+HTTP against a production build with a real admin session, with the effect verified in the
+database: category create/update/delete all HTTP 200 and persisted; section layout persisted;
+rich-text create and update both persisted with* `wordCount` *computed.* ⚠️ *One trap recorded
+for whoever edits the sections route: the field is* `column`*, **not** `columnPosition` *— and*
+`columnPosition` *IS the correct name on* `DomainCategory`*, which is precisely why it is easy
+to get wrong. The first attempt was rejected with "Each section must have a valid column (1, 2,
+or 3)". **Bonus verification: finding #2's sanitiser is confirmed live on a real write path** —
+hostile input containing* `<script>`*,* `onclick` *and* `onmouseover` *was POSTed and what
+landed in the database was* `<div><p>x</p><a href="https://ok.com">y</a></div>`*: scripts and
+handlers stripped, safe markup and the href intact. Previously that was only verified against
+already-stored data. Development branch confirmed fully restored (7 categories, 0 probe rows,
+415 richTextContent rows, 0 pages holding probe sections). **Conclusion: the basic CRUD
+plumbing is healthy** — every failure in #22 is concentrated in the **table feature** (22.1–22.3)
+and in **link construction** (22.4). The residual scope note is now honest about what remains
+untestable here: the CSV path is parsed in the browser and cannot be driven over HTTP, and no
+headless browser is installed, so drag-and-drop, client-side validation and responsive layout
+below tablet width were not exercised.*
+
+*Revision 31 (July 29): **#22 expanded into a full screen-by-screen audit with a fix documented
+for every finding.** All 13 admin screens were loaded against a production build with a real
+admin session — **every one returns HTTP 200**, none is dead — which surfaced the worst problem
+in the document by a wide margin:* `/admin/tables` ***ships 8,592,689 bytes (8.19 MB)**, 37× the
+next largest screen. Cause: both of its queries use* `include` *without a* `select`*, so*
+`Table.data` *and* `Table.schema` *are pulled in full — and* `table: true` *in the second query
+pulls them **again**. Measured: 1.97 MB of* `data` *+ 0.48 MB of* `schema` *= 2.45 MB, loaded
+twice, to render a list that needs ~0.16 MB — roughly **50× more bytes than the page displays**.
+⚠️ *Worth noting this got worse with #20: the page is now dynamic, so it is rebuilt per request
+rather than served frozen — correct for freshness, but the over-fetch now bites on every view.
+Fix documented as narrowing both* `select`*s plus either a denormalised* `rowCount` *column or*
+`jsonb_array_length`*. Every other finding now carries a concrete fix with effort and caveats:
+the 433 broken links resolve to extracting* `buildPagePath` *out of* `sitemap.ts` *into a shared
+helper (~1 hr, the highest value-per-hour item anywhere here); table editing splits into three
+independently shippable pieces, the smallest being **re-import using the* `CSVUploadInterface`
+*component and* `PUT …/data` *endpoint that both already exist** (~2 hrs); and a caveat recorded
+that* `targetCountries` ***has no UI anywhere***, so the geo feature verified working in #18 is
+currently unreachable for content editors.* **Fix order revised so nothing is built twice:**
+*cheap query/link fixes first, then #21 Phase 2's shadcn shell, then the new data-grid and dialog
+work inside it — because building a grid or a confirmation dialog in the old markup would mean
+rewriting it days later.* ⚠️ *Also recorded honestly: the audit verified every screen loads and
+traced every interactive element in code, but **did not drive every create/edit/delete flow end
+to end** — category, section-layout and rich-text write paths were read, not exercised.*
+
+*Revision 30 (July 29): **#22 added — full admin audit, run after #20 so stale screens could
+not be mistaken for broken ones.** The headline confirms the report: **table data is
+write-once.** All four tabs of* `TableEditor` *are non-editable — Data renders the **public**
+read-only* `DataTable`*, Schema is a display-only column list, and Import and Settings are
+literal "Coming Soon" placeholders. A grep for* `addRow|deleteRow|editRow|handleCellChange|
+editable` *across all 32 admin components returns **zero matches**: there is no row-editing UI
+anywhere. Meanwhile* `PUT` *and* `DELETE /api/admin/tables/[id]/data` *are **fully implemented
+and called from nowhere** — #18's own test drove the PUT successfully over HTTP. So changing one
+cell today means deleting the table and rebuilding it from CSV. **433 broken links measured:**
+the "Preview" button in* `RichTextManager:223` *and the "view on site" link in*
+`admin/tables/[id]:83` *both build a flat* `/domain/{domain}/{page}` *URL, while* `sitemap.ts`
+*correctly walks the* `parentId` *chain — **323 of 418 rich-text pages (77.3%)** and **110 of 668
+table pages (16.5%)** open a 404. The list-view **"Manage Data" button 404s** —*
+`/admin/tables/[id]/data` *exists only as an API route, never as a page — while the card-view
+button of the same name silently duplicates "Edit". Two dead **Export** dropdown items. Plus 6*
+`window.location.reload()` *calls and 8* `alert()` */ 3* `confirm()` *that ignore the new theme
+entirely. **Answered the CSV question:** the file never leaves the browser —*
+`Papa.parse` *reads it client-side, only JSON rows are POSTed, they land in the* `Table.data`
+*JSON column, and the original .csv is discarded on tab close (export regenerates one from the
+stored rows).* ⚠️ ***Two of the audit's own automated passes were mostly wrong and were
+discarded rather than reported***: a dead-button detector flagged 9 where only 2 were real (it
+did not know* `DropdownMenuTrigger asChild` *makes a Button interactive), and an "unreachable
+endpoint" detector flagged 20 almost entirely wrongly, because real call sites build the URL
+into a variable before* `fetch()`*. Five other look-alike findings were checked and dismissed,
+and are recorded in 22.6 so they are not re-reported.*
+
 *Revision 29 (July 29): **#20 FIXED — the five frozen admin screens are dynamic again.***
 `export const dynamic = 'force-dynamic'` *added to* `/admin`*,* `/admin/categories`*,*
 `/admin/sections`*,* `/admin/tables` *and* `/admin/tables/new` *— the exact five that read the

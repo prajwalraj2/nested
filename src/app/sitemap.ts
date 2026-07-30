@@ -46,12 +46,11 @@ export const revalidate = 3600
  * does not exist; that content is served at `/domain/gdesign`. So this slug has to
  * be dropped from any path we build.
  *
- * ⚠️ Duplicated from `src/services/page.service.ts` and
- * `src/app/api/admin/pages/route.ts`, where it is also a bare string literal.
- * It should be a single shared constant — deliberately not refactored here to
- * keep this commit to one concern.
+ * ✅ Now a single shared constant, re-exported from `src/lib/page-path.ts` alongside
+ * the traversal that uses it (finding #22.4). It is still a bare string literal in
+ * `src/services/page.service.ts`, which is a separate concern.
  */
-const MAIN_PAGE_SLUG = '__main__'
+import { MAIN_PAGE_SLUG, buildPagePath, toPageMap } from '@/lib/page-path'
 
 /**
  * The shape we need per page: enough to build the URL, plus every timestamp that
@@ -187,9 +186,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       // Index this domain's pages by id so the parent chain can be walked in
       // memory. One query per domain, zero queries per page — walking parents with
       // a query each would be a classic N+1, and these chains can be 3–4 deep.
-      const pagesById = new Map<string, PageNode>(
-        domain.pages.map((page) => [page.id, page])
-      )
+      const pagesById = toPageMap(domain.pages)
 
       for (const page of domain.pages) {
         // __main__ is not a URL — its content lives at the domain root, which was
@@ -232,77 +229,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 }
 
 /**
- * Build a page's URL path by walking UP its parent chain.
- *
  * ---------------------------------------------------------------------------
- * WHY THIS IS NOT JUST `page.slug`
+ * `buildPagePath` NOW LIVES IN `src/lib/page-path.ts`
  * ---------------------------------------------------------------------------
- * A naive `pages.map(p => p.slug)` only produces correct URLs for pages one level
- * deep. This site nests further:
+ * It was moved there verbatim — cycle guard, `__main__` skipping, and the
+ * return-null-on-missing-parent rule all unchanged — because three other places
+ * needed the same traversal and had either a copy without the cycle guard or no
+ * traversal at all (finding #22.4).
  *
- *   Page "ytube"  parentId → "withcode"
- *   Page "withcode"  parentId → null
- *   → the real URL is /domain/webdev/withcode/ytube, NOT /domain/webdev/ytube
- *
- * Emitting the shallow version would fill the sitemap with URLs that 404 — worse
- * than having no sitemap, because it teaches Google the site is unreliable.
- *
- * We collect slugs from the page upwards, then reverse, mirroring the traversal in
- * `PageService.getByPath` and `generatePagePreviewUrl`.
- *
- * @returns the path with no leading slash (`withcode/ytube`), or `null` if the
- *          page is not reachable at a public URL.
+ * ⚠️ The country-filter semantics documented on that function are load-bearing HERE
+ * specifically: `domain.pages` below is country-filtered, so a missing parent means an
+ * ancestor is targeted at other countries, which makes this page unreachable too.
+ * Returning a shallow path instead would advertise a 404 to Google. Read the comment on
+ * `buildPagePath` before changing it — the sitemap depends on that `null`.
  */
-function buildPagePath(
-  page: PageNode,
-  pagesById: Map<string, PageNode>
-): string | null {
-  const segments: string[] = []
-  let current: PageNode | undefined = page
-
-  // Cycle guard. A page cannot legitimately be its own ancestor, but nothing in
-  // the schema prevents it — `parentId` is a plain self-relation with no check.
-  // One corrupt row would otherwise spin this loop forever and hang the build.
-  const visited = new Set<string>()
-
-  while (current) {
-    if (visited.has(current.id)) {
-      console.error(`[sitemap] parent cycle detected at page ${current.id}, skipping`)
-      return null
-    }
-    visited.add(current.id)
-
-    // Skip the synthetic root: for a `direct` domain the chain ends
-    // page → __main__ → null, and __main__ contributes no path segment.
-    if (current.slug !== MAIN_PAGE_SLUG) {
-      // unshift, not push — we are walking from the leaf up, but the URL reads
-      // from the root down.
-      segments.unshift(current.slug)
-    }
-
-    // parentId null means we've reached the top of the chain.
-    if (current.parentId === null) break
-
-    const parent = pagesById.get(current.parentId)
-
-    // ⚠️ THE IMPORTANT CASE. A missing parent means the parent was filtered out of
-    // `domain.pages` — because it is targeted at specific countries.
-    //
-    // That makes THIS page unreachable too, even if the page itself is `ALL`:
-    // `PageService.getByPath` applies the same country filter and then walks the
-    // chain segment by segment. If an intermediate page is invisible, traversal
-    // stops and the request 404s.
-    //
-    // So a globally-visible page inside a country-restricted parent must NOT be
-    // listed. Only the whole chain being `ALL` makes a URL genuinely public.
-    if (!parent) return null
-
-    current = parent
-  }
-
-  // Empty means every segment was __main__ — nothing to link to.
-  return segments.length > 0 ? segments.join('/') : null
-}
 
 /**
  * ---------------------------------------------------------------------------
