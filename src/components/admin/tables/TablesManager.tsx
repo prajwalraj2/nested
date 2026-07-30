@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { TableStats } from '@/types/table';
+// Finding #22.5 — the same export implementation the table editor uses.
+import { downloadTableExport, type TableExportFormat } from '@/lib/export-table';
 
 /**
  * Main Tables Manager Component
@@ -312,6 +314,26 @@ function TableCard({ table, viewMode }: TableCardProps) {
    */
   const { rowCount, columnCount } = table;
 
+  /**
+   * Export state is per-card, not shared across the list (finding #22.5).
+   *
+   * A single `isExporting` flag on the parent would disable the menu item on all 652
+   * cards while one table downloaded. Each card owning its own flag means only the row
+   * being exported shows as busy, which is also what makes the `disabled` prop honest.
+   */
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async (format: TableExportFormat) => {
+    setIsExporting(true);
+    // Same shared implementation the editor uses — see src/lib/export-table.ts.
+    const result = await downloadTableExport(table.id, table.page.slug, format);
+    if (!result.ok) {
+      // `alert()` matches the rest of this screen; replacing it is #22.6 (Phase G).
+      alert(result.message);
+    }
+    setIsExporting(false);
+  };
+
   if (viewMode === 'grid') {
     return (
       <Card className="hover:shadow-md transition-shadow">
@@ -323,18 +345,33 @@ function TableCard({ table, viewMode }: TableCardProps) {
                 <Button variant="ghost" size="sm">⋮</Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
+                {/*
+                  ⚠️ There used to be TWO items here — "Edit" and "Manage Data" — pointing at
+                  the SAME url, so one of them was pure noise (finding #22.3). In the list
+                  view below they differed, and the "Manage Data" one pointed at
+                  `/admin/tables/[id]/data`, which **does not exist as a page** — only as an
+                  API route — so it 404'd.
+
+                  Both menus now offer one link to the editor. `/admin/tables/[id]` opens on
+                  its Data tab by default, which is what "Manage Data" was reaching for.
+                */}
                 <DropdownMenuItem asChild>
                   <Link href={`/admin/tables/${table.id}`}>
-                    ✏️ Edit
+                    📊 Open table
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href={`/admin/tables/${table.id}`}>
-                    📊 Manage Data
-                  </Link>
+                {/*
+                  These two replace a single dead "📤 Export" item that had no `onClick`,
+                  no `asChild` and no link — it rendered, was clickable, and did nothing
+                  (finding #22.5). Split by format because the endpoint supports both and
+                  the editor already offers both; making the list ask "which format?" via a
+                  submenu would be more clicks for no benefit.
+                */}
+                <DropdownMenuItem onClick={() => handleExport('csv')} disabled={isExporting}>
+                  📄 Export as CSV
                 </DropdownMenuItem>
-                <DropdownMenuItem>
-                  📤 Export
+                <DropdownMenuItem onClick={() => handleExport('json')} disabled={isExporting}>
+                  📋 Export as JSON
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -391,18 +428,22 @@ function TableCard({ table, viewMode }: TableCardProps) {
             <Button variant="ghost" size="sm">⋮</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
+            {/*
+              ⚠️ This menu's "Manage Data" item linked to `/admin/tables/${table.id}/data`,
+              which **404s** — that path exists only as an API route
+              (`src/app/api/admin/tables/[id]/data/route.ts`), never as a page. Finding
+              #22.3. Same single link as the grid menu above now.
+            */}
             <DropdownMenuItem asChild>
               <Link href={`/admin/tables/${table.id}`}>
-                ✏️ Edit
+                📊 Open table
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href={`/admin/tables/${table.id}/data`}>
-                📊 Manage Data
-              </Link>
+            <DropdownMenuItem onClick={() => handleExport('csv')} disabled={isExporting}>
+              📄 Export as CSV
             </DropdownMenuItem>
-            <DropdownMenuItem>
-              📤 Export
+            <DropdownMenuItem onClick={() => handleExport('json')} disabled={isExporting}>
+              📋 Export as JSON
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

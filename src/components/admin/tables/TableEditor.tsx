@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/table/DataTable';
+// Finding #22.5 — one export implementation, shared with the tables list.
+import { downloadTableExport, type TableExportFormat } from '@/lib/export-table';
 
 /**
  * Table Editor Component
@@ -56,31 +58,23 @@ export function TableEditor({ table }: TableEditorProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   // Handle export functionality
-  const handleExport = async (format: 'csv' | 'json') => {
-    try {
-      setIsLoading(true);
-      const response = await fetch(`/api/admin/tables/${table.id}/data?format=${format}&download=true`);
-      
-      if (!response.ok) {
-        throw new Error('Export failed');
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `${table.page.slug}-table.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Export failed:', error);
-      alert('Export failed. Please try again.');
-    } finally {
-      setIsLoading(false);
+  /**
+   * Export now delegates to `src/lib/export-table.ts` (finding #22.5).
+   *
+   * The implementation is unchanged — it was moved out so the tables LIST could use the
+   * same code. Its two "📤 Export" menu items had no handler at all and did nothing when
+   * clicked; copying this function there would have created the third divergent copy of a
+   * behaviour, which is exactly what #22.4 had to undo.
+   */
+  const handleExport = async (format: TableExportFormat) => {
+    setIsLoading(true);
+    const result = await downloadTableExport(table.id, table.page.slug, format);
+    if (!result.ok) {
+      // Kept as `alert()` to match the rest of this screen. Replacing the 8 alerts and
+      // 3 confirms with real dialogs is #22.6, folded into the Phase G rebuild.
+      alert(result.message);
     }
+    setIsLoading(false);
   };
 
   // Handle table deletion

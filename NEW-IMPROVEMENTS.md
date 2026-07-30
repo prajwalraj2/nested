@@ -46,7 +46,7 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 19  | No error boundaries anywhere — an unhandled throw served a bare 500               | 🟡 Medium       | Resilience / UX    | 1.5 hrs   |
 | [x]  | 20  | **CONFIRMED BUG: 5 admin screens are frozen at build time — edits never appear**   | 🔴 **Critical** | Correctness / UX   | 1 hr      |
 | ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
-| ~    | 22  | **Admin audit — 22.1 + 22.4 DONE; write-once table data + dead buttons open**      | 🔴 **Critical** | Functionality      | multi-day |
+| ~    | 22  | **Admin audit — 22.1/22.3/22.4/22.5 DONE; only 22.2 (write-once table data) open** | 🔴 **Critical** | Functionality      | multi-day |
 
 
 **Sub-items:**
@@ -4103,6 +4103,18 @@ Either way this is a 5-minute change; the value is that it stops a 404 today.
 
 **Effort:** 5 minutes for the repoint, or fold it into 22.2(b).
 
+#### ✅ DONE — 30 Jul 2026 (with #22.5)
+
+Both menus now offer **one** link, `/admin/tables/${id}`, labelled **📊 Open table**. That
+route opens on its Data tab by default, which is what "Manage Data" was reaching for.
+
+The duplicate went too: the grid menu had *both* "Edit" and "Manage Data" pointing at the same
+URL, so one was pure noise. Two labels for one destination is its own small confusion, and
+worth removing while fixing the 404 next to it.
+
+**Verified:** `/admin/tables/[id]/data` still returns **404** — confirming the bug was real —
+and no admin markup links there any more (regex sweep over the rendered list).
+
 ---
 
 ### 22.4 🔴 433 broken "Preview" / "view on site" links
@@ -4300,6 +4312,57 @@ worse than no button, because it teaches the user that the panel is unreliable �
 directly relevant to "I don't like the whole UI/UX".
 
 **Effort:** 20 minutes.
+
+#### ✅ DONE — 30 Jul 2026 (with #22.3)
+
+The working implementation was extracted from `TableEditor.handleExport` into
+**`src/lib/export-table.ts`** and both screens now call it. Copying it into `TablesManager`
+instead would have created a third divergent copy of one behaviour — precisely what #22.4 had
+to undo four times over.
+
+Each dead item became **two** working ones (📄 Export as CSV, 📋 Export as JSON), matching what
+the editor already offers and what the endpoint already supports.
+
+⚠️ **`isExporting` is per-card, not shared.** A single flag on the parent would grey out the
+menu item on all 652 cards while one table downloaded, which would make the `disabled` prop
+actively misleading.
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. The bug was real** — `/admin/tables/[id]/data` returns **404** (page never existed; only
+the API route does).
+
+**B. Nothing links there any more** — regex sweep over the rendered list finds no
+`/admin/tables/<id>/data` href.
+
+**C. The export endpoint both new items call**
+
+| | CSV | JSON |
+| - | --- | ---- |
+| HTTP | 200 | 200 |
+| `Content-Disposition: attachment` | ✅ | ✅ |
+| Body | 2,470 B | 4,828 B, parses as JSON |
+
+**D. The new labels ship to the browser** — "Open table", "Export as CSV", "Export as JSON" all
+present in the client chunks; the old bare `📤 Export` label is gone; the shared helper's
+`/data?format=` call shipped.
+
+> ⚠️ **A trap in testing dropdowns and tabs.** The first version of this test asserted those
+> labels appeared in the **server HTML** and reported four failures. They were rendering
+> behaviour, not bugs: `DropdownMenuContent` renders through a Radix **Portal** and mounts only
+> when opened, and the editor's export buttons sit in an inactive `Tabs` panel which Radix
+> unmounts. For lazily-mounted UI, assert against the **client bundle**, not the server
+> response.
+
+**E/F. Regression** — the editor still renders with its tab strip and table name, and `/admin`,
+`/admin/tables/new`, `/admin/domains`, `/admin/rich-text` all still return 200.
+
+##### Swept while here
+
+`grep` for a bare `<DropdownMenuItem>` across **all** admin components returns nothing — every
+menu item in the admin panel now has `asChild`, `onClick`, or an explicit `disabled`
+(`AdminHeader`'s "Account Settings", which is an intentional "Soon" placeholder). So #22.5 is
+closed panel-wide, not just on this screen.
 
 ---
 
@@ -4509,11 +4572,12 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 | **C** | Cleanup | ~ 11–13b done; **#8** blocked on the geo decision, **#4** yours |
 | **D** | Polish (metadata, JSON-LD, breadcrumb labels) | ~ complete except product content |
 | **E** | Security hardening + resilience | ✅ complete (**#17** half — dev branch row remains) |
-| **F** | Performance + admin correctness | ~ **#18 #20 #22.4 #22.1 done**; 22.3 / 22.5 / 22.2 open |
+| **F** | Performance + admin correctness | ~ **#18 #20 #22.4 #22.1 #22.3 #22.5 done**; only **#22.2** open |
 | **G** | Admin panel rebuild on shadcn | ⬜ not started |
 
-**Next three, in order:** `#22.3` + `#22.5` (~30 min combined) → `#22.2(a)` CSV re-import
-(~2 hrs) → **Phase G**, after which `#22.2(b)` row editing is built inside the new shell.
+**Next, in order:** `#22.2(a)` CSV re-import (~2 hrs — turns tables from write-once to
+editable using components and an endpoint that both already exist) → **Phase G** shadcn shell →
+`#22.2(b)` row editing, built inside that shell.
 
 **The one thing blocking the largest win:** the geo decision (**#8-DR**, below). It gates
 static rendering for all 1,198 public pages and cannot be resolved without a product call.
@@ -5030,8 +5094,8 @@ discovered incidentally while verifying others.
 | [x] | **#20** | 🔴 Five admin screens frozen at build time | The user-reported bug: changes appeared on the live site but not in the admin UI. `force-dynamic` on exactly the five that read the DB during render. Prerendered routes 16 → 11. `revalidateTag` could never have fixed it — those pages have no tag. |
 | [x] | **#22.4** | 433 broken admin "Preview" / "View Live" links | The traversal existed **four times in three states of correctness**; two were byte-identical copies with **no cycle guard**. Consolidated into `src/lib/page-path.ts`. Old vs new agree on 1,198/1,198 pages, so no existing consumer changed. |
 | [x] | **#22.1** | `/admin/tables` shipped 8.19 MB to render a list | 8.19 MB → **1.73 MB** (4.7×) and `tables.findMany` **~11× faster** (11,091 → 943 ms warm). Counts moved into Postgres via `jsonb_array_length`; **no migration needed**. |
-| [ ] | **#22.3** | The "Manage Data" button 404s | `/admin/tables/[id]/data` exists only as an API route. ~5 min, or fold into 22.2(b). |
-| [ ] | **#22.5** | Two dead **Export** dropdown items | No `onClick`, no link. Either wire to the working `handleExport`, or delete. ~20 min. |
+| [x] | **#22.3** | The "Manage Data" button 404s | Both menus now offer one **📊 Open table** link. Also removed the grid menu's duplicate — "Edit" and "Manage Data" pointed at the same URL. |
+| [x] | **#22.5** | Two dead **Export** dropdown items | Export extracted to `src/lib/export-table.ts` and shared with the editor; each dead item became working CSV + JSON items. Swept panel-wide: **no bare `<DropdownMenuItem>` left anywhere in admin.** |
 | [ ] | **#22.2** | 🔴 Table data is write-once | Three independently shippable pieces: **(a)** re-import via the `CSVUploadInterface` and `PUT …/data` that both already exist (~2 hrs); **(b)** row editing (~1–2 days); **(c)** schema editing (~½ day). ⚠️ `targetCountries` has **no UI anywhere**, so the geo feature is unreachable for editors. |
 
 > ⚠️ **22.2(b) must come after #21 Phase 2.** Building a data grid in the current hand-rolled
@@ -5129,6 +5193,27 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 35 (July 30): **#22.3 + #22.5 FIXED — the 404 button and the two dead Export items.**
+Both table menus now offer a single* **📊 Open table** *link to* `/admin/tables/[id]`*, which
+opens on its Data tab by default. That removes two separate problems at once: the list view's
+"Manage Data" pointed at* `/admin/tables/[id]/data`*, which **exists only as an API route and
+404s**, while the grid view had* **both** *"Edit" and "Manage Data" pointing at the same URL, so
+one was pure noise. The dead* `📤 Export` *items — no* `onClick`*, no link, clickable and inert —
+became working **CSV** and **JSON** items, with the implementation extracted from*
+`TableEditor.handleExport` *into* `src/lib/export-table.ts` *and shared. Copying it instead
+would have made a third divergent copy of one behaviour, which is exactly what #22.4 had to undo
+four times over.* ⚠️ `isExporting` *is deliberately **per-card**: a single flag on the parent
+would grey out the menu item on all 652 cards while one table downloaded. **Verified:**
+`/admin/tables/[id]/data` *still 404s (confirming the bug was real), no markup links there any
+more, and both export formats return 200 with* `Content-Disposition: attachment` *and non-empty
+bodies (2,470 B CSV; 4,828 B JSON that parses).* ⚠️ ***A testing trap worth remembering***: the
+first version asserted the new labels appeared in the **server HTML** and reported four
+failures — but* `DropdownMenuContent` *renders through a Radix **Portal** and mounts only when
+opened, and the editor's export buttons sit in an inactive* `Tabs` *panel that Radix unmounts.
+For lazily-mounted UI, assert against the **client bundle**. **Swept while here:** a grep for a
+bare* `<DropdownMenuItem>` *across all admin components now returns nothing, so #22.5 is closed
+panel-wide rather than only on this screen.*
+
 *Revision 34 (July 30): **#22.1 FIXED — /admin/tables went from 8.19 MB to 1.73 MB, and its
 main query got ~11x faster.** Both* `include`*s replaced with explicit* `select`*s, and the only
 two things* `data`*/*`schema` *were ever used for — a row count and a column count — moved into
