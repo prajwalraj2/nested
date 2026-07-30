@@ -46,7 +46,7 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 19  | No error boundaries anywhere — an unhandled throw served a bare 500               | 🟡 Medium       | Resilience / UX    | 1.5 hrs   |
 | [x]  | 20  | **CONFIRMED BUG: 5 admin screens are frozen at build time — edits never appear**   | 🔴 **Critical** | Correctness / UX   | 1 hr      |
 | ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
-| ~    | 22  | **Admin audit — 22.1 + 22.4 DONE; write-once table data + dead buttons open**      | 🔴 **Critical** | Functionality      | multi-day |
+| ~    | 22  | **Admin audit — 22.1/22.3/22.4/22.5 DONE; only 22.2 (write-once table data) open** | 🔴 **Critical** | Functionality      | multi-day |
 
 
 **Sub-items:**
@@ -4071,6 +4071,90 @@ disabled control with a short explanation, as `AdminHeader`'s "Account Settings"
 correctly with its "Soon" badge. A placeholder that looks like a feature is worse than a
 visibly unavailable one.
 
+#### ✅ (a) RE-IMPORT DONE — 30 Jul 2026
+
+**One file changed.** Tables are no longer write-once: rows can now be replaced or appended
+from a CSV without deleting and rebuilding the table.
+
+Nothing new was built. `CSVUploadInterface` already existed and already did header
+auto-mapping plus per-row schema validation; `PUT /api/admin/tables/[id]/data` already
+supported `replace` and `append`. **The "CSV Import Coming Soon" placeholder was sitting
+between two finished halves.**
+
+##### The staging step is the feature, not decoration
+
+Upload does **not** save. Parsed rows are held in state and a confirmation panel shows:
+
+```
+Current rows        Rows in file        After import
+     15                   3                  18        (append)
+     15                   3                   3        (replace)
+```
+
+⚠️ **Why that matters here more than usual:** `replace` deletes every row, there is no undo,
+there are no table backups, and the original CSV is **never stored server-side** — it is parsed
+in the browser and discarded (#22.8). A truncated or wrongly-mapped file would silently destroy
+content that cannot be recovered. The resulting row count is shown *before* committing so an
+accidental wipe is visible rather than discovered later, and `replace` additionally shows an
+explicit red warning.
+
+**`append` is the default.** If the destructive option were pre-selected, the safe path would
+require noticing and changing it — the wrong way round for an irreversible action.
+
+`router.refresh()` is used on success rather than `window.location.reload()`: the server
+component re-runs so the Data tab shows the new rows, while React state is kept so the user
+stays on the Import tab instead of being bounced to the top of Data. It is also the pattern
+#22.6 exists to apply to the six `location.reload()` calls elsewhere — no reason to add a
+seventh.
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. `append`** — 15 → 18 rows; the original 15 still present; the 3 new ones present.
+
+**B. `replace`** — row count becomes exactly the new set (2), and the previously appended rows
+are gone. This is the destructive path, so it is tested explicitly rather than assumed.
+
+**C. Geo defaulting still applies** — every imported row comes back with
+`targetCountries: "ALL"`, because the route runs `ensureRowsHaveTargetCountries`. Without this,
+imported rows would have no geo value and the filtering verified in #18 would silently skip
+them.
+
+**D. The PUBLIC page updates immediately** — `/api/domain/tables/by-page/[pageId]?country=US`
+returns the new row count with no wait, confirming the `invalidatePages()` call added in #18
+covers this path. It also confirms `targetCountries` is still stripped from public responses.
+
+**E. Invalid input is rejected, not silently accepted**
+
+| Body | Expected |
+| ---- | -------- |
+| `{}` (no data) | 400 |
+| `{ data: { rows: 'nope' } }` | 400 |
+| `{ operation: 'merge' }` | 400 |
+
+**F. The new UI ships** — "Confirm import", the replace warning, and the uploader's own copy
+are all in the client bundle; "CSV Import Coming Soon" is gone.
+
+> ⚠️ **A bundle-assertion trap.** Searching for `papaparse` / `Papa` fails — the bundler
+> minifies and the package name never appears as a literal. Assert on **user-facing copy**,
+> which survives minification. Also note the uploader's strings were already in the bundle
+> (the creation wizard uses the same component), so that check is a *necessary* condition, not
+> proof; the proof is the new "Confirm import" text.
+
+**G. Regression** — the editor still renders, export still works, `/admin/tables` and `/admin`
+still 200. Development branch verified clean afterwards: 652 tables, **8,065 rows** (baseline),
+0 probe rows.
+
+##### Still open in 22.2
+
+- **(b) Row-level editing** — the larger piece. ⚠️ `targetCountries` still has **no UI
+  anywhere**, so geo-targeting a row remains impossible for a content editor even after this.
+- **(c) Schema editing** — `TableSchemaEditor` exists and is wired in the creation wizard; the
+  Schema tab is still read-only.
+- The **"Settings Editor Coming Soon"** placeholder is untouched.
+
+Both remaining pieces are new UI, so they belong **after** #21 Phase 2 — building a data grid
+in the current markup and rewriting it days later is the work twice.
+
 ---
 
 ### 22.3 🔴 The "Manage Data" button 404s
@@ -4102,6 +4186,18 @@ Two options, and the choice depends on whether 22.2(b) gets built:
 Either way this is a 5-minute change; the value is that it stops a 404 today.
 
 **Effort:** 5 minutes for the repoint, or fold it into 22.2(b).
+
+#### ✅ DONE — 30 Jul 2026 (with #22.5)
+
+Both menus now offer **one** link, `/admin/tables/${id}`, labelled **📊 Open table**. That
+route opens on its Data tab by default, which is what "Manage Data" was reaching for.
+
+The duplicate went too: the grid menu had *both* "Edit" and "Manage Data" pointing at the same
+URL, so one was pure noise. Two labels for one destination is its own small confusion, and
+worth removing while fixing the 404 next to it.
+
+**Verified:** `/admin/tables/[id]/data` still returns **404** — confirming the bug was real —
+and no admin markup links there any more (regex sweep over the rendered list).
 
 ---
 
@@ -4300,6 +4396,57 @@ worse than no button, because it teaches the user that the panel is unreliable �
 directly relevant to "I don't like the whole UI/UX".
 
 **Effort:** 20 minutes.
+
+#### ✅ DONE — 30 Jul 2026 (with #22.3)
+
+The working implementation was extracted from `TableEditor.handleExport` into
+**`src/lib/export-table.ts`** and both screens now call it. Copying it into `TablesManager`
+instead would have created a third divergent copy of one behaviour — precisely what #22.4 had
+to undo four times over.
+
+Each dead item became **two** working ones (📄 Export as CSV, 📋 Export as JSON), matching what
+the editor already offers and what the endpoint already supports.
+
+⚠️ **`isExporting` is per-card, not shared.** A single flag on the parent would grey out the
+menu item on all 652 cards while one table downloaded, which would make the `disabled` prop
+actively misleading.
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. The bug was real** — `/admin/tables/[id]/data` returns **404** (page never existed; only
+the API route does).
+
+**B. Nothing links there any more** — regex sweep over the rendered list finds no
+`/admin/tables/<id>/data` href.
+
+**C. The export endpoint both new items call**
+
+| | CSV | JSON |
+| - | --- | ---- |
+| HTTP | 200 | 200 |
+| `Content-Disposition: attachment` | ✅ | ✅ |
+| Body | 2,470 B | 4,828 B, parses as JSON |
+
+**D. The new labels ship to the browser** — "Open table", "Export as CSV", "Export as JSON" all
+present in the client chunks; the old bare `📤 Export` label is gone; the shared helper's
+`/data?format=` call shipped.
+
+> ⚠️ **A trap in testing dropdowns and tabs.** The first version of this test asserted those
+> labels appeared in the **server HTML** and reported four failures. They were rendering
+> behaviour, not bugs: `DropdownMenuContent` renders through a Radix **Portal** and mounts only
+> when opened, and the editor's export buttons sit in an inactive `Tabs` panel which Radix
+> unmounts. For lazily-mounted UI, assert against the **client bundle**, not the server
+> response.
+
+**E/F. Regression** — the editor still renders with its tab strip and table name, and `/admin`,
+`/admin/tables/new`, `/admin/domains`, `/admin/rich-text` all still return 200.
+
+##### Swept while here
+
+`grep` for a bare `<DropdownMenuItem>` across **all** admin components returns nothing — every
+menu item in the admin panel now has `asChild`, `onClick`, or an explicit `disabled`
+(`AdminHeader`'s "Account Settings", which is an intentional "Soon" placeholder). So #22.5 is
+closed panel-wide, not just on this screen.
 
 ---
 
@@ -4509,11 +4656,13 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 | **C** | Cleanup | ~ 11–13b done; **#8** blocked on the geo decision, **#4** yours |
 | **D** | Polish (metadata, JSON-LD, breadcrumb labels) | ~ complete except product content |
 | **E** | Security hardening + resilience | ✅ complete (**#17** half — dev branch row remains) |
-| **F** | Performance + admin correctness | ~ **#18 #20 #22.4 #22.1 done**; 22.3 / 22.5 / 22.2 open |
+| **F** | Performance + admin correctness | ~ **#18 #20 #22.4 #22.1 #22.3 #22.5 #22.2(a) done**; only **22.2(b)/(c)** left, and both wait for Phase G |
 | **G** | Admin panel rebuild on shadcn | ⬜ not started |
 
-**Next three, in order:** `#22.3` + `#22.5` (~30 min combined) → `#22.2(a)` CSV re-import
-(~2 hrs) → **Phase G**, after which `#22.2(b)` row editing is built inside the new shell.
+**Next: Phase G — the shadcn admin rebuild.** Everything cheap and non-visual in Phase F is
+done; what remains (`22.2(b)` row editing, `22.2(c)` schema editing, `22.6` dialogs, tables
+pagination) is all **new UI**, and building any of it in the current hand-rolled markup means
+rewriting it days later. So the shell comes first, then those are built inside it.
 
 **The one thing blocking the largest win:** the geo decision (**#8-DR**, below). It gates
 static rendering for all 1,198 public pages and cannot be resolved without a product call.
@@ -5030,9 +5179,9 @@ discovered incidentally while verifying others.
 | [x] | **#20** | 🔴 Five admin screens frozen at build time | The user-reported bug: changes appeared on the live site but not in the admin UI. `force-dynamic` on exactly the five that read the DB during render. Prerendered routes 16 → 11. `revalidateTag` could never have fixed it — those pages have no tag. |
 | [x] | **#22.4** | 433 broken admin "Preview" / "View Live" links | The traversal existed **four times in three states of correctness**; two were byte-identical copies with **no cycle guard**. Consolidated into `src/lib/page-path.ts`. Old vs new agree on 1,198/1,198 pages, so no existing consumer changed. |
 | [x] | **#22.1** | `/admin/tables` shipped 8.19 MB to render a list | 8.19 MB → **1.73 MB** (4.7×) and `tables.findMany` **~11× faster** (11,091 → 943 ms warm). Counts moved into Postgres via `jsonb_array_length`; **no migration needed**. |
-| [ ] | **#22.3** | The "Manage Data" button 404s | `/admin/tables/[id]/data` exists only as an API route. ~5 min, or fold into 22.2(b). |
-| [ ] | **#22.5** | Two dead **Export** dropdown items | No `onClick`, no link. Either wire to the working `handleExport`, or delete. ~20 min. |
-| [ ] | **#22.2** | 🔴 Table data is write-once | Three independently shippable pieces: **(a)** re-import via the `CSVUploadInterface` and `PUT …/data` that both already exist (~2 hrs); **(b)** row editing (~1–2 days); **(c)** schema editing (~½ day). ⚠️ `targetCountries` has **no UI anywhere**, so the geo feature is unreachable for editors. |
+| [x] | **#22.3** | The "Manage Data" button 404s | Both menus now offer one **📊 Open table** link. Also removed the grid menu's duplicate — "Edit" and "Manage Data" pointed at the same URL. |
+| [x] | **#22.5** | Two dead **Export** dropdown items | Export extracted to `src/lib/export-table.ts` and shared with the editor; each dead item became working CSV + JSON items. Swept panel-wide: **no bare `<DropdownMenuItem>` left anywhere in admin.** |
+| ~ | **#22.2** | 🔴 Table data is write-once | **(a) re-import DONE 30 Jul** — tables are editable in bulk again; the placeholder sat between two finished halves. **(b)** row editing and **(c)** schema editing remain, both **after Phase G**. ⚠️ `targetCountries` still has **no UI anywhere**, so the geo feature stays unreachable for editors until (b). |
 
 > ⚠️ **22.2(b) must come after #21 Phase 2.** Building a data grid in the current hand-rolled
 > markup and then rewriting it on shadcn primitives days later is the work twice.
@@ -5129,6 +5278,52 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 36 (July 30): **#22.2(a) DONE — tables are no longer write-once.** One file changed.
+Rows can now be **replaced or appended from a CSV** without deleting and rebuilding the table.
+**Nothing new was built:** `CSVUploadInterface` *already existed and already did header
+auto-mapping plus per-row schema validation, and* `PUT /api/admin/tables/[id]/data` *already
+supported both operations — **the "CSV Import Coming Soon" placeholder was sitting between two
+finished halves.** The design point is that **upload does not save**: parsed rows are staged and
+a confirmation panel shows current / incoming / resulting row counts before committing.* ⚠️
+*That matters more than usual here —* `replace` *deletes every row, there is no undo, there are
+no table backups, and the original CSV is **never stored server-side** (parsed in the browser,
+#22.8), so a truncated or wrongly-mapped file would destroy content unrecoverably.* `append` *is
+the **default**, because pre-selecting the destructive option would make the safe path the one
+requiring action.* `router.refresh()` *is used rather than* `window.location.reload()` *— the
+Data tab updates while the user stays on the Import tab, and it avoids adding a seventh reload
+for #22.6 to undo. **Test cases recorded:** append 15→18 with originals intact; replace reducing
+to exactly the new set; every imported row defaulting to* `targetCountries: "ALL"` *via*
+`ensureRowsHaveTargetCountries` *(without which the geo filtering verified in #18 would silently
+skip imported rows); the **public** page reflecting the import immediately, confirming #18's
+invalidation covers this path; and three malformed bodies all rejected with 400.* ⚠️ *A
+bundle-assertion trap recorded: searching for* `papaparse`*/*`Papa` *fails because the bundler
+minifies — assert on **user-facing copy**, and note the uploader's strings were already bundled
+via the creation wizard, so that check is necessary but not sufficient. Dev branch verified
+clean afterwards (652 tables, 8,065 rows, 0 probe rows). **Remaining in 22.2:** (b) row editing
+and (c) schema editing, both deliberately **after Phase G** —* `targetCountries` *still has no UI
+anywhere, so geo-targeting a row stays impossible for editors until (b).*
+
+*Revision 35 (July 30): **#22.3 + #22.5 FIXED — the 404 button and the two dead Export items.**
+Both table menus now offer a single* **📊 Open table** *link to* `/admin/tables/[id]`*, which
+opens on its Data tab by default. That removes two separate problems at once: the list view's
+"Manage Data" pointed at* `/admin/tables/[id]/data`*, which **exists only as an API route and
+404s**, while the grid view had* **both** *"Edit" and "Manage Data" pointing at the same URL, so
+one was pure noise. The dead* `📤 Export` *items — no* `onClick`*, no link, clickable and inert —
+became working **CSV** and **JSON** items, with the implementation extracted from*
+`TableEditor.handleExport` *into* `src/lib/export-table.ts` *and shared. Copying it instead
+would have made a third divergent copy of one behaviour, which is exactly what #22.4 had to undo
+four times over.* ⚠️ `isExporting` *is deliberately **per-card**: a single flag on the parent
+would grey out the menu item on all 652 cards while one table downloaded. **Verified:**
+`/admin/tables/[id]/data` *still 404s (confirming the bug was real), no markup links there any
+more, and both export formats return 200 with* `Content-Disposition: attachment` *and non-empty
+bodies (2,470 B CSV; 4,828 B JSON that parses).* ⚠️ ***A testing trap worth remembering***: the
+first version asserted the new labels appeared in the **server HTML** and reported four
+failures — but* `DropdownMenuContent` *renders through a Radix **Portal** and mounts only when
+opened, and the editor's export buttons sit in an inactive* `Tabs` *panel that Radix unmounts.
+For lazily-mounted UI, assert against the **client bundle**. **Swept while here:** a grep for a
+bare* `<DropdownMenuItem>` *across all admin components now returns nothing, so #22.5 is closed
+panel-wide rather than only on this screen.*
+
 *Revision 34 (July 30): **#22.1 FIXED — /admin/tables went from 8.19 MB to 1.73 MB, and its
 main query got ~11x faster.** Both* `include`*s replaced with explicit* `select`*s, and the only
 two things* `data`*/*`schema` *were ever used for — a row count and a column count — moved into
