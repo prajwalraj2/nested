@@ -4657,7 +4657,7 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 | **D** | Polish (metadata, JSON-LD, breadcrumb labels) | ~ complete except product content |
 | **E** | Security hardening + resilience | ✅ complete (**#17** half — dev branch row remains) |
 | **F** | Performance + admin correctness | ~ **#18 #20 #22.4 #22.1 #22.3 #22.5 #22.2(a) done**; only **22.2(b)/(c)** left, and both wait for Phase G |
-| **G** | Admin panel rebuild on shadcn | ⬜ not started |
+| **G** | Admin UI rebuild on shadcn | ~ **G-1 shell DONE** (74 → 0 hardcoded colours); G-2 Dashboard next |
 
 **Next: Phase G — the shadcn admin rebuild.** Everything cheap and non-visual in Phase F is
 done; what remains (`22.2(b)` row editing, `22.2(c)` schema editing, `22.6` dialogs, tables
@@ -5188,7 +5188,150 @@ discovered incidentally while verifying others.
 
 
 
-### Phase G — Admin panel rebuild (not started)
+### Phase G — Admin UI rebuild on shadcn — PLAN (agreed 30 Jul, not started)
+
+**Approach:** rebuild page by page, shell first. Each step is its own commit and PR, with test
+cases, so a regression is traceable to one screen.
+
+#### G-0 · Design spec — agreed before any code
+
+```
+┌──────────────────────────────┐┌─────────────────────────────────────────────┐
+│  ⚙  ATNO Admin          [«]  ││  Admin › Tables › Logo Makers      [+ New]  │ sticky
+├──────────────────────────────┤├─────────────────────────────────────────────┤
+│  ◈  Dashboard                ││   Tables                                    │
+│                              ││   Create and manage data tables             │
+│  STRUCTURE                   ││   ─────────────────────────────────────     │
+│  ▢  Categories               ││                                             │
+│  ▤  Domains                  ││   [ page content ]                          │
+│  ▦  Pages                    ││                                             │
+│                              ││                                             │
+│  CONTENT                     ││                                             │
+│  ▩  Section Layout           ││                                             │
+│  ▥  Tables                   ││                                             │
+│  ▧  Rich Text                ││                                             │
+│                              ││                                             │
+│  SYSTEM                      ││                                             │
+│  ◉  Admin Users              ││                                             │
+├──────────────────────────────┤│                                             │
+│  ↗  View site                ││                                             │
+│  ☾  Theme            [toggle]││                                             │
+│  ┌──┐                        ││                                             │
+│  │P │ Prajwal raj       [⋮]  ││                                             │
+│  └──┘ prajwal…@gmail.com     ││                                             │
+└──────────────────────────────┘└─────────────────────────────────────────────┘
+   collapses to a 48px icon rail
+```
+
+**Decisions, with reasons:**
+
+| Decision | Reason |
+| -------- | ------ |
+| **Flat nav, no submenus** | Every sub-route (`tables/new`, `rich-text/edit/[id]`, `users/new`, `users/edit/[id]`) is an **action or a detail view**, not a sibling destination. "New Table" belongs as a button on the Tables page where you can see what already exists. Submenus would add a click to the common case and duplicate what the page offers. |
+| **"Add New Admin" leaves the nav** | It is the only nav item that is not a *place*. Becomes a button on the Users page. |
+| **lucide icons, not emoji** | Emoji render differently per OS and ignore the theme. lucide is already installed. |
+| **Collapsible to an icon rail** | The table and rich-text editors are wide; today's fixed `w-64` cannot be reclaimed. Descriptions move to tooltips on the rail. |
+| **Theme toggle in the sidebar footer** | A preference, not a page action — grouped with the user block, leaving the header for page actions. Uses the existing `ThemeToggle` from #21 Phase 1; the provider is already global. |
+| **Header = breadcrumb + page actions only** | It currently duplicates a title every page also renders. |
+| **Breadcrumb resolves record names** | `Admin › Tables › 🏀 Online Customizable Logo Makers`, not a UUID. Today the editor gives no indication of which table you are in. |
+
+#### G-1 → G-8 · Build order
+
+| Step | Scope | Notes |
+| ---- | ----- | ----- |
+| **G-1** ✅ | **Shell** — `AdminLayout`, `AdminSidebar`, `AdminHeader`, breadcrumb | **DONE 30 Jul.** See below. **Zero new installs** — every primitive was already present. |
+| **G-2** | **Dashboard** | Simplest page — validates the new patterns cheaply before anything complex. |
+| **G-3** | **Domains** | Most-used screen. |
+| **G-4** | **Pages** | Same. |
+| **G-5** | **Tables list + editor** | Biggest. **`#22.2(b)` row editing and `#22.2(c)` schema editing land here**, plus tables **pagination** (the residual 1.73 MB from #22.1). |
+| **G-6** | **Categories + Section Layout** | |
+| **G-7** | **Rich Text list + editor** | |
+| **G-8** | **Users** | Gains the "Add New Admin" button removed from the nav in G-1. |
+
+**Components installed as needed, per step** — not up front. Expected later additions: `sonner`
+(toasts, to replace the 8 `alert()` calls), `alert-dialog` (destructive confirms, replacing the
+3 `confirm()` calls — ⚠️ `confirm()` is *synchronous*, so each call site needs restructuring,
+not substituting). That is **#22.6**, folded into whichever step touches each call site.
+
+#### Standing test cases for every step
+
+Because these are UI rewrites, the risk is silent breakage rather than build failures:
+
+1. **The screen still renders** and shows the same information it did before.
+2. **Every mutation still works** — driven over HTTP with a real session, effect verified in the
+   database, exactly as Phases E/F were tested.
+3. **No screen regresses** — the other 12 still return 200.
+4. **Dark mode** — the rebuilt screen works in both themes (the whole point of Phase 2).
+5. **The count of hardcoded colours in that file goes to ~0** — measurable, and the reason the
+   rebuild beats a colour sweep: replacing hand-rolled markup *deletes* its colours.
+
+⚠️ **Nothing in Phase G should change behaviour.** Where a real bug is found mid-rebuild, fix it
+as a separate commit so the UI diff stays reviewable.
+
+#### ✅ G-1 DONE — 30 Jul 2026
+
+**1 new file, 3 rewritten. Zero new dependencies** — `sidebar`, `breadcrumb`, `separator`,
+`dropdown-menu` and `avatar` were all already in `components/ui/`.
+
+**Hardcoded colours in the shell: 74 → 0.** The ten a grep still finds are inside comments
+quoting the classes that were removed. This is the argument for rebuilding rather than
+colour-swapping: replacing hand-rolled markup **deletes** its colours instead of translating
+each one.
+
+##### `admin-nav.ts` — one config for nav *and* breadcrumb
+
+The sidebar held `NAVIGATION_ITEMS` and the header held a separate `PAGE_INFO` map — two
+hand-maintained lists of the same routes. **They had already drifted:**
+
+- `PAGE_INFO` described **`/admin/editor`**, a route that does not exist.
+- Its breadcrumbs inserted the sidebar's *group* name as a crumb — `Admin › Content › Tables` —
+  implying an `/admin/content` page that has never existed. Crumbs now map to real routes only.
+
+⚠️ `isAdminNavItemActive` special-cases `/admin` with an exact match. A `startsWith` test would
+light Dashboard on **every** admin route, since they all begin with `/admin` — easy to
+reintroduce when adding an item, so the reason is recorded at the function.
+
+##### Decisions carried out
+
+- **"Add New Admin" removed from the nav** — the only entry that was an *action*, not a place.
+  Returns as a button on the Users screen in G-8.
+- **Emoji → lucide.** Emoji cannot inherit `currentColor`, so they ignored the theme entirely —
+  which matters now #21 has shipped.
+- **Theme toggle in the sidebar footer**, reusing #21's `ThemeToggle`. Its provider is in the
+  root layout, so this only gave it a home. Hidden on the collapsed rail rather than squeezed
+  in, since it has its own sizing and would not align with icon-only rows.
+- **Header reduced to breadcrumb + an actions slot.** It previously duplicated the `<h1>` every
+  page already renders. `pageActions` is a prop rather than another route map, so the page that
+  owns an action owns its button — a new screen cannot forget to register itself elsewhere.
+- **Breadcrumb resolves record names** via `recordName`, so a detail route can read
+  `Admin › Tables › Logo Makers` rather than exposing an id. Wired per-page from G-2 onward.
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. All 13 screens still render** — every one HTTP 200.
+
+**B. The nav** — all 8 destinations present; "Add New Admin" absent; the shadcn sidebar
+primitive in use; "View site" present.
+
+**C. Breadcrumbs** — dashboard shows a single `Admin` crumb (a second crumb to the same URL
+would be noise); `/admin/tables` links back to `/admin`; `/admin/tables/new` ends in `New`; **no
+bogus "Content" crumb**; the dead `/admin/editor` entry is gone.
+
+**D. No hardcoded theme** — no `bg-gray-900`, no `bg-gray-50` shell, and `bg-sidebar`/
+`--sidebar` tokens in use.
+
+**E. Behaviour unchanged** — a real category create *and* delete driven over HTTP with a
+session. A markup rewrite must not alter behaviour, so this is checked rather than assumed.
+
+##### Not done here, deliberately
+
+Page-level content is untouched — every screen still renders its own `<h1>`, its own
+`bg-white` cards and its own hardcoded colours. Those belong to G-2…G-8. **Only the shell
+changed**, which is what keeps this diff reviewable.
+
+---
+
+### Phase G — original scope notes
 
 | Done | # | Item | Notes |
 | ---- | - | ---- | ----- |
