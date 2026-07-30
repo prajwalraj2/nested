@@ -40,11 +40,43 @@ export const dynamic = 'force-dynamic';
 // Fetch tables and statistics
 async function getTablesData() {
   try {
-    // Get all tables with their page and domain information
+    /**
+     * ⚠️ EXPLICIT `select`, NOT `include` — THIS PAGE USED TO SHIP 8.19 MB (finding #22.1)
+     * ========================================================================
+     * `include` returns EVERY column of the included model. On `Table` that means the
+     * whole `data` JSON (all the rows) and the whole `schema` JSON, for all 652 tables.
+     * Measured on the development branch:
+     *
+     *     Table.data   serialised : 1.97 MB
+     *     Table.schema serialised : 0.48 MB
+     *     loaded twice (see below): 4.90 MB
+     *     actual page payload     : 8,592,689 bytes  (RSC escaping inflates it further)
+     *
+     * ...to render a list showing name, domain, page title, row count and a date —
+     * roughly 0.16 MB of information. About 50x more bytes than the page displays.
+     *
+     * It got worse with #20: this page is now dynamic, so it is rebuilt on every request
+     * rather than served as one frozen file. Correct for freshness, but it means the
+     * over-fetch ran on every single view.
+     *
+     * `data` and `schema` were only ever used to derive TWO NUMBERS —
+     * `rowCount` and `columnCount` in TablesManager.tsx — which are now computed in the
+     * database (see the raw query below) and passed as plain integers. `settings` was
+     * declared in the component's prop type and never read at all.
+     */
     const tables = await prisma.table.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        pageId: true,
+        createdAt: true,
+        updatedAt: true,
         page: {
-          include: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            contentType: true,
             domain: {
               select: {
                 id: true,
@@ -60,15 +92,66 @@ async function getTablesData() {
       }
     });
 
-    // Get domains that have table-type pages
+    /**
+     * Row and column counts, computed IN POSTGRES so the JSON never crosses the wire.
+     *
+     * `jsonb_array_length` is the whole point: it returns an integer without serialising
+     * the array. Two integers per table instead of ~3.8 KB of JSON each.
+     *
+     * ⚠️ THE `jsonb_typeof` GUARD IS NOT OPTIONAL. `jsonb_array_length` raises an error if
+     * the value is not an array, and a raised error here would fail the entire page rather
+     * than one row. Every one of the 652 current rows *is* well-shaped (verified), but
+     * `data` is an unvalidated `Json` column — nothing in the schema prevents a future
+     * write from putting an object or null there. The `CASE` degrades to 0 instead.
+     *
+     * Raw SQL because Prisma has no expression API for JSON functions. The identifiers are
+     * literal and no user input is interpolated, so there is no injection surface —
+     * `$queryRaw` (tagged template) is used rather than `$queryRawUnsafe` regardless.
+     */
+    const counts = await prisma.$queryRaw<Array<{ id: string; rowCount: number; columnCount: number }>>`
+      SELECT
+        id,
+        CASE WHEN jsonb_typeof(data->'rows') = 'array'
+             THEN jsonb_array_length(data->'rows') ELSE 0 END::int      AS "rowCount",
+        CASE WHEN jsonb_typeof(schema->'columns') = 'array'
+             THEN jsonb_array_length(schema->'columns') ELSE 0 END::int AS "columnCount"
+      FROM "Table"
+    `;
+    const countsById = new Map(counts.map(c => [c.id, c]));
+
+    const tablesWithCounts = tables.map(t => ({
+      ...t,
+      rowCount: countsById.get(t.id)?.rowCount ?? 0,
+      columnCount: countsById.get(t.id)?.columnCount ?? 0,
+    }));
+
+    /**
+     * Domains that have table-type pages — for the picker.
+     *
+     * ⚠️ `table: true` here was the SECOND copy of the 2.45 MB: it pulled every column of
+     * every table again, for every table-type page across all domains. The picker only
+     * needs to know a table exists and its name, which is two columns.
+     */
     const domains = await prisma.domain.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
         pages: {
           where: {
             contentType: 'table'
           },
-          include: {
-            table: true,
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            contentType: true,
+            table: {
+              select: {
+                id: true,
+                name: true,
+              }
+            },
             _count: {
               select: {
                 content: true
@@ -86,18 +169,14 @@ async function getTablesData() {
     });
 
     // Calculate statistics
-    const totalTables = tables.length;
-    const totalRows = tables.reduce((acc, table) => {
-      if (table.data && typeof table.data === 'object' && 'rows' in table.data) {
-        return acc + (table.data.rows as any[]).length;
-      }
-      return acc;
-    }, 0);
-    
+    const totalTables = tablesWithCounts.length;
+    // Summed from the integers Postgres already computed — no JSON walked in JS.
+    const totalRows = tablesWithCounts.reduce((acc, t) => acc + t.rowCount, 0);
+
     const totalDomains = domains.filter(domain => domain.pages.length > 0).length;
-    
+
     // Get recent activity (simplified for now)
-    const recentActivity = tables.slice(0, 5).map(table => ({
+    const recentActivity = tablesWithCounts.slice(0, 5).map(table => ({
       action: 'Updated',
       tableName: table.name,
       timestamp: table.updatedAt.toISOString(),
@@ -113,7 +192,7 @@ async function getTablesData() {
     };
 
     return {
-      tables,
+      tables: tablesWithCounts,
       domains,
       stats
     };
