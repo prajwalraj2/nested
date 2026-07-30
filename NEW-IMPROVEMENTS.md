@@ -46,7 +46,7 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 19  | No error boundaries anywhere — an unhandled throw served a bare 500               | 🟡 Medium       | Resilience / UX    | 1.5 hrs   |
 | [x]  | 20  | **CONFIRMED BUG: 5 admin screens are frozen at build time — edits never appear**   | 🔴 **Critical** | Correctness / UX   | 1 hr      |
 | ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
-| ~    | 22  | **Admin audit — 22.4 DONE (433 links); 8.19 MB tables page + write-once data open** | 🔴 **Critical** | Functionality      | multi-day |
+| ~    | 22  | **Admin audit — 22.1 + 22.4 DONE; write-once table data + dead buttons open**      | 🔴 **Critical** | Functionality      | multi-day |
 
 
 **Sub-items:**
@@ -3912,6 +3912,86 @@ answer "does this page already have a table?" for a fraction of the bytes.
 **Effort:** ~1 hour for the `select` narrowing alone, which removes most of the 8 MB. The
 `rowCount` column is a further ~30 minutes plus a migration.
 
+#### ✅ DONE — 30 Jul 2026
+
+Both `include`s replaced with explicit `select`s, and the two counts moved into Postgres. **No
+migration needed** — option 2 (`jsonb_array_length`) was taken rather than a denormalised
+column, so there is no new write-path maintenance.
+
+**Results**
+
+| | Before | After | |
+| - | ------ | ----- | - |
+| Page payload | 8,592,689 B (8.19 MB) | **1,809,734 B (1.73 MB)** | **4.7× smaller** |
+| `tables.findMany` (warm, ×3) | 7618 / 11328 / 11091 ms | **3825 / 1460 / 943 ms** | **~11× faster** |
+
+The query speed-up was the unexpected part — this was filed as a payload problem, but pulling
+2.45 MB of JSON was also what made the query slow. (Absolute numbers are laptop→Neon round
+trips over the public internet; Vercel is co-located with the database, so production is much
+faster. The **ratio** is the meaningful figure.)
+
+**How the counts work now**
+
+```sql
+CASE WHEN jsonb_typeof(data->'rows') = 'array'
+     THEN jsonb_array_length(data->'rows') ELSE 0 END::int AS "rowCount"
+```
+
+⚠️ **The `jsonb_typeof` guard is not optional.** `jsonb_array_length` *raises* on a non-array,
+and a raised error here would fail the whole page rather than one row. All 652 current rows are
+well-shaped (verified), but `data` is an unvalidated `Json` column — nothing stops a future
+write putting an object or `null` there.
+
+**`schema`, `data` and `settings` were removed from `TablesManager`'s prop type**, with a note
+explaining why, because the type declaration is what caused the transfer. `settings` was
+declared and never read at all.
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. The counts must be identical to the old JavaScript computation** — this is the correctness
+risk, not the size. Compare `jsonb_array_length` against `.rows.length` for every table:
+
+```
+652 tables, 0 mismatches
+total rows: 8065 (SQL) vs 8065 (JS)
+```
+
+**B. Payload shrank, and the JSON is genuinely gone**
+
+| Check | Result |
+| ----- | ------ |
+| `/admin/tables` returns 200 | ✅ |
+| At least 4× smaller | ✅ 4.7× |
+| A string that exists **only** inside `Table.data` is absent from the HTML | ✅ probed with a real `row_…` id |
+
+> ⚠️ **My first assertion here was "< 1 MB" and it failed at 1.73 MB — an arbitrary target, not
+> a real regression.** Measuring the composition explained it: props are 487 KB, and RSC sends
+> them **both** as flight data and as rendered HTML, so ~2× props + markup is the floor for 652
+> unpaginated cards. The over-fetch is gone; what remains is the card list itself.
+
+**C. The page still shows what it showed before** — table name, page title, "N rows" labels,
+and the total-rows stat (8065) all still render.
+
+**D. Regression sweep — every other admin screen, unchanged**
+
+```
+/admin 49 KB · /admin/categories 50 KB · /admin/sections 226 KB
+/admin/tables/new 207 KB · /admin/rich-text 24 KB · /admin/users 32 KB
+/admin/domains 129 KB · /admin/pages 36 KB      all HTTP 200
+/admin/tables/[id] 94 KB — unchanged, and it SHOULD still load full row data
+```
+
+That last line matters: the editor legitimately needs `data` for one table. Only the **list**
+was over-fetching, and the fix must not starve the editor.
+
+##### Remaining, deliberately not fixed here
+
+**The page renders all 652 tables with no pagination.** That is the whole of the remaining
+1.73 MB, and it is a UI change rather than a query change — pagination or virtualisation, plus
+a decision about search/filter behaviour across pages. Folding it into #21 Phase 2's shadcn
+rebuild is the natural place, since the list markup is being replaced there anyway. Recorded
+rather than done, because it is a different kind of change from this one.
+
 ---
 
 ### 22.2 🔴 Table data is WRITE-ONCE — the finding that prompted this audit
@@ -4420,7 +4500,25 @@ tablet width — was not tested; there is no headless browser installed.
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
 phase, merged to `master` → auto-deploys to `atno.io`.
 
-### Phase A — Security + SEO foundation (in progress)
+### Where things stand — 30 Jul 2026
+
+| Phase | Scope | Status |
+| ----- | ----- | ------ |
+| **A** | Security + SEO foundation | ✅ complete |
+| **B** | Correctness | ✅ complete |
+| **C** | Cleanup | ~ 11–13b done; **#8** blocked on the geo decision, **#4** yours |
+| **D** | Polish (metadata, JSON-LD, breadcrumb labels) | ~ complete except product content |
+| **E** | Security hardening + resilience | ✅ complete (**#17** half — dev branch row remains) |
+| **F** | Performance + admin correctness | ~ **#18 #20 #22.4 #22.1 done**; 22.3 / 22.5 / 22.2 open |
+| **G** | Admin panel rebuild on shadcn | ⬜ not started |
+
+**Next three, in order:** `#22.3` + `#22.5` (~30 min combined) → `#22.2(a)` CSV re-import
+(~2 hrs) → **Phase G**, after which `#22.2(b)` row editing is built inside the new shell.
+
+**The one thing blocking the largest win:** the geo decision (**#8-DR**, below). It gates
+static rendering for all 1,198 public pages and cannot be resolved without a product call.
+
+### Phase A — Security + SEO foundation ✅ complete
 
 
 | Done | Commit | Item                                                                     | Notes                                                                                                                                                                                                               |
@@ -4434,7 +4532,7 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 
 
 
-### Phase B — Correctness
+### Phase B — Correctness ✅ complete
 
 - [x] 5. **#3** Migration drift — **DONE.** Baselined all 11 migrations on production,
   ```
@@ -4665,7 +4763,7 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 
 
 
-### Phase C — Cleanup
+### Phase C — Cleanup ~ items 11–13b done; 14 (**#8**, blocked on the geo decision) and 15 (**#4**) open
 
 - [x] 11. **#9** Repoint the two type imports, then delete the 8 deprecated files —
       **DONE.** Every reference verified by grep before deleting anything, not taken
@@ -4781,7 +4879,7 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 
 
 
-### Phase D — Polish
+### Phase D — Polish ~ 16a/16b/17/18 done; 16c partly won't-do; 19 continued in Phases E–G
 
 - [x] 16a. **Breadcrumb label resolution fixed** — prerequisite for the JSON-LD below.
 
@@ -4899,7 +4997,75 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 - [x] 17. **#11** Make the render path read-only — done 29 Jul. `getOrCreateMainPage` deleted;
       the unique index and health-check panel were skipped with reasons recorded under #11
 - [x] 18. **#12** Gate or delete `/api/debug/cache-test` — deleted in Phase C
-- [ ] 19. Remaining Step 7: error boundaries, structured error responses, rate limiting
+- [~] 19. Remaining Step 7 — split across Phases E and G below: error boundaries **done**
+      (#19), rate limiting **partly done** (login lockout, #16), structured error responses
+      **deferred**
+
+
+
+### Phase E — Security hardening + resilience (29 Jul, complete)
+
+Everything in this phase was found by continuing down the findings list; two items were
+discovered incidentally while verifying others.
+
+| Done | # | Item | Notes |
+| ---- | - | ---- | ----- |
+| [x] | **#11** | Stop the public render path writing to the database | `getOrCreateMainPage` **deleted**, not just bypassed — its only caller in the codebase was one render line. Audited first: all 32 `direct` domains already had `__main__`, 0 duplicates, so the create branch had never fired. Unplanned win: it was uncached *because* it could write, so 32 domain roots had been hitting Postgres on every view. |
+| [x] | **#19** | Error boundaries for public / admin / root scopes | 5 new files, 0 modified. ⚠️ The real risk was that `notFound()` and `redirect()` are implemented by **throwing** — a boundary swallowing those would turn every 404 into a 500 and break `/`. Verified against a production build rather than trusted from docs. |
+| [x] | **#16** | Admin login brute-force lockout + user-enumeration timing fix | 5 failures → 15-minute lock, counters in Postgres (each Vercel instance has its own memory). Also closed an ~85× timing gap that let anyone discover which emails had accounts. ⚠️ Could not go in middleware — `api/auth` is excluded from the matcher by design. |
+| [~] | **#17** | 🔴 Seeded `admin@example.com` live on production with the password in this repo | **Live credential revoked** (row deleted, verified read-only). `prisma/seed-admin.ts` now reads `ADMIN_EMAIL`/`ADMIN_PASSWORD` with **no default**, validates against the real password policy, and no longer echoes the password. ⬜ **Still open:** the same row exists on the **development** branch. |
+
+> ⚠️ **Deploy ordering, learned here:** `npm run build` runs `prisma generate`, **not**
+> `prisma migrate deploy`. #16 added two columns, so the migration had to be applied to
+> production **before** the code shipped. Both columns are additive with defaults, which is
+> what makes that order safe. Now documented in `.env` itself.
+
+
+
+### Phase F — Performance + admin correctness (30 Jul, in progress)
+
+| Done | # | Item | Result |
+| ---- | - | ---- | ------ |
+| [x] | **#18** | Cache the table-data route + wire its invalidation | `table` is 666 of 1,198 pages and the route had **no caching at any layer** — no `Cache-Control`, and React `cache()` only, which is request-scoped and so deduplicated nothing. ⚠️ Auditing invalidation first found **three of four** table-writing handlers invalidated nothing, including the most-used one. |
+| [x] | **#20** | 🔴 Five admin screens frozen at build time | The user-reported bug: changes appeared on the live site but not in the admin UI. `force-dynamic` on exactly the five that read the DB during render. Prerendered routes 16 → 11. `revalidateTag` could never have fixed it — those pages have no tag. |
+| [x] | **#22.4** | 433 broken admin "Preview" / "View Live" links | The traversal existed **four times in three states of correctness**; two were byte-identical copies with **no cycle guard**. Consolidated into `src/lib/page-path.ts`. Old vs new agree on 1,198/1,198 pages, so no existing consumer changed. |
+| [x] | **#22.1** | `/admin/tables` shipped 8.19 MB to render a list | 8.19 MB → **1.73 MB** (4.7×) and `tables.findMany` **~11× faster** (11,091 → 943 ms warm). Counts moved into Postgres via `jsonb_array_length`; **no migration needed**. |
+| [ ] | **#22.3** | The "Manage Data" button 404s | `/admin/tables/[id]/data` exists only as an API route. ~5 min, or fold into 22.2(b). |
+| [ ] | **#22.5** | Two dead **Export** dropdown items | No `onClick`, no link. Either wire to the working `handleExport`, or delete. ~20 min. |
+| [ ] | **#22.2** | 🔴 Table data is write-once | Three independently shippable pieces: **(a)** re-import via the `CSVUploadInterface` and `PUT …/data` that both already exist (~2 hrs); **(b)** row editing (~1–2 days); **(c)** schema editing (~½ day). ⚠️ `targetCountries` has **no UI anywhere**, so the geo feature is unreachable for editors. |
+
+> ⚠️ **22.2(b) must come after #21 Phase 2.** Building a data grid in the current hand-rolled
+> markup and then rewriting it on shadcn primitives days later is the work twice.
+
+
+
+### Phase G — Admin panel rebuild (not started)
+
+| Done | # | Item | Notes |
+| ---- | - | ---- | ----- |
+| ~ | **#21** | Dark / light mode | **Phase 1 (public) DONE 29 Jul** — `next-themes` was installed but never imported, so every `dark:` utility was inert. Rich-text keeps a deliberately **light** card: 574 of its 2,519 inline colour declarations are dark and inline styles beat stylesheets. |
+| [ ] | **#21 Phase 2** | Admin dark mode — **as a shadcn rebuild, not a colour sweep** | 1,146 hardcoded colours across 45 files. Per the user's direction: rebuild on the [sidebar block](https://ui.shadcn.com/blocks/sidebar), `button`, `breadcrumb`, `sheet`. Better *and* less work — replacing hand-rolled markup **deletes** its hardcoded colours rather than needing each swapped — and it brings responsive/mobile handling the admin shell has none of. |
+| [ ] | **#22.6** | `router.refresh()` instead of 6 × `window.location.reload()`; `dialog` instead of 8 × `alert()` / 3 × `confirm()` | Fold into the rebuild — do not port `alert()` calls into freshly written components. ⚠️ `confirm()` is *synchronous*, so each call site needs restructuring, not substituting. |
+| [ ] | — | `/admin/tables` pagination | The entire residual 1.73 MB after #22.1 is 652 unpaginated cards. A UI change, so it belongs with the rebuild. |
+
+**Suggested order for Phase 2 itself:** (1) `AdminLayout` + `AdminSidebar` + `AdminHeader` →
+shadcn shell, since that is the most visible surface; (2) shared primitives across the 32 admin
+components, where most of the 1,146 occurrences live; (3) token swap for whatever bespoke markup
+remains.
+
+
+
+### Still open, outside the phases
+
+| | Item | Owner |
+| - | ---- | ----- |
+| 🔴 | **#8 / #8-DR** — the geo decision. Gates static rendering for 1,198 pages, the largest remaining performance item. | **Needs a product decision** — see *Open decisions* below |
+| 🟡 | **#4** — delete the 15 merged branches | Yours (GitHub UI + local) |
+| 🟡 | **`bread.tsx:159`** — the *visible* breadcrumb still matches pages by slug alone, with no `parentId` filter. Only safe because all 20 ambiguous slugs are **leaves**. Add one intermediate page with a duplicate slug and the trail goes wrong. | ~30 min, latent |
+| ⬜ | **Structured error responses** — two competing contracts (`{error}` ×71 vs `{success:false,message}` ×14) across 18 route files | Deferred: no behaviour change, and the leak originally suspected was already dev-gated |
+| ⬜ | **General IP rate limiting** | Deferred: needs Upstash to work on serverless, and there is no evidence of abuse. Login is covered by #16 |
+| ⚠️ | **Neon role password rotation** — `npg_…` is shared across every branch including production and has appeared in a chat transcript | Yours; all DB work is finished so nothing blocks it |
+| ⚠️ | **`admin@example.com` on the development branch** — would return to production if that branch were ever promoted | Yours, same as the production deletion |
 
 
 
@@ -4963,6 +5129,30 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 34 (July 30): **#22.1 FIXED — /admin/tables went from 8.19 MB to 1.73 MB, and its
+main query got ~11x faster.** Both* `include`*s replaced with explicit* `select`*s, and the only
+two things* `data`*/*`schema` *were ever used for — a row count and a column count — moved into
+Postgres via* `jsonb_array_length`*. **No migration needed**, so no new write-path maintenance.
+**The speed-up was unexpected:** this was filed as a payload problem, but transferring 2.45 MB
+of JSON was also what made the query slow —* `tables.findMany` *went from 7618/11328/11091 ms to
+3825/1460/943 ms across three warm runs. (Absolute numbers are laptop-to-Neon round trips;
+Vercel is co-located with the database, so the **ratio** is the meaningful figure.)* ⚠️ *The*
+`jsonb_typeof` *guard around* `jsonb_array_length` *is mandatory, not defensive dressing: the
+function **raises** on a non-array and that would fail the whole page rather than one row — all
+652 current rows are well-shaped, but* `data` *is an unvalidated* `Json` *column.* `schema`*,*
+`data` *and* `settings` *were also removed from* `TablesManager`*'s prop type (the declaration is
+what caused the transfer);* `settings` *was declared and never read at all. **Test cases recorded
+in the finding:** counts verified identical to the old JS computation across all 652 tables (0
+mismatches, 8065 total rows both ways); a string existing only inside* `Table.data` *confirmed
+absent from the HTML; and a regression sweep of all eight other admin screens plus*
+`/admin/tables/[id]`*, which correctly still loads full row data — only the LIST was
+over-fetching.* ⚠️ ***Another of my own assertions was wrong***: I first asserted "< 1 MB" and it
+failed at 1.73 MB. Measuring the composition explained it — props are 487 KB and RSC sends them
+**both** as flight data and as rendered HTML, so ~2x props + markup is the floor for 652
+unpaginated cards. **Recorded as the remaining work:** the page has no pagination, which is now
+the entire residual size, and it belongs with #21 Phase 2 since that rebuilds the list markup
+anyway.*
+
 *Revision 33 (July 30): **#22.4 FIXED — 433 broken admin links, via a four-way consolidation
 that turned out larger than "extract one function".** The parent-chain traversal existed **four
 times in three states of correctness**:* `sitemap.ts` *had it right (cycle-guarded, Map-based);*

@@ -52,9 +52,24 @@ type TableWithPage = {
   id: string;
   name: string;
   pageId: string;
-  schema: any;
-  data: any;
-  settings?: any;
+  /**
+   * ⚠️ `schema`, `data` and `settings` were REMOVED from this type deliberately
+   * (finding #22.1).
+   *
+   * They were only ever used to derive the two counts below, but declaring them meant the
+   * server sent the complete contents of all 652 tables to the browser — 2.45 MB of JSON,
+   * loaded twice by the page's two queries, producing an **8.19 MB** payload to render a
+   * list that displays about 0.16 MB of information.
+   *
+   * The counts are now computed in Postgres with `jsonb_array_length` and arrive as plain
+   * integers. `settings` was declared here and never read at all.
+   *
+   * **Do not add them back to render "N rows".** That is what these two fields are for. If a
+   * future feature genuinely needs the row data, fetch it for the ONE table being viewed —
+   * `/admin/tables/[id]` already does exactly that.
+   */
+  rowCount: number;
+  columnCount: number;
   createdAt: Date;
   updatedAt: Date;
   page: {
@@ -287,13 +302,15 @@ type TableCardProps = {
 };
 
 function TableCard({ table, viewMode }: TableCardProps) {
-  const rowCount = table.data && typeof table.data === 'object' && 'rows' in table.data 
-    ? (table.data.rows as any[]).length 
-    : 0;
-  
-  const columnCount = table.schema && typeof table.schema === 'object' && 'columns' in table.schema
-    ? (table.schema.columns as any[]).length
-    : 0;
+  /**
+   * Counts arrive pre-computed from the database (finding #22.1).
+   *
+   * These two lines used to walk `table.data.rows` and `table.schema.columns` in the
+   * browser, which is why the whole of both JSON columns had to be shipped for all 652
+   * tables — 8.19 MB to display two numbers per card. Postgres now counts them with
+   * `jsonb_array_length` and sends integers. See src/app/admin/tables/page.tsx.
+   */
+  const { rowCount, columnCount } = table;
 
   if (viewMode === 'grid') {
     return (
