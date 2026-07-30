@@ -11,6 +11,10 @@ import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/table/DataTable';
 // Finding #22.5 — one export implementation, shared with the tables list.
 import { downloadTableExport, type TableExportFormat } from '@/lib/export-table';
+// Finding #22.2a — the CSV uploader the creation wizard already uses, reused here for
+// re-import. It handles header auto-mapping and per-row schema validation itself.
+import { CSVUploadInterface } from '@/components/admin/tables/CSVUploadInterface';
+import type { TableData } from '@/types/table';
 
 /**
  * Table Editor Component
@@ -56,6 +60,65 @@ export function TableEditor({ table }: TableEditorProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('data');
   const [isLoading, setIsLoading] = useState(false);
+
+  // ---- CSV re-import (finding #22.2a) ----------------------------------------------
+
+  /**
+   * Rows parsed and validated by `CSVUploadInterface`, held here **before** being saved.
+   *
+   * The staging step is what makes `replace` safe to offer: the user sees the resulting
+   * row count and picks the operation deliberately, rather than an upload immediately
+   * overwriting the table. `null` means nothing is staged and the uploader is showing.
+   */
+  const [pendingImport, setPendingImport] = useState<TableData | null>(null);
+
+  /** `append` first — see the note by the radio buttons on why the default matters. */
+  const [importOperation, setImportOperation] = useState<'replace' | 'append'>('append');
+
+  /** Rows currently stored, for the before/after comparison. */
+  const currentRowCount = Array.isArray((table.data as TableData | null)?.rows)
+    ? (table.data as TableData).rows.length
+    : 0;
+
+  const handleImport = async () => {
+    if (!pendingImport) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/api/admin/tables/${table.id}/data`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: pendingImport, operation: importOperation }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `Import failed (HTTP ${response.status})`);
+      }
+
+      setPendingImport(null);
+
+      /**
+       * `router.refresh()`, not `window.location.reload()`.
+       *
+       * This re-runs the server component so the Data tab shows the new rows, while
+       * keeping React state — so the user stays on the Import tab and does not get
+       * bounced back to Data with the page scrolled to the top. It is also the pattern
+       * #22.6 exists to apply to the six `location.reload()` calls elsewhere in admin;
+       * no reason to add a seventh here.
+       *
+       * The server data really is fresh: `PUT …/data` calls `invalidatePages()`, which
+       * clears the `table-by-page` cache entry added in #18.
+       */
+      router.refresh();
+    } catch (error) {
+      console.error('Import failed:', error);
+      // Matches the rest of this screen; replacing the alerts is #22.6 (Phase G).
+      alert(error instanceof Error ? error.message : 'Import failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Handle export functionality
   /**
@@ -284,16 +347,119 @@ export function TableEditor({ table }: TableEditorProps) {
                   </div>
                 </div>
 
-                {/* Import Section */}
+                {/*
+                  Import Section — finding #22.2(a).
+
+                  This was a placeholder reading "CSV Import Coming Soon". Combined with
+                  there being no row editor anywhere in the admin panel, that made table
+                  data effectively WRITE-ONCE: the only way to change a cell was to delete
+                  the table and rebuild it from a fresh CSV.
+
+                  Nothing new had to be built. `CSVUploadInterface` already existed (the
+                  creation wizard uses it) and already does header auto-mapping plus
+                  per-row validation against the schema, and
+                  `PUT /api/admin/tables/[id]/data` already supported both `replace` and
+                  `append`. The placeholder simply sat between them.
+                */}
                 <div>
                   <h4 className="font-medium text-gray-900 mb-3">Import Data</h4>
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                    <div className="text-4xl mb-4">📤</div>
-                    <h3 className="text-lg font-semibold mb-2">CSV Import Coming Soon</h3>
-                    <p className="text-gray-600">
-                      Advanced CSV import functionality with column mapping and validation will be available in the next update.
-                    </p>
-                  </div>
+
+                  {!pendingImport ? (
+                    <CSVUploadInterface
+                      schema={table.schema}
+                      existingData={table.data}
+                      // Staged, NOT saved. The confirmation step below is the point —
+                      // see the note on `replace` there.
+                      onDataUpload={(data) => setPendingImport(data)}
+                    />
+                  ) : (
+                    <div className="border border-gray-300 rounded-lg p-6 space-y-4">
+                      <h5 className="font-semibold text-gray-900">Confirm import</h5>
+
+                      {/*
+                        ⚠️ THE BEFORE/AFTER COUNTS ARE THE SAFETY FEATURE.
+
+                        `replace` deletes every existing row. Uploading a truncated or
+                        wrongly-mapped CSV would silently destroy content with no undo —
+                        there are no table backups, and the original file is never stored
+                        server-side (it is parsed in the browser; see #22.8). Showing the
+                        resulting row count *before* committing is what makes an accidental
+                        wipe visible rather than discovered later.
+                      */}
+                      <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <div className="text-gray-500">Current rows</div>
+                          <div className="text-2xl font-semibold text-gray-900">{currentRowCount}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">Rows in file</div>
+                          <div className="text-2xl font-semibold text-gray-900">{pendingImport.rows.length}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">After import</div>
+                          <div className="text-2xl font-semibold text-blue-700">
+                            {importOperation === 'replace'
+                              ? pendingImport.rows.length
+                              : currentRowCount + pendingImport.rows.length}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="import-operation"
+                            checked={importOperation === 'append'}
+                            onChange={() => setImportOperation('append')}
+                            className="mt-1"
+                          />
+                          <span className="text-sm">
+                            <span className="font-medium">Append</span>
+                            <span className="text-gray-600"> — add these rows, keep the existing {currentRowCount}.</span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="import-operation"
+                            checked={importOperation === 'replace'}
+                            onChange={() => setImportOperation('replace')}
+                            className="mt-1"
+                          />
+                          <span className="text-sm">
+                            <span className="font-medium text-red-700">Replace</span>
+                            <span className="text-gray-600"> — delete all {currentRowCount} existing rows first.</span>
+                          </span>
+                        </label>
+                      </div>
+
+                      {/*
+                        `append` is the DEFAULT, deliberately. If the destructive option
+                        were pre-selected, the safe path would require noticing and
+                        changing it — the wrong way round for an action with no undo.
+                      */}
+                      {importOperation === 'replace' && (
+                        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                          ⚠️ This permanently deletes the current {currentRowCount} rows. There is
+                          no undo and no backup — export first if you may need them.
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        <Button onClick={handleImport} disabled={isLoading}>
+                          {isLoading ? 'Importing…' : `Import ${pendingImport.rows.length} rows`}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => setPendingImport(null)}
+                          disabled={isLoading}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
