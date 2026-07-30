@@ -3,6 +3,8 @@
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { TableEditor } from '@/components/admin/tables/TableEditor';
+// Finding #22.4 — a page's public URL needs its parent chain walked, not two slugs joined.
+import { buildPageUrl, toPageMap } from '@/lib/page-path';
 
 /**
  * Admin Table Edit Page
@@ -45,7 +47,33 @@ async function getTableData(tableId: string) {
       return null;
     }
 
-    return table;
+    /**
+     * Resolve the page's REAL public URL by walking its parent chain (finding #22.4).
+     *
+     * The "view on site" link below used to be built as
+     * `/domain/${table.page.domain.slug}/${table.page.slug}` — correct only for a page one
+     * level below the domain root. Measured: **110 of 668 table pages (16.5%)** produced a
+     * URL that 404s, e.g.
+     *
+     *     emitted : /domain/webdev/ytube
+     *     correct : /domain/webdev/withcode/ytube
+     *
+     * One extra query, scoped to this page's own domain and selecting only the three
+     * columns `PagePathNode` needs — deliberately not `include`, so this cannot become
+     * another #22.1-style over-fetch.
+     */
+    const chainPages = await prisma.page.findMany({
+      where: { domainId: table.page.domain.id },
+      select: { id: true, slug: true, parentId: true },
+    });
+
+    const publicUrl = buildPageUrl(
+      table.page,
+      table.page.domain.slug,
+      toPageMap(chainPages)
+    );
+
+    return { ...table, publicUrl };
   } catch (error) {
     console.error('Error fetching table data:', error);
     return null;
@@ -78,15 +106,28 @@ export default async function TableEditPage({ params }: PageProps) {
           </div>
           
           <div className="flex items-center space-x-2">
-            {/* Quick Actions */}
-            <a
-              href={`/domain/${table.page.domain.slug}/${table.page.slug}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              👁️ View Live Table
-            </a>
+            {/*
+              Uses the server-resolved `publicUrl` (parent chain walked), and renders a
+              DISABLED button when the page has no reachable public URL instead of linking
+              somewhere broken — which the old two-slug version did for 110 of 668 tables.
+            */}
+            {table.publicUrl ? (
+              <a
+                href={table.publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                👁️ View Live Table
+              </a>
+            ) : (
+              <span
+                title="This page has no reachable public URL"
+                className="inline-flex items-center px-3 py-2 border border-gray-200 text-sm leading-4 font-medium rounded-md text-gray-400 bg-gray-50 cursor-not-allowed"
+              >
+                👁️ View Live Table
+              </span>
+            )}
           </div>
         </div>
         

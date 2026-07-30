@@ -40,6 +40,17 @@ interface RichTextPage {
     updatedAt: string;
   } | null;
   updatedAt: string;
+  /**
+   * The page's real public URL, resolved SERVER-SIDE by walking the parent chain
+   * (finding #22.4). `null` when the page has no reachable public URL.
+   *
+   * ⚠️ Do not reconstruct this in the client. The previous code did
+   * `/domain/${page.domain.slug}/${page.slug}`, which is only correct one level below the
+   * domain root — **323 of 418 rich-text pages (77.3%) got a URL that 404s.** The
+   * ancestors are `section_based`/`subcategory_list` pages that are not in this response
+   * at all, so the client genuinely cannot compute it.
+   */
+  previewUrl: string | null;
 }
 
 export function RichTextManager() {
@@ -210,7 +221,12 @@ export function RichTextManager() {
                           )}
                         </div>
                         <div className="text-sm text-gray-600">
-                          <span>/{page.domain.slug}/{page.slug}</span>
+                          {/*
+                            Shows the SAME resolved path the Preview button opens. Previously
+                            this displayed `/{domain}/{slug}`, so the interface confidently
+                            printed a URL that did not exist for 77% of these pages.
+                          */}
+                          <span>{page.previewUrl ?? 'no public URL'}</span>
                           {page.richTextContent && (
                             <span className="ml-4">
                               • {page.richTextContent.wordCount} words
@@ -220,11 +236,27 @@ export function RichTextManager() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Link href={`/domain/${page.domain.slug}/${page.slug}`} target="_blank">
-                          <Button variant="outline" size="sm">
+                        {/*
+                          Uses the server-resolved `previewUrl`, and DISABLES the button when
+                          there is no reachable URL rather than linking somewhere broken —
+                          which is what the old two-slug version did 323 times.
+                        */}
+                        {page.previewUrl ? (
+                          <Link href={page.previewUrl} target="_blank">
+                            <Button variant="outline" size="sm">
+                              👁️ Preview
+                            </Button>
+                          </Link>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled
+                            title="This page has no reachable public URL"
+                          >
                             👁️ Preview
                           </Button>
-                        </Link>
+                        )}
                         <Link href={`/admin/rich-text/edit/${page.id}`}>
                           <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
                             ✏️ Edit HTML

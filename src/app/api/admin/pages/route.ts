@@ -5,6 +5,9 @@ import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { invalidatePages } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
+// Finding #22.4 — one shared parent-chain traversal, replacing the local copy that had
+// no cycle guard. See src/lib/page-path.ts.
+import { buildPageUrl, toPageMap, type PagePathNode } from '@/lib/page-path';
 
 /**
  * Pages API Route - Main CRUD operations
@@ -372,33 +375,30 @@ function validateAndProcessTargetCountries(targetCountries: any): string[] {
 /**
  * Generate preview URL for a page based on domain type and hierarchy
  */
-function generatePagePreviewUrl(page: any, domain: any, allPages: any[]): string {
+/**
+ * Build a page's public preview URL.
+ *
+ * ⚠️ THIS WAS A 30-LINE LOCAL COPY, DUPLICATED BYTE-FOR-BYTE IN
+ * `api/admin/pages/[id]/route.ts`, AND IT HAD TWO DEFECTS (finding #22.4):
+ *
+ *   1. **No cycle guard.** It recursed on `parentId` with nothing tracking visited
+ *      nodes. `parentId` is an unconstrained self-relation, so one corrupt row would
+ *      have overflowed the stack and returned a 500 with no useful message.
+ *   2. **O(n²).** It called `allPages.find(...)` inside the recursion. The shared
+ *      helper uses a `Map`, so lookups are O(1).
+ *
+ * Both copies are now this wrapper around `src/lib/page-path.ts`. The behaviour is
+ * otherwise identical, including returning the domain root for `__main__`.
+ *
+ * `'#'` is kept as the no-domain / unreachable fallback so the response shape does not
+ * change for existing clients — but note that a `'#'` href renders as a link that does
+ * nothing, which is why the UI should prefer to disable the control. See 22.4.
+ */
+function generatePagePreviewUrl(
+  page: PagePathNode,
+  domain: { slug: string } | null | undefined,
+  allPages: PagePathNode[]
+): string {
   if (!domain) return '#';
-  
-  // Skip __main__ pages - they represent the domain root
-  if (page.slug === '__main__') {
-    return `/domain/${domain.slug}`;
-  }
-  
-  // Build full path considering parent hierarchy
-  const buildPath = (pageId: string): string => {
-    const currentPage = allPages.find(p => p.id === pageId);
-    if (!currentPage) return '';
-    
-    // If this page's parent is __main__, don't include __main__ in path
-    if (currentPage.parentId) {
-      const parent = allPages.find(p => p.id === currentPage.parentId);
-      if (parent && parent.slug === '__main__') {
-        return currentPage.slug;
-      } else if (parent) {
-        const parentPath = buildPath(parent.id);
-        return parentPath ? `${parentPath}/${currentPage.slug}` : currentPage.slug;
-      }
-    }
-    
-    return currentPage.slug;
-  };
-  
-  const fullPath = buildPath(page.id);
-  return `/domain/${domain.slug}/${fullPath}`;
+  return buildPageUrl(page, domain.slug, toPageMap(allPages)) ?? '#';
 }
