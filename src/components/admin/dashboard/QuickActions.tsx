@@ -1,141 +1,129 @@
 import Link from 'next/link';
+import {
+  Globe,
+  FileText,
+  Table2,
+  FolderTree,
+  FileType2,
+  Columns3,
+  type LucideIcon,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 /**
- * Quick Actions Component
- * 
- * Provides easy access to common admin tasks from the dashboard.
- * Each action is a button/link that takes the user directly to
- * the relevant admin section for that task.
- * 
- * Actions include:
- * - Creating new domains, pages, categories
- * - Accessing content editor
- * - Viewing system reports
+ * Dashboard shortcuts (Phase G-2).
+ * ============================================================================
+ *
+ * ⚠️ THREE OF THE SIX PREVIOUS ACTIONS WERE BROKEN OR REDUNDANT — fixed here, not just
+ * restyled:
+ *
+ *   "Edit Content"      -> /admin/content   **this route does not exist** — a 404, the
+ *                                           same class of dead link as the `/admin/editor`
+ *                                           sidebar entry found in G-1
+ *   "View All Domains"  -> /admin/domains   identical destination to "Create New Domain"
+ *   "System Overview"   -> /admin           a link to the page you are already on
+ *
+ * They are replaced with the three real create/manage routes that had no shortcut at all:
+ * tables, rich text and section layout. Six actions, six distinct working destinations.
+ *
+ * ⚠️ The old list carried a `color` field (`'blue'`, `'green'`, `'purple'`…) driving
+ * hardcoded classes, plus a `primary` flag rendering one action as a large
+ * `bg-blue-600 text-white` panel. Both are gone: colour-coding six equally-weighted
+ * shortcuts adds decoration rather than meaning, and every one of those classes was fixed
+ * light. The primary action keeps its emphasis through `variant="default"` instead.
  */
 
-// Define all available quick actions
-const QUICK_ACTIONS = [
+type QuickAction = {
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  href: string;
+  /** Exactly one action is primary — the most common thing to do from here. */
+  primary?: boolean;
+};
+
+const QUICK_ACTIONS: QuickAction[] = [
   {
-    title: 'Create New Domain',
-    description: 'Add a new content domain to your system',
-    icon: '🌐',
-    href: '/admin/domains',  // Will go to domain creation page
-    color: 'blue',
-    primary: true
-  },
-  {
-    title: 'Create New Page',
-    description: 'Add a new page to an existing domain',
-    icon: '📄',
-    href: '/admin/pages',    // Will go to page creation
-    color: 'green'
-  },
-  {
-    title: 'Manage Categories',
-    description: 'Organize your domain categories',
-    icon: '📂', 
-    href: '/admin/categories',
-    color: 'purple'
-  },
-  {
-    title: 'Edit Content',
-    description: 'Update content blocks on your pages',
-    icon: '📝',
-    href: '/admin/content',
-    color: 'orange'
-  },
-  {
-    title: 'View All Domains',
-    description: 'Browse and manage all your domains',
-    icon: '👁️',
+    title: 'New domain',
+    description: 'Add a content domain',
+    icon: Globe,
     href: '/admin/domains',
-    color: 'gray'
+    primary: true,
   },
   {
-    title: 'System Overview',
-    description: 'View detailed system statistics',
-    icon: '📊',
-    href: '/admin', // Stay on dashboard but scroll to stats
-    color: 'indigo'
-  }
+    title: 'New page',
+    description: 'Add a page to a domain',
+    icon: FileText,
+    href: '/admin/pages',
+  },
+  {
+    title: 'New table',
+    description: 'Create a data table',
+    icon: Table2,
+    // A real create route, unlike the three it replaces.
+    href: '/admin/tables/new',
+  },
+  {
+    title: 'Categories',
+    description: 'Organise domain categories',
+    icon: FolderTree,
+    href: '/admin/categories',
+  },
+  {
+    title: 'Rich text',
+    description: 'Edit page content',
+    icon: FileType2,
+    href: '/admin/rich-text',
+  },
+  {
+    title: 'Section layout',
+    description: 'Arrange page sections',
+    icon: Columns3,
+    href: '/admin/sections',
+  },
 ];
 
 export function QuickActions() {
-  return (
-    <div className="space-y-4">
-      
-      {/* Primary Action - Most important action prominently displayed */}
-      {QUICK_ACTIONS.filter(action => action.primary).map((action) => (
-        <Link
-          key={action.href}
-          href={action.href}
-          className="block w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <div className="flex items-center">
-            <span className="text-2xl mr-3">{action.icon}</span>
-            <div>
-              <h4 className="font-semibold">{action.title}</h4>
-              <p className="text-sm text-blue-100 mt-1">{action.description}</p>
-            </div>
-          </div>
-        </Link>
-      ))}
+  const [primary, ...secondary] = QUICK_ACTIONS;
 
-      {/* Secondary Actions - Grid of smaller action buttons */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
-        {QUICK_ACTIONS.filter(action => !action.primary).map((action) => (
-          <QuickActionButton key={action.href} action={action} />
+  return (
+    <div className="space-y-3">
+      {/*
+        The primary action spans the full width so it reads first, but it is a normal
+        `Button` — the old version was a bespoke `bg-blue-600` panel twice the height of
+        everything else, which made the dashboard's loudest element a shortcut rather than
+        the data.
+      */}
+      <Button asChild className="h-auto w-full justify-start py-3">
+        <Link href={primary.href}>
+          <primary.icon className="size-4 shrink-0" aria-hidden="true" />
+          <span className="flex flex-col items-start text-left">
+            <span className="font-medium">{primary.title}</span>
+            <span className="text-xs font-normal opacity-80">{primary.description}</span>
+          </span>
+        </Link>
+      </Button>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {secondary.map(action => (
+          <Button
+            key={action.href}
+            asChild
+            variant="outline"
+            className="h-auto justify-start py-3"
+          >
+            <Link href={action.href}>
+              <action.icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="flex min-w-0 flex-col items-start text-left">
+                <span className="truncate font-medium">{action.title}</span>
+                <span className="truncate text-xs font-normal text-muted-foreground">
+                  {action.description}
+                </span>
+              </span>
+            </Link>
+          </Button>
         ))}
       </div>
-      
     </div>
-  );
-}
-
-/**
- * Individual Quick Action Button
- * 
- * Renders a single action button with appropriate styling
- * based on the action's color and importance.
- */
-type QuickActionButtonProps = {
-  action: {
-    title: string;
-    description: string;
-    icon: string;
-    href: string;
-    color: string;
-  };
-};
-
-function QuickActionButton({ action }: QuickActionButtonProps) {
-  // Define color schemes for different action types
-  const colorClasses = {
-    blue: 'border-blue-200 text-blue-700 hover:bg-blue-50',
-    green: 'border-green-200 text-green-700 hover:bg-green-50',
-    purple: 'border-purple-200 text-purple-700 hover:bg-purple-50',
-    orange: 'border-orange-200 text-orange-700 hover:bg-orange-50',
-    gray: 'border-gray-200 text-gray-700 hover:bg-gray-50',
-    indigo: 'border-indigo-200 text-indigo-700 hover:bg-indigo-50'
-  };
-
-  const colorClass = colorClasses[action.color as keyof typeof colorClasses] || colorClasses.gray;
-
-  return (
-    <Link
-      href={action.href}
-      className={`
-        block p-3 border rounded-lg transition-colors
-        ${colorClass}
-      `}
-    >
-      <div className="flex items-start">
-        <span className="text-lg mr-2 mt-0.5">{action.icon}</span>
-        <div>
-          <h4 className="font-medium text-sm">{action.title}</h4>
-          <p className="text-xs opacity-75 mt-1">{action.description}</p>
-        </div>
-      </div>
-    </Link>
   );
 }
