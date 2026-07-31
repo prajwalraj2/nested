@@ -16,7 +16,25 @@ import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 // Finding #2: stored HTML is rendered with dangerouslySetInnerHTML to every public
 // visitor, so it is cleaned before it reaches the database.
-import { sanitizeRichTextHtml, htmlToPlainText } from '@/lib/sanitize-html';
+/**
+ * ⚠️ `sanitize-html` IS IMPORTED LAZILY, INSIDE THE POST HANDLER — NOT HERE.
+ *
+ * It pulls `isomorphic-dompurify`, which pulls **jsdom** — a complete DOM implementation,
+ * and a heavy transitive tree. A module-level import loads that when the ROUTE FILE is
+ * loaded, so every handler in this file pays for it, including the `GET` below which
+ * sanitises nothing.
+ *
+ * That is not theoretical. On 30 Jul the whole screen broke in production with:
+ *
+ *     Failed to load external module jsdom: [ERR_REQUIRE_ESM]
+ *     require() of ES Module @exodus/bytes/encoding-lite.js
+ *     from html-encoding-sniffer/lib/html-encoding-sniffer.js not supported
+ *
+ * The root cause was a Node version mismatch (fixed by pinning `engines.node`), but the
+ * reason it took out the *listing* — a read that needs no DOM at all — was this import.
+ * Keeping it lazy means a future problem in the sanitiser tree can only break writing,
+ * not reading.
+ */
 // Finding #22.4 — correct public URLs need the parent chain walked, not two slugs joined.
 import { buildPageUrl, toPageMap } from '@/lib/page-path';
 
@@ -170,6 +188,15 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    /**
+     * Loaded here rather than at the top of the file — see the note by the imports.
+     *
+     * `await import(...)` inside the handler means jsdom is only pulled in when something
+     * is actually being written. Node caches the module after the first call, so a busy
+     * endpoint pays this once, not per request.
+     */
+    const { sanitizeRichTextHtml, htmlToPlainText } = await import('@/lib/sanitize-html');
 
     // ⚠️ Sanitise before storing — same reasoning as the PUT in ./[pageId]/route.ts.
     // Read paths are cached, so cleaning at render time would let one bad write be
