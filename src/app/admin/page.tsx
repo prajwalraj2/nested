@@ -1,7 +1,10 @@
+import { Globe, FileText, Blocks, FolderTree, Zap, Activity, History } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
 import { StatsCard } from '@/components/admin/dashboard/StatsCard';
 import { QuickActions } from '@/components/admin/dashboard/QuickActions';
-import { ActivityFeed } from '@/components/admin/dashboard/ActivityFeed';
+import { ActivityFeed, type ActivityEntry } from '@/components/admin/dashboard/ActivityFeed';
 import { HealthCheck } from '@/components/admin/dashboard/HealthCheck';
 
 /**
@@ -76,104 +79,204 @@ export const dynamic = 'force-dynamic';
  */
 
 export default async function AdminDashboard() {
-  // Fetch all the statistics we need for the dashboard
-  const stats = await fetchDashboardStats();
+  // Both in parallel — they are independent, and the activity query is small.
+  const [stats, activities] = await Promise.all([
+    fetchDashboardStats(),
+    fetchRecentActivity(),
+  ]);
   
   return (
-    <div className="space-y-8">
-      
-      {/* Page Introduction */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-100">
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">
-          Welcome to Your Admin Dashboard! 👋
-        </h2>
-        <p className="text-gray-600">
-          Manage your domains, pages, and content all in one place. 
-          Get insights into your content system and perform quick actions.
-        </p>
-      </div>
+    <>
+      {/*
+        The "Welcome to Your Admin Dashboard! 👋" gradient banner was removed.
 
-      {/* Statistics Cards Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        It occupied the most valuable space on the screen to say nothing actionable — the
+        person reading it is already signed into the admin panel, so being welcomed and
+        told it manages domains and pages is a sentence they never need again after the
+        first visit. Its `from-blue-50 to-indigo-50` gradient was also hardcoded light and
+        broke in dark mode. The stats now start at the top, where the value is.
+      */}
+      <AdminPageHeader
+        title="Dashboard"
+        description="An overview of your content and recent activity."
+      />
+
+      {/*
+        Stat tiles. `sm:grid-cols-2` before `lg:grid-cols-4` so they pair up on a tablet
+        rather than jumping straight from one column to four — the old breakpoints skipped
+        that middle case.
+      */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           title="Total Domains"
           value={stats.totalDomains}
-          icon="🌐"
+          icon={Globe}
           description={`${stats.publishedDomains} published`}
           trend={stats.domainsGrowth}
         />
-        
         <StatsCard
           title="Total Pages"
           value={stats.totalPages}
-          icon="📄"
+          icon={FileText}
           description={`${stats.pagesWithContent} with content`}
           trend={stats.pagesGrowth}
         />
-        
         <StatsCard
           title="Content Blocks"
           value={stats.totalContentBlocks}
-          icon="📝"
+          icon={Blocks}
           description={`Across ${stats.totalPages} pages`}
           trend={stats.contentGrowth}
         />
-        
         <StatsCard
           title="Categories"
           value={stats.totalCategories}
-          icon="📂"
+          icon={FolderTree}
           description="Domain categories"
           trend={null} // Categories don't change often
         />
       </div>
 
-      {/* Main Dashboard Content Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        
-            {/* Left Column: Quick Actions */}
-            <div className="space-y-6">
-            
-            {/* Quick Actions Card */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                ⚡ Quick Actions
-                </h3>
-                <QuickActions />
-            </div>
-            
-            {/* Health Check Card */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                🔍 System Health
-                </h3>
-                <HealthCheck stats={stats} />
-            </div>
-            
-            </div>
+      {/*
+        Two columns on large screens. The hand-rolled
+        `bg-white rounded-lg border border-gray-200 p-6` wrappers are gone — each panel is
+        now a real `Card`, so the surface, border and radius all come from the theme
+        instead of three fixed classes repeated per panel.
+      */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Zap className="size-4 text-muted-foreground" aria-hidden="true" />
+                Quick Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <QuickActions />
+            </CardContent>
+          </Card>
 
-            {/* Right Column: Activity Feed */}
-            <div className="space-y-6">
-            
-            {/* Recent Activity Card */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                📈 Recent Activity
-                </h3>
-                <ActivityFeed />
-            </div>
-            
-            </div>
-        
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Activity className="size-4 text-muted-foreground" aria-hidden="true" />
+                System Health
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <HealthCheck stats={stats} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <History className="size-4 text-muted-foreground" aria-hidden="true" />
+              Recent Activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ActivityFeed activities={activities} />
+          </CardContent>
+        </Card>
       </div>
-      
-    </div>
+    </>
   );
 }
 
 /**
+ * Real recent activity, replacing the `DEMO_ACTIVITIES` array the feed used to render
+ * (Phase G-2).
+ *
+ * ⚠️ Three small queries rather than one, because there is no shared table to sort across
+ * — `Domain`, `Page` and `Table` are separate models. Each is `take: 5`, so the cost is
+ * bounded at 15 rows regardless of catalogue size; they are merged and re-sorted in memory
+ * and the top 6 kept.
+ *
+ * Deliberately narrow `select`s: this needs a title, a timestamp and enough to build a
+ * link. Using `include` here would repeat #22.1, where the tables screen pulled 2.45 MB of
+ * JSON to render a list.
+ *
+ * ⚠️ `updatedAt` exists on all three only because of #3/5b. Before that migration this
+ * panel could not have shown anything true, which is very likely why it shipped stubbed.
+ */
+async function fetchRecentActivity(): Promise<ActivityEntry[]> {
+  try {
+    const [domains, pages, tables] = await Promise.all([
+      prisma.domain.findMany({
+        select: { id: true, name: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+      }),
+      prisma.page.findMany({
+        // `__main__` is a synthetic root with no admin screen of its own, so surfacing it
+        // in a feed of clickable changes would produce entries that go nowhere useful.
+        where: { slug: { not: '__main__' } },
+        select: {
+          id: true,
+          title: true,
+          updatedAt: true,
+          domain: { select: { name: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+      }),
+      prisma.table.findMany({
+        select: {
+          id: true,
+          name: true,
+          updatedAt: true,
+          page: { select: { domain: { select: { name: true } } } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+      }),
+    ]);
+
+    const entries: ActivityEntry[] = [
+      ...domains.map(d => ({
+        id: d.id,
+        kind: 'domain' as const,
+        title: d.name,
+        context: null,
+        timestamp: d.updatedAt.toISOString(),
+        href: '/admin/domains',
+      })),
+      ...pages.map(p => ({
+        id: p.id,
+        kind: 'page' as const,
+        title: p.title,
+        context: p.domain?.name ?? null,
+        timestamp: p.updatedAt.toISOString(),
+        href: '/admin/pages',
+      })),
+      ...tables.map(t => ({
+        id: t.id,
+        kind: 'table' as const,
+        title: t.name,
+        context: t.page?.domain?.name ?? null,
+        timestamp: t.updatedAt.toISOString(),
+        // Tables are the one kind with a real detail route to link to.
+        href: `/admin/tables/${t.id}`,
+      })),
+    ];
+
+    return entries
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, 6);
+  } catch (error) {
+    // An empty feed is honest; a crashed dashboard is not. Matches how
+    // `fetchDashboardStats` below degrades.
+    console.error('Error fetching recent activity:', error);
+    return [];
+  }
+}
+
+/**
  * Fetch Dashboard Statistics
- * 
+ *
  * Gathers all the data needed for dashboard display:
  * - Counts of domains, pages, content blocks, categories
  * - Health check information

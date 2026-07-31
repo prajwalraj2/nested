@@ -1,69 +1,72 @@
-/**
- * Statistics Card Component
- * 
- * Displays a key metric in a card format with:
- * - Large number value
- * - Descriptive title and icon  
- * - Additional context description
- * - Optional growth trend indicator
- * 
- * Used on dashboard to show system statistics like
- * total domains, pages, content blocks, etc.
- */
+import type { LucideIcon } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
+/**
+ * A single dashboard metric (Phase G-2).
+ * ============================================================================
+ *
+ * Rebuilt on shadcn `Card`. The previous version was a hand-rolled
+ * `bg-white rounded-lg border border-gray-200 p-6` — a fixed light surface that could not
+ * follow the theme shipped in #21, with 11 hardcoded colour classes in 69 lines.
+ *
+ * ⚠️ `icon` is now a lucide COMPONENT, not an emoji string. Emoji cannot inherit
+ * `currentColor`, so they ignored the theme entirely — the same reason the sidebar icons
+ * were replaced in G-1. Typing it as `LucideIcon` also makes an invalid icon a compile
+ * error rather than a character that silently renders as a box on some platforms.
+ */
 type StatsCardProps = {
-  title: string;           // Main card title (e.g., "Total Domains")
-  value: number;          // The main statistic number to display
-  icon: string;           // Emoji icon for visual identification
-  description: string;    // Additional context (e.g., "5 published")
-  trend?: string | null;  // Growth trend (e.g., "+12%") - optional
+  title: string;
+  value: number;
+  icon: LucideIcon;
+  /** Secondary context, e.g. "34 published". */
+  description: string;
+  /** Growth indicator such as "+12%". `null` renders no badge at all. */
+  trend?: string | null;
 };
 
-export function StatsCard({ 
-  title, 
-  value, 
-  icon, 
-  description, 
-  trend 
-}: StatsCardProps) {
+export function StatsCard({ title, value, icon: Icon, description, trend }: StatsCardProps) {
+  /**
+   * Direction drives the badge colour. Read from the leading character rather than parsing
+   * a number, because the value arrives pre-formatted as a string ("+12%", "0%").
+   *
+   * `default` / `destructive` / `secondary` are shadcn's own variants, so they carry the
+   * theme's semantic colours instead of the old hardcoded `bg-green-100 text-green-700`.
+   */
+  const trendVariant = trend?.startsWith('+')
+    ? 'default'
+    : trend?.startsWith('-')
+      ? 'destructive'
+      : 'secondary';
+
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow">
-      
-      {/* Card Header: Icon and Title */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center">
-          <span className="text-2xl mr-3">{icon}</span>
-          <h3 className="font-medium text-gray-900">{title}</h3>
-        </div>
-        
-        {/* Optional Growth Trend Badge */}
-        {trend && (
-          <span className={`
-            px-2 py-1 text-xs rounded-full font-medium
-            ${trend.startsWith('+') 
-              ? 'bg-green-100 text-green-700' 
-              : trend.startsWith('-')
-              ? 'bg-red-100 text-red-700'
-              : 'bg-gray-100 text-gray-700'
-            }
-          `}>
-            {trend}
+    <Card>
+      {/*
+        Title row: label left, icon right. That is the conventional stat-tile arrangement —
+        the eye lands on the number first, and the icon acts as a quiet identifier rather
+        than competing with it. The old version put a 2xl emoji *before* the title, which
+        made the icon the loudest thing in the card.
+      */}
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">
+          {title}
+        </CardTitle>
+        <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-baseline gap-2">
+          {/* `toLocaleString` so 1197 reads as 1,197 — kept from the original. */}
+          <span className="text-2xl font-bold text-foreground">
+            {value.toLocaleString()}
           </span>
-        )}
-      </div>
-
-      {/* Main Value Display */}
-      <div className="mb-2">
-        <span className="text-3xl font-bold text-gray-900">
-          {value.toLocaleString()}
-        </span>
-      </div>
-
-      {/* Description/Context */}
-      <p className="text-sm text-gray-600">
-        {description}
-      </p>
-      
-    </div>
+          {trend && (
+            <Badge variant={trendVariant} className="text-xs">
+              {trend}
+            </Badge>
+          )}
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+      </CardContent>
+    </Card>
   );
 }

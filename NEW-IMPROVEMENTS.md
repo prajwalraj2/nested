@@ -47,6 +47,7 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 20  | **CONFIRMED BUG: 5 admin screens are frozen at build time — edits never appear**   | 🔴 **Critical** | Correctness / UX   | 1 hr      |
 | ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
 | ~    | 22  | **Admin audit — 22.1/22.3/22.4/22.5 DONE; only 22.2 (write-once table data) open** | 🔴 **Critical** | Functionality      | multi-day |
+| [x]  | 23  | **PRODUCTION OUTAGE: all rich-text admin routes 500 — unpinned Node version**      | 🔴 **Critical** | Deploy / Runtime   | 20 min    |
 
 
 **Sub-items:**
@@ -4642,6 +4643,81 @@ tablet width — was not tested; there is no headless browser installed.
 
 
 
+## 🔴 23. Production Outage — Every Rich-Text Admin Route 500'd on an Unpinned Node Version
+
+**Severity:** Critical — rich-text content could not be listed, created **or edited** on
+production. **Status:** ✅ **FIXED 30 Jul 2026.**
+
+Reported as "on rich-text when I select a domain it gives error" on atno.io, while the same
+screen worked locally.
+
+### The error, from the Vercel log
+
+```
+Failed to load external module jsdom: [ERR_REQUIRE_ESM]
+require() of ES Module /var/task/node_modules/@exodus/bytes/encoding-lite.js
+from /var/task/node_modules/html-encoding-sniffer/lib/html-encoding-sniffer.js not supported
+```
+
+Chain: `src/lib/sanitize-html.ts` → `isomorphic-dompurify` → **jsdom** →
+`html-encoding-sniffer` → `@exodus/bytes` (ESM-only).
+
+### Root cause: the runtime was never pinned
+
+- Local Node is **v22.12.0**, the release that added `require()` of ES modules — so it works.
+- **`package.json` had no `engines` field**, so Vercel chose its own default. On Node 20,
+  `require()` of an ESM-only package throws exactly this.
+
+Nothing pinned the runtime, so local and production silently diverged. Fixed with
+`engines.node: ">=22.12.0"` plus a `.nvmrc`.
+
+⚠️ **Vercel may still need Project Settings → General → Node.js Version set explicitly.** The
+`engines` field should drive it, but a project created when 20.x was the default can have a
+dashboard setting that overrides.
+
+### ⚠️ The bigger problem it exposed: a module-scope import took down reads
+
+The sanitiser was imported at the **top of the route file**, so loading the module threw and
+**every handler in it failed — including the `GET` that sanitises nothing.** The same top-level
+import exists in `rich-text/[pageId]/route.ts`, which is why **editing existing rich text was
+broken on production too**, not just the listing.
+
+`sanitizeRichTextHtml` is now imported **lazily inside the POST handler**. A read endpoint has
+no business loading a full DOM implementation, and this means a future break in that dependency
+tree can only affect writing, not reading.
+
+### How three wrong hypotheses were eliminated first
+
+Recorded because each looked plausible and each was tested against **production data**
+(read-only) rather than reasoned about:
+
+| Hypothesis | Result |
+| ---------- | ------ |
+| A data-dependent bug in #22.4's `previewUrl` change | ❌ 39 pages, all URLs resolve, 0 nulls |
+| Response exceeding Vercel's ~4.5 MB limit | ❌ 0.35 MB |
+| The added query pushing past a 10s function timeout | ❌ 4.2s total; the new query is 416 ms of it |
+| Dependency drift between local and the lockfile | ❌ identical versions both sides |
+
+The Vercel log settled it in one line. **Lesson: for an environment-specific failure, get the
+server log before forming a theory** — three tested-and-wrong hypotheses cost more than reading
+the log would have.
+
+### Test cases
+
+- `GET /api/admin/rich-text?domainId=…` → 200, 39 pages, `previewUrl` intact.
+- `POST /api/admin/rich-text` → 200, and the lazy import genuinely loads: `<script>` and
+  `onclick` stripped, `<p>`/`<a href>` preserved. Proving the sanitiser still runs is the point
+  — a lazy import that silently failed would leave stored HTML unsanitised.
+
+### Follow-up worth considering
+
+`isomorphic-dompurify` drags in the whole of jsdom for what is a server-side string clean.
+A DOM-free sanitiser would remove this class of failure entirely and shrink the bundle. Not
+changed here — swapping the sanitiser means re-validating the allow-list against all 415 stored
+rows, which is #2's work over again.
+
+---
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -4657,7 +4733,7 @@ phase, merged to `master` → auto-deploys to `atno.io`.
 | **D** | Polish (metadata, JSON-LD, breadcrumb labels) | ~ complete except product content |
 | **E** | Security hardening + resilience | ✅ complete (**#17** half — dev branch row remains) |
 | **F** | Performance + admin correctness | ~ **#18 #20 #22.4 #22.1 #22.3 #22.5 #22.2(a) done**; only **22.2(b)/(c)** left, and both wait for Phase G |
-| **G** | Admin UI rebuild on shadcn | ~ **G-1 shell DONE** (74 → 0 hardcoded colours); G-2 Dashboard next |
+| **G** | Admin UI rebuild on shadcn | ~ **G-1 shell + G-2 Dashboard DONE**; G-3 Domains next |
 
 **Next: Phase G — the shadcn admin rebuild.** Everything cheap and non-visual in Phase F is
 done; what remains (`22.2(b)` row editing, `22.2(c)` schema editing, `22.6` dialogs, tables
@@ -5240,7 +5316,7 @@ cases, so a regression is traceable to one screen.
 | Step | Scope | Notes |
 | ---- | ----- | ----- |
 | **G-1** ✅ | **Shell** — `AdminLayout`, `AdminSidebar`, `AdminHeader`, breadcrumb | **DONE 30 Jul.** See below. **Zero new installs** — every primitive was already present. |
-| **G-2** | **Dashboard** | Simplest page — validates the new patterns cheaply before anything complex. |
+| **G-2** ✅ | **Dashboard** | **DONE 30 Jul.** Hardcoded colours **89 → 8** (all 8 intentional). Found and fixed **three real bugs** — see below. |
 | **G-3** | **Domains** | Most-used screen. |
 | **G-4** | **Pages** | Same. |
 | **G-5** | **Tables list + editor** | Biggest. **`#22.2(b)` row editing and `#22.2(c)` schema editing land here**, plus tables **pagination** (the residual 1.73 MB from #22.1). |
@@ -5328,6 +5404,73 @@ session. A markup rewrite must not alter behaviour, so this is checked rather th
 Page-level content is untouched — every screen still renders its own `<h1>`, its own
 `bg-white` cards and its own hardcoded colours. Those belong to G-2…G-8. **Only the shell
 changed**, which is what keeps this diff reviewable.
+
+---
+
+#### ✅ G-2 DONE — 30 Jul 2026 (Dashboard)
+
+**1 new shared file, 5 rewritten. Hardcoded colours 89 → 19**, of which 11 are inside comments
+quoting the removed classes — so **8 real ones remain**, all deliberate: the four health
+statuses with explicit `dark:` pairs. A warning must read as a warning in both themes, which is
+the same reasoning `DataTable` already uses.
+
+New `AdminPageHeader` establishes the title/description/actions pattern for G-3…G-8. All 13
+screens hand-rolled that block, so it was 13 chances for size, weight and spacing to drift.
+
+##### ⚠️ Three real bugs found while rebuilding — none cosmetic
+
+**1. The Recent Activity panel was showing fabricated data.**
+
+`ActivityFeed` rendered a module-level `DEMO_ACTIVITIES` array — invented entries with invented
+timestamps, presented exactly like real records. That is why the dashboard read *"Created
+YouTube Channel page in Graphic Designing — 30 minutes ago"* when nothing of the sort had
+happened. Its own comment said "replace with real data later".
+
+It now queries `updatedAt` on `Domain`, `Page` and `Table`. ⚠️ The label says **"Updated"**, not
+"Created" — `updatedAt` cannot distinguish the two, and guessing would repeat the original sin
+in a subtler form. Those columns only exist because of **#3/5b**; before that migration this
+panel could not have been built honestly, which is very likely why it shipped stubbed.
+
+**2. A Quick Action pointed at a route that does not exist.**
+
+`Edit Content → /admin/content` — a 404, the same class as the `/admin/editor` sidebar entry
+found in G-1. Two others were dead weight: *View All Domains* went to `/admin/domains`, already
+the destination of *Create New Domain*, and *System Overview* linked to `/admin` — the page you
+are already on. Replaced with the three real routes that had no shortcut: tables, rich text and
+section layout. **Six actions, six distinct working destinations.**
+
+**3. "System Operational" was hardcoded.**
+
+A green "All core systems are running smoothly" banner rendered unconditionally, directly above
+a list that could be showing errors — so the panel could simultaneously claim health and report
+critically low content coverage. The summary is now **derived from the worst item**. Two related
+fixes: the "Quick Fixes" buttons had **no `onClick`** (dead controls, same pattern as #22.5) and
+are now real links to the screen that fixes each problem; and a hardcoded "Performance Optimal"
+row that measured nothing was removed, because reporting health you have not checked trains the
+reader to ignore the panel.
+
+##### Also removed
+
+The "Welcome to Your Admin Dashboard! 👋" gradient banner. It used the most valuable space on
+the screen to tell someone already signed in that the admin panel manages domains and pages —
+a sentence never needed after the first visit — and its `from-blue-50 to-indigo-50` gradient was
+hardcoded light. The stats now start at the top.
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. Real statistics still shown** — domain (35), page (1,198) and category (7) counts all
+present; welcome banner gone.
+
+**B. Activity is real** — no `DEMO_ACTIVITIES` in the output, and the feed contains a genuinely
+most-recently-updated record (verified against the database), labelled "Updated".
+
+**C. Every dashboard link resolves** — all 12 `/admin/*` hrefs fetched; **0 broken**. No
+`/admin/content`. This is the check that would have caught the original bug.
+
+**D. Health summary is derived** — with 0 unpublished domains it reads "All checks passing";
+the hardcoded "System Operational" string is gone.
+
+**E. Regression** — the other 7 admin screens still return 200.
 
 ---
 
