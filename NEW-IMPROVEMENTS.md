@@ -5447,7 +5447,10 @@ cases, so a regression is traceable to one screen.
 | **G-3a** ✅ | **Domains — page container** | **DONE 30 Jul.** Colours **53 → 1**. Form → dialog; 4 stat panels → 3; 2 dead buttons removed; stray `Roboto` import removed. Also fixed a document-level **horizontal scrollbar** (`min-w-0` on `SidebarInset`). |
 | **G-3b** ✅ | **Domains — the table** | **DONE 31 Jul.** Colours **64 → 0**. Found **four real bugs** — the publish button was never wired to its API at all, and both modal backdrops rendered solid black (`bg-opacity-50` is dead in Tailwind v4). Installed `alert-dialog`. See below. |
 | **G-3c** ✅ | **Domains — `DomainForm` + `DomainFilters`** | **DONE 1 Aug.** Colours **65 → 0** and **33 → 0**; no new installs. Filters became a responsive grid, so the component that *caused* the G-3a overflow no longer needs the workaround. Hit **two Radix `Select` traps** (empty-string values throw; `SelectValue` server-renders blank). Added a **slug-change warning** — renaming a slug 404s every page under it and there is no redirect table. **`/admin/domains` is now fully rebuilt.** |
-| **G-4** | **Pages** | Same. |
+| **G-4a** ✅ | **Pages — the state bug, alone** | **DONE 1 Aug.** ⚠️ **Correctness only — one file, logic + comments, zero JSX touched**, so it is reviewable in isolation. The page tree rendered **empty on first load** and built **another domain's URLs** after switching — one stale-closure root cause. **Proven: the API returns 70 pages and every one was discarded.** See the G-4 findings below. |
+| **G-4b** ✅ | **Pages — shell + `PagesManager` chrome** | **DONE 1 Aug.** Colours **12 + 26 → 0**; no new installs. Removed a **`Roboto` import that was never referenced**. `confirm()`/`alert()` → an `AlertDialog` that **states the descendant count** the API actually deletes (#22.6). Gradient banner gone; the "Understanding Domain Types" panel is now a closed `Collapsible` with its content kept verbatim. Details below. |
+| **G-4c** ✅ | **Pages — `PageTree` + `DomainSelector`** | **DONE 1 Aug.** Colours **51 + 43 → 0**, zero new installs. The tree printed **150 redundant labels** per 50-page domain and dropped a **Parent column that repeated one constant string 49 times**; rows went from three lines to one. Fixed a **keyboard trap** — `opacity-0` hover-only actions stay in the tab order, so a 50-page tree had 200 invisible tab stops. `DomainSelector` became a searchable `Popover`+`Command`. Details below. |
+| **G-4d** ✅ | **Pages — `PageForm`** | **DONE 1 Aug.** Colours **59 → 0**; `/admin/pages` fully rebuilt (**191 → 0** across 5 files, **zero new installs** for all of G-4). Fixed two real bugs: **"Default (`__main__` page)" detached the page from `__main__` when editing** (POST compensates, PUT does not), and the parent list's `'  '.repeat(depth)` indentation **never rendered** because HTML collapses whitespace. Six radio cards → one `Select`, which also fixed **invisible keyboard focus**. Details below. |
 | **G-5** | **Tables list + editor** | Biggest. **`#22.2(b)` row editing and `#22.2(c)` schema editing land here**, plus tables **pagination** (the residual 1.73 MB from #22.1). |
 | **G-6** | **Categories + Section Layout** | |
 | **G-7** | **Rich Text list + editor** | |
@@ -5866,6 +5869,358 @@ than overflowing at a narrow width.
 legitimate app-wide font**. The remaining 4 are `admin/categories/page.tsx`, `admin/pages/page.tsx`,
 `CategoryForm.tsx` and `PagesManager.tsx` — they land in **G-4** (pages) and **G-6** (categories).
 
+#### Phase G-4 — Pages: findings before the rebuild (audited 1 Aug 2026)
+
+**5 files, 1,826 lines, 191 hardcoded colours** — noticeably larger than the Domains screen.
+
+| File | Lines | Colours |
+| ---- | ----- | ------- |
+| `src/app/admin/pages/page.tsx` | 147 | 12 |
+| `src/components/admin/pages/PagesManager.tsx` | 459 | 26 |
+| `src/components/admin/pages/PageTree.tsx` | 397 | 51 |
+| `src/components/admin/pages/DomainSelector.tsx` | 217 | 43 |
+| `src/components/admin/pages/PageForm.tsx` | 606 | 59 |
+
+##### ⚠️⚠️ THE PAGE TREE IS EMPTY ON FIRST LOAD — a stale-closure bug
+
+This is very likely a large part of the complaint recorded in **#20** ("I change/update/create
+some things — it does happen on the live website, but so many things don't show up in the
+Admin UI").
+
+`fetchPagesForDomain` closes over the `selectedDomain` **state variable** instead of using the
+domain it was asked to fetch:
+
+```js
+const fetchPagesForDomain = async (domainId: string) => {
+  const data = await response.json();
+  const hierarchicalPages = buildPageHierarchy(data.pages, selectedDomain);  // <- stale
+```
+
+and `buildPageHierarchy` begins `if (!domain || !flatPages.length) return []`.
+
+**Two distinct symptoms, one cause:**
+
+1. **On mount — nothing renders.** The effect runs `setSelectedDomain(d)` then
+   `fetchPagesForDomain(d.id)`. A state setter does **not** retroactively update a closure that
+   has already been created, so `selectedDomain` is still `null` inside that call →
+   `buildPageHierarchy` returns `[]` → `setPages([])`. **The fetch succeeds and its result is
+   discarded.** The effect's deps are `[selectedDomainId, domains]`, neither of which changed,
+   so it never re-runs and the screen never recovers.
+
+2. **After switching domains — the wrong domain's URLs.** The closure now holds the
+   *previous* domain, so `fullPath` and `previewUrl` are computed from the wrong `pageType`
+   (which decides whether `__main__` is skipped in the path) and the wrong `domain.slug`.
+   Preview links point into a different domain entirely.
+
+**Fix:** pass the domain object into `fetchPagesForDomain` rather than reading it from state.
+Fixed alone in **G-4a**, before any restyling, per this phase's own rule.
+
+##### ✅ G-4a DONE — 1 Aug 2026
+
+**One file. 57 insertions, 19 deletions, and `git diff` touches no JSX, no `className`, no
+markup at all** — deliberately, so the correctness fix can be reviewed without a restyling
+diff in the way.
+
+`fetchPagesForDomain(domainId: string)` became `fetchPagesForDomain(domain: Domain)`, and
+`buildPageHierarchy` is handed that argument instead of reading `selectedDomain` from state.
+All 5 call sites updated. **This is preferable to adding `selectedDomain` to a dependency
+array**: passing the value removes the timing question entirely, rather than trying to win it.
+
+Two call sites (`handleFormSuccess`, `handleDeletePage`) still read `selectedDomain` — that is
+safe and is commented as such: they run from a user action long after the state settled, not in
+the same tick as the setter that assigned it.
+
+###### ⚠️ How the bug was proven without a browser
+
+The tree renders client-side after a fetch, so server HTML cannot show it. The claim was
+established as a three-link chain instead, each link checked separately:
+
+1. **The fetch succeeds.** `GET /api/admin/pages?domain=<Graphic Designing>` → **200**, 27,711
+   bytes, `success: true`, **`pages.length === 70`**, `__main__` present.
+2. **Those 70 were discarded.** `buildPageHierarchy` line 2 is
+   `if (!domain || !flatPages.length) return []` — with `domain === null` it cannot return
+   anything else.
+3. **`domain` was `null` on mount.** `setSelectedDomain(d)` schedules the next render; it does
+   not reach into a closure that already exists. So the call created during the first render
+   saw the initial `null`.
+
+**Regression:** all 8 admin screens 200, `/domain` and `/sitemap.xml` 200, and `/admin/pages`
+still renders "Page Management System", "Select Domain" and "Understanding Domain Types" — the
+shell is untouched by this commit and is G-4b's job.
+
+⚠️ **Still needs a browser to confirm the symptom is actually gone**: open `/admin/pages` and
+check the tree is populated on first load, then switch domains and check the preview links
+point at the domain you selected.
+
+**✅ CONFIRMED IN THE BROWSER (1 Aug):** the tree loads populated — 50 pages for UI/UX
+Designing — and the preview URLs read `/domain/uiux/...`, i.e. the domain actually selected.
+Both symptoms gone.
+
+##### ✅ G-4b DONE — 1 Aug 2026 (shell + `PagesManager` chrome)
+
+**Hardcoded colours: `page.tsx` 12 → 0, `PagesManager.tsx` 26 → 0.** No new dependencies.
+The G-4a fix was preserved intact — all 5 `fetchPagesForDomain` call sites still pass the
+domain object.
+
+- **⚠️ A `Roboto` import that was never referenced** — `page.tsx` built the font object and
+  then never used it, not one `roboto.className` in the file. `PagesManager` did use its own
+  copy, on five headings. Both gone.
+- **Gradient banner removed** (third time this phase, after G-2 and G-3a): `from-purple-50
+  to-blue-50`, describing the screen you are already looking at, hardcoded light.
+- **"Understanding Domain Types" → a closed `Collapsible`.** Content kept **verbatim**,
+  because the direct-vs-hierarchical distinction is the one part of this app's model that is
+  not self-evident from the UI. Restructured as `<dl>`/`<dt>`/`<dd>` — they are label/value
+  pairs, and that is what conveys the relationship to a screen reader.
+- **`?expand=` now filters empty segments.** An absent parameter produced `['']` — a page id
+  that matches nothing. Harmless today, but it made the empty and one-item cases differ.
+
+###### ⚠️ Delete now states what it actually deletes
+
+`DELETE /api/admin/pages/[id]` collects **every descendant**, then removes their content
+blocks and each page in one transaction. The guard was a browser `confirm()` reading
+*"Are you sure you want to delete this page? This action cannot be undone."* — no number.
+
+The count is computed **from the tree already in memory** (`countDescendants`, recursive)
+rather than asking the server, because `buildPageHierarchy` has already nested every page of
+the domain. Counting `children.length` alone would report 3 for a branch that takes 20 pages
+with it — **worse than saying nothing**.
+
+⚠️ `confirm()` is *synchronous*, so it cannot be swapped for a dialog in place — the call site
+had to be split into "open" (`handleDeletePage`) and "confirm" (`confirmDeletePage`). That is
+the restructuring #22.6 predicted for all 3 `confirm()` calls.
+
+**Deliberately NO type-to-confirm here**, unlike the domain delete in G-3b. Deleting a domain
+destroys 70 pages and is rare; pruning a page is routine. Adding friction to a frequent action
+just trains people to click through it.
+
+**The form stays inline rather than moving to a dialog** — unlike the domain form in G-3a. You
+pick a parent from the tree behind it, so a modal would cover the very thing the form is about.
+
+###### ⚠️ TEST CASES
+
+**A. New shell renders** — page header, "Choose a domain to manage its page hierarchy",
+"Understanding domain types" collapsible, and the no-domain empty state all present.
+
+**B. Old shell gone** — "Page Management System", `from-purple-50`, `bg-cyan-50`,
+"Create New Page", 📄 and 🔍: **all absent**.
+
+**C. Delete dialog copy** — in the client bundle ("nested page", "Delete page", "beneath it"),
+not server HTML, since Radix mounts it in a Portal.
+
+**D. Regression** — all 8 admin screens 200; `/domain` and `/sitemap.xml` 200.
+
+**E. Still to check in a browser**: dark mode; that deleting a parent page reports the right
+nested count; that the inline form still opens from both "New page" and a row's `+`.
+
+⚠️ **A verification mistake worth recording:** the header assertion hardcoded "35 domains" and
+reported MISSING. The code was right — **there are now 37 domains**, three having been created
+during testing. Same class of error as the hardcoded sitemap count of 1198 in Phase F: an
+assertion that pins live data goes stale and then accuses correct code. Re-derived from the API.
+
+⚠️ **Build note:** `npm run build` runs `prisma generate && next build`, and the generate step
+hits `EPERM` on the Windows query-engine DLL whenever a dev server holds it. With the user's own
+`npm run dev` running, the fix is **not** to kill it — run `npx next build --turbopack` alone
+(the schema was unchanged) and verify on **port 3001**.
+
+##### ✅ G-4c DONE — 1 Aug 2026 (`PageTree` + `DomainSelector`)
+
+**Hardcoded colours: 51 + 43 → 0. Zero new dependencies** — `command` and `popover` were
+already vendored.
+
+User's verdict going in: *"this is the page where UX is not at all good. We need to improvise
+this page a lot."* Agreed — and these two files **are** the page's UX.
+
+###### ⚠️ Why the tree was unreadable — it is measurable
+
+Every row rendered a four-column grid in which each value carried its own **label
+underneath it**:
+
+```
+🖼️ UI/UX Designing      /__main__      /domain/uiux      Root
+   Section Based           Slug          Preview URL      Parent
+```
+
+With 50 pages that is **150 label renders** — "Slug", "Preview URL", "Parent", fifty times
+each — none of which tells you anything after the first row. They are what made each row
+~80px tall, turning a 50-page domain into a wall you scroll through to find one page.
+
+| Fixed | Why |
+| ----- | --- |
+| **Repeated labels deleted** | `/ytube` is self-evidently a slug |
+| **Parent column deleted entirely** | For a `direct` domain every child read `__main__ (Hidden)` — the same string 49 times, **zero information**. Indentation already shows parentage; that is what a tree *is*. |
+| **Full preview URL no longer printed per row** | It was `/domain/uiux/ytube`, where `/domain/uiux` is identical on all 50 rows |
+| **Rows are one line, not three** | ~3× as many pages on screen — the actual fix for "I can't find anything" |
+| **Emoji + pastel type tiles → lucide icons** | Six `bg-*-100 text-*-700` pairs that signalled nothing and could not inherit `currentColor` |
+| **`▶` text glyph → rotating `ChevronRight`** | Rendered at a different size and baseline on every platform |
+
+###### ⚠️ A keyboard trap in the old action buttons
+
+The four per-row buttons were `opacity-0 group-hover:opacity-100`. **`opacity-0` does not
+remove an element from the tab order** — so a keyboard user tabbed through four *invisible*
+controls per row, **200 invisible stops in a 50-page tree**, one of which was delete. On a
+touch screen there is no hover at all, so they were simply unreachable. Replaced by one
+always-visible menu per row (the G-3b pattern).
+
+Also added **real tree semantics** — `role="tree"`/`treeitem"`/`group`, `aria-expanded`,
+`aria-level`. The old markup was nested `div`s, so assistive tech could not tell it was a
+hierarchy or how deep any row sat.
+
+⚠️ Indentation stays an **inline style**, not a Tailwind class: depth is unbounded and
+`pl-${level*6}` cannot work, because Tailwind only emits classes it can literally see in the
+source at build time.
+
+⚠️ **Delete is omitted for `__main__`, not shown-and-disabled** — the API rejects it outright
+(#11), so offering it would be a control that can only ever fail.
+
+###### `DomainSelector` — the first thing you touch, and it had no search
+
+37 domains in a flat, unsearchable list built from `useState(isOpen)` and an absolutely
+positioned div. **No Escape, no click-outside, no focus trap**, focus never moved into the
+list nor returned to the trigger, and no `role`/`aria-expanded` — so it announced as a plain
+button. Now `Popover` + `Command`: type-to-filter, arrow keys, Enter, Escape, focus
+restoration, correct roles.
+
+⚠️ Each item's `value` includes **slug and category name**, not just the label — so typing
+"design" matches both the name and everything in the Design category. Without it only the
+visible label is searchable, and **34 of 37 names start with an emoji**.
+
+###### ⚠️ TEST CASES
+
+**A. Routes** — all 8 admin screens 200, `/domain` 200.
+**B. Portal/client content in the bundle** — "Search domains", "No domain found", "Add child
+page", "Edit page", "Preview page", "Delete page", "in this domain", "No pages yet",
+"Subcategory list": all present. (Not in server HTML — `Command` and `DropdownMenu` mount
+lazily.)
+**C. The removals** — `>Slug<`, `>Parent<`, `getParentDisplay`, `getContentTypeColor` gone
+from source; the only remaining `Preview URL` / `opacity-0 group-hover` hits are comments
+quoting what was removed.
+**D. No new dependencies** — `package.json` unchanged.
+**E. Still to check in a browser**: dark mode; that the domain search filters as expected;
+that expand/collapse still persists through `?expand=`; that the row menu does not clip at
+the right edge on a deep row.
+
+###### Still weak after G-4c — candidates if the screen needs more
+
+These are **not** done and are not part of G-4d:
+
+- **No way to search or filter pages within a domain.** With 50+ pages the tree is still a
+  scroll. This is probably the largest remaining gap.
+- **No expand-all / collapse-all.**
+- **No drag to reorder or re-parent** — moving a page means editing it and changing its
+  parent in a dropdown.
+- **Nothing distinguishes a page with content from an empty one**, so you cannot see what
+  still needs writing.
+
+##### ✅ G-4d DONE — 1 Aug 2026 (`PageForm`)
+
+**59 → 0 colours. `/admin/pages` is now fully rebuilt: 191 hardcoded colours across 5 files
+→ 0, and zero new dependencies for the whole of G-4.**
+
+###### ⚠️ BUG — "Default (`__main__` page)" did the opposite when editing
+
+The parent dropdown offered `<option value="">Default (__main__ page)</option>`, and choosing
+it set `parentId` to `null`. Whether that was right depended on which endpoint received it:
+
+- **`POST`** compensates — `if (domain.pageType === 'direct' && !parentId)` looks up (or
+  creates) `__main__` and uses its id. **Creating worked.**
+- **`PUT`** does not — it stores `parentId: parentId || null` verbatim. **Editing an existing
+  page and choosing the option labelled "Default (`__main__` page)" detached it from
+  `__main__` and made it a root page** — the opposite of the label.
+
+On a `direct` domain the entire URL model hangs off `__main__` (#11), so a detached page gets
+a different public path than the tree shows.
+
+**Fixed in the form, not the API**, because the form is where the ambiguity lives: a `direct`
+domain now offers **no "no parent" option at all**. `__main__` appears as a normal selectable
+row ("Main page (hidden root)") and is the default, so **both endpoints receive a concrete id
+and cannot disagree about what it means.** The API is untouched and its POST-side correction
+remains as a backstop.
+
+###### ⚠️ BUG — the parent list's indentation never rendered
+
+Depth was built with `{'  '.repeat(page.depth)}` inside an `<option>`. **HTML collapses runs
+of whitespace**, so every entry rendered flush left no matter how deep it sat — in App
+Development's 116-page tree, an unreadable flat list. Depth is now real padding on a
+`SelectItem`, which is a `div` we control rather than an `<option>` we do not.
+
+###### Other changes
+
+- **⚠️ Six radio cards → one `Select`.** The old control was a three-column grid of six
+  bordered cards, each three lines tall (label, description, italic example) — roughly 250px
+  of an inline form you are trying to see **past** to reach the tree. Descriptions kept inside
+  the dropdown, where they help at the moment of choosing; the "example" third line dropped.
+- **⚠️ It also hid keyboard focus completely.** Each card had `focus:outline-none` on the
+  label with an `sr-only` radio inside, so moving through the six options gave **no visual
+  indication of where you were**.
+- **Slug-change warning**, matching G-3c: changing an existing page's slug changes its public
+  URL and every descendant's, with no redirect table. The old guard was the hint text "be
+  careful changing this".
+- **`SUPPORTED_COUNTRIES` imported and never used** — the identical dead import that
+  `DomainForm` had before G-3c.
+- Country pills → toggle `Button`s with `aria-pressed`, matching `DomainForm`.
+
+###### ⚠️ Also fixed: the page count contradicted itself
+
+Spotted in the user's screenshot — the header badge read **"3 pages"** while the tree
+immediately below read **"116 pages in this domain"**. `pages` is the array of **root** pages,
+so the badge was counting roots. **Pre-existing** (it said "3 pages *total*" before, which was
+worse), and carried forward through G-4b before being caught.
+
+For a `direct` domain it was worse still: every page hangs off `__main__`, the only root, so
+the badge always said **"1 page"** regardless of the real count. Now uses the recursive total,
+sharing `countDescendants` with the delete dialog so the two numbers cannot drift.
+
+###### ⚠️ TOOLING NOTE — do not `next build` while a dev server is running
+
+`next build` and `next dev` write to **the same `.next` directory**. Building while the user's
+`npm run dev` was serving from it produced `PageNotFoundError: Cannot find module for page`
+for `/_not-found`, `/admin/rich-text`, `/admin/tables/new` and others — *after* reporting
+"Compiled successfully" — and left their dev server unresponsive on :3000.
+
+Recovery: `rm -rf .next` (build output, ignored via `/.next/` in `.gitignore`) and rebuild
+clean. **Prevention: check :3000 before building.** This is the third distinct `.next`
+corruption in this project, and the first with a known cause.
+
+###### ⚠️ TEST CASES
+
+**A. Every route 200** after the clean rebuild — all 9 admin routes including
+`/admin/tables/new` and `/admin/rich-text`, the two that had thrown `PageNotFoundError`;
+`/domain` 200; an unknown path still 404s (so `/_not-found` is intact).
+
+**B. Form copy in the client bundle** — "Root level (no parent)", "Main page (hidden root)",
+"under the main page", "there are no redirects", "Organised content blocks", "Save changes".
+
+**C. Colours** — all 5 Pages files: **0** outside comments.
+
+**D. Roboto sweep** — `next/font/google` now in **3** files: `layout.tsx` (legitimate,
+app-wide) plus `admin/categories/page.tsx` and `CategoryForm.tsx`, both of which land in G-6.
+
+**E. ⚠️ Must be checked in a browser** — the two bugs above are the ones to exercise:
+1. On a **direct** domain (e.g. UI/UX Designing), **edit** an existing page, leave the parent
+   alone, save — it must stay under the main page, not jump to root.
+2. Open the parent dropdown on **App Development** (116 pages) — entries should be visibly
+   indented by depth.
+3. The page-count badge should now match the tree's count.
+
+##### Other findings
+
+- **⚠️ `admin/pages/page.tsx` declares `Roboto` and never uses it.** `roboto` is referenced
+  exactly once — at its own declaration. Dead weight, unlike the other three importers which
+  at least apply `roboto.className`.
+- **⚠️ Delete never states the blast radius.** `DELETE /api/admin/pages/[id]` deletes the page
+  **and every descendant** in a transaction; the UI guard is a browser `confirm()` reading only
+  "This action cannot be undone". The API already computes the descendant count and already
+  refuses to delete `__main__` (#11) — so the count exists and is simply not shown. Same
+  treatment as the domain delete in G-3b. Lands in **G-4b** with the `confirm()`/`alert()`
+  removal (#22.6).
+- **`DomainSelector` is a hand-rolled dropdown** — `useState(isOpen)` plus a div. No Escape, no
+  focus trap, no click-outside dismissal. With 35 domains it should be searchable.
+- **`PageTree` puts four emoji buttons on every row** (`+`, 🔗, ✏️, 🗑️) — the exact pattern
+  replaced in G-3b, including a destructive delete adjacent to edit.
+- The page shell has a gradient banner plus a large hardcoded "Understanding Domain Types"
+  explainer panel in cyan/blue/purple — reference material that is read once and then scrolled
+  past forever, the same case as the Domains tips box (which became a closed `Collapsible`).
+
 ---
 
 ### Phase G — original scope notes
@@ -5958,6 +6313,44 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 40 (Aug 1): **G-4b/c/d DONE — `/admin/pages` is fully rebuilt.* **191 hardcoded
+colours across 5 files → 0, with zero new dependencies.** *The tree was the worst-reading
+screen in the admin and the reason was measurable: every row printed its own labels beneath
+each value, so a 50-page domain rendered* **150 redundant "Slug"/"Preview URL"/"Parent"
+labels**, *and the Parent column repeated the constant* `__main__ (Hidden)` *49 times. Deleted
+both, plus the full preview URL that shared an identical prefix on every row — rows went from
+three lines to one.* **Found a keyboard trap:** *the four per-row actions were* `opacity-0
+group-hover:opacity-100`, *and* `opacity-0` **does not remove an element from the tab order** —
+*200 invisible tab stops in a 50-page tree, one of them delete, and unreachable entirely on
+touch. The domain picker (the first thing you touch on every visit) had* **no search across 37
+domains**, *no Escape, no focus trap; now* `Popover`+`Command`, *searching slug and category
+too because 34 of 37 names start with an emoji.* **Two real bugs in the form:** *the parent
+option labelled "Default (`__main__` page)"* **detached the page from `__main__` when editing**
+*— POST compensates for a null parent, PUT stores it verbatim — fixed in the form by removing
+the ambiguous option entirely so both endpoints get a concrete id; and the parent list's*
+`'  '.repeat(depth)` *indentation* **never rendered, because HTML collapses whitespace**.
+*Also fixed a page count that contradicted itself on screen (badge "3 pages" vs tree "116
+pages" — it was counting roots).* ⚠️ **Tooling lesson recorded:** `next build` *and* `next dev`
+*share* `.next`, *so building while the user's dev server was serving produced*
+`PageNotFoundError` *for four routes* **after** *reporting "Compiled successfully", and killed
+their server. Check :3000 before building.*
+
+*Revision 39 (Aug 1): **G-4a DONE — the Pages tree was throwing away every page it fetched.**
+Audited the Pages screen (5 files, 1,826 lines, 191 colours) and found a stale-closure bug with
+two symptoms and one cause:* `fetchPagesForDomain` *read* `selectedDomain` *from state instead of
+using the domain it was asked to fetch. On mount the effect called* `setSelectedDomain(d)` *then
+the fetch — but a state setter does not reach into a closure that already exists, so the call saw
+the initial* `null`, *and* `buildPageHierarchy` *opens with* `if (!domain …) return []`. **The
+request succeeded and its 70 pages were discarded**, *and the effect never re-ran because its deps
+had not changed. Second symptom: after switching domains the closure held the* **previous** *one,
+so paths and preview links were built from the wrong* `pageType` *and the wrong* `domain.slug`.
+*Very likely a large part of the #20 complaint. Fixed by passing the domain object as an argument
+—* **preferable to adding it to a dependency array, because it removes the timing question rather
+than trying to win it**. *Committed alone: one file, logic and comments only,* **zero JSX
+touched**, *per this phase's own "fix real bugs in a separate commit" rule. Proven without a
+browser as a three-link chain (API returns 70 pages → the guard returns* `[]` *when domain is null
+→ the closure held null on mount), each link checked separately. G-4b/c/d planned and recorded.*
+
 *Revision 38 (Aug 1): **G-3c DONE — `/admin/domains` is now fully rebuilt.** Colours* **65 → 0**
 *and* **33 → 0**, *no new installs.* `DomainFilters` *— the component whose three* `min-w-*`
 *flex columns* **caused** *the G-3a horizontal scrollbar — is now a responsive grid, so it wraps

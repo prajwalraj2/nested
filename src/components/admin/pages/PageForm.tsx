@@ -1,32 +1,58 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { SUPPORTED_COUNTRIES, ALL_COUNTRIES, getCountryOptions } from '@/lib/countries';
-
-// Get country options for display
-const countryOptions = getCountryOptions();
+import { useState } from 'react';
+import { AlertTriangle, Globe, Loader2 } from 'lucide-react';
+// ⚠️ `SUPPORTED_COUNTRIES` was imported and never used here, exactly as in `DomainForm`
+// before G-3c. Removed. `getCountryOptions()` returns the display-ready list.
+import { ALL_COUNTRIES, getCountryOptions } from '@/lib/countries';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 /**
- * Page Form Component
- * 
- * Handles creating and editing pages with correct parent logic:
- * 
- * DIRECT DOMAINS:
- * - New pages automatically get __main__ as parent
- * - User can see available parents (including other pages)
- * - URLs: /domain/slug/page-slug
- * 
- * HIERARCHICAL DOMAINS:
- * - New pages can be root level (domain as parent) or nested
- * - User can choose any existing page as parent
- * - URLs: /domain/slug/page-slug or /domain/slug/parent/page-slug
- * 
- * Features:
- * - Smart parent selection based on domain type
- * - Auto-slug generation from title
- * - Content type selection with descriptions
- * - URL preview showing final path
- * - Validation for slug conflicts
+ * Create / edit a page (rebuilt in Phase G-4d).
+ * ============================================================================
+ *
+ * Renders inline inside `PagesManager` — deliberately not a dialog, because you choose a
+ * parent from the tree behind it (see the note at that call site).
+ *
+ * The submit logic is unchanged: same endpoints, same payload, same validation rules.
+ *
+ * ⚠️ BUG FIXED: "DEFAULT (__main__ PAGE)" DID NOT DO THAT WHEN EDITING.
+ * ==========================================================================
+ * The parent dropdown offered `<option value="">Default (__main__ page)</option>`, and
+ * choosing it set `parentId` to `null`. Whether that was correct depended entirely on which
+ * endpoint received it:
+ *
+ *   • **POST** compensates — `if (domain.pageType === 'direct' && !parentId)` looks up (or
+ *     creates) the `__main__` page and uses its id. So CREATING worked.
+ *   • **PUT** does not — it stores `parentId: parentId || null` verbatim. So EDITING an
+ *     existing page and picking the option labelled "Default (__main__ page)" **detached it
+ *     from `__main__` and made it a root page**, the opposite of what the label promised.
+ *
+ * On a `direct` domain the whole URL model hangs off `__main__` (#11), so a detached page
+ * gets a different path than the tree implies.
+ *
+ * Fixed here rather than in the API, because the form is where the ambiguity is: a `direct`
+ * domain now offers **no "no parent" option at all** — `__main__` is listed as a real,
+ * selectable parent and is the default — so both endpoints receive a concrete id and cannot
+ * disagree about what it means.
+ *
+ * ⚠️ BUG FIXED: THE PARENT LIST'S INDENTATION NEVER RENDERED.
+ * It built depth with `{'  '.repeat(page.depth)}` inside an `<option>` — but **HTML
+ * collapses consecutive whitespace**, so every entry appeared flush left regardless of how
+ * deep it sat. In a 116-page tree that makes the list unreadable. Depth is now real padding.
+ *
+ * ⚠️ 59 hardcoded colours → 0, including a six-card radio grid whose `focus:outline-none`
+ * on the label plus an `sr-only` radio meant **keyboard focus was completely invisible**.
  */
 
 type Domain = {
@@ -35,6 +61,11 @@ type Domain = {
   slug: string;
   pageType: string;
   isPublished: boolean;
+  category: {
+    id: string;
+    name: string;
+    icon: string | null;
+  } | null;
 };
 
 type Page = {
@@ -45,6 +76,7 @@ type Page = {
   parentId: string | null;
   domainId: string;
   targetCountries?: string[];
+  createdAt: Date;
   children: Page[];
   depth: number;
   fullPath: string;
@@ -54,239 +86,172 @@ type Page = {
 type PageFormProps = {
   domain: Domain;
   pages: Page[];
-  parentId?: string | null;  // Pre-selected parent
-  editingPage?: Page | null; // Page being edited (null for create)
+  /** Pre-selected parent, set when "Add child page" was used on a row. */
+  parentId?: string | null;
+  /** The page being edited; `null` creates. */
+  editingPage?: Page | null;
   onSuccess: () => void;
   onCancel: () => void;
 };
 
-export function PageForm({ 
-  domain, 
-  pages, 
-  parentId = null, 
-  editingPage = null, 
-  onSuccess, 
-  onCancel 
+const countryOptions = getCountryOptions();
+
+/**
+ * ⚠️ SENTINEL FOR "NO PARENT" — Radix `SelectItem` throws on an empty-string value.
+ *
+ * Same trap as the domain filters in G-3c: `''` is reserved internally for "nothing
+ * selected". Only offered for `hierarchical` domains, where root-level pages are legitimate.
+ */
+const ROOT_PARENT = '__root__';
+
+/** Content types, with a one-line explanation of what each one produces. */
+const CONTENT_TYPE_OPTIONS = [
+  { value: 'section_based', label: 'Section based', description: 'Organised content blocks' },
+  { value: 'subcategory_list', label: 'Subcategory list', description: 'Links to its child pages' },
+  { value: 'table', label: 'Table', description: 'Structured rows and columns' },
+  { value: 'rich_text', label: 'Rich text', description: 'Long-form written content' },
+  { value: 'narrative', label: 'Narrative', description: 'Story-style flow' },
+  { value: 'mixed_content', label: 'Mixed content', description: 'A combination of the above' },
+];
+
+export function PageForm({
+  domain,
+  pages,
+  parentId = null,
+  editingPage = null,
+  onSuccess,
+  onCancel,
 }: PageFormProps) {
-  
-  // Form state
+  const isEditMode = editingPage !== null;
+  const isDirect = domain.pageType === 'direct';
+
+  /** Every page in the domain, depth-first — the tree flattened for lookups. */
+  const allPages = flattenPages(pages);
+
+  /** The hidden root of a `direct` domain, if it exists. */
+  const mainPage = allPages.find((p) => p.slug === '__main__');
+
   const [formData, setFormData] = useState({
     title: editingPage?.title || '',
     slug: editingPage?.slug || '',
     contentType: editingPage?.contentType || 'section_based',
-    parentId: editingPage?.parentId || parentId || getDefaultParentId(),
-    targetCountries: editingPage?.targetCountries || [ALL_COUNTRIES]
+    /*
+      Precedence: the page's own parent when editing → the row you clicked "Add child" on →
+      the domain's default. For a `direct` domain that default is `__main__`'s real id, NOT
+      `null` — which is the fix described in the header comment.
+    */
+    parentId: editingPage?.parentId || parentId || (isDirect ? (mainPage?.id ?? null) : null),
+    targetCountries: editingPage?.targetCountries || [ALL_COUNTRIES],
   });
-  
-  // UI state
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isEditMode = editingPage !== null;
-
   /**
-   * Get default parent ID based on domain type and available pages
+   * Pages that may be chosen as a parent.
+   *
+   * ⚠️ In edit mode the page itself and ALL its descendants are excluded — re-parenting a
+   * page under its own child would create a cycle, and `buildPageHierarchy` recurses without
+   * a depth limit, so it would hang the browser. (The API also refuses, via
+   * `isDescendantOf` — this stops it being offered in the first place.)
    */
-  function getDefaultParentId(): string | null {
-    if (domain.pageType === 'direct') {
-      // For direct domains, find __main__ page
-      const mainPage = getAllPages().find(p => p.slug === '__main__');
-      return mainPage?.id || null;
-    } else {
-      // For hierarchical domains, allow root level (no parent)
-      return null;
-    }
-  }
+  const parentOptions = (() => {
+    if (!isEditMode || !editingPage) return allPages;
 
-  /**
-   * Get all pages flattened for easier searching
-   */
-  function getAllPages(): Page[] {
-    const flattenPages = (pageList: Page[]): Page[] => {
-      let result: Page[] = [];
-      pageList.forEach(page => {
-        result.push(page);
-        result = result.concat(flattenPages(page.children));
+    const excluded = new Set<string>([editingPage.id]);
+    const excludeDescendants = (page: Page) => {
+      page.children.forEach((child) => {
+        excluded.add(child.id);
+        excludeDescendants(child);
       });
-      return result;
     };
-    return flattenPages(pages);
-  }
+    excludeDescendants(editingPage);
+
+    return allPages.filter((page) => !excluded.has(page.id));
+  })();
+
+  const selectedParent = parentOptions.find((p) => p.id === formData.parentId);
 
   /**
-   * Content type options with descriptions
+   * ⚠️ Changing an existing page's slug changes its public URL — and every descendant's,
+   * since their paths are built from it. There is no redirect table anywhere in this app.
+   * Same guard as the domain slug in G-3c; the old hint was "be careful changing this".
    */
-  const contentTypeOptions = [
-    {
-      value: 'section_based',
-      label: '📋 Section Based',
-      description: 'Organized content blocks and sections',
-      example: 'Like current domain pages with Skills, Tools, etc.'
-    },
-    {
-      value: 'subcategory_list', 
-      label: '📂 Subcategory List',
-      description: 'Navigation page with links to child pages',
-      example: 'Overview page that lists its sub-pages'
-    },
-    {
-      value: 'table',
-      label: '📊 Table',
-      description: 'Structured data in table format',
-      example: 'Pricing tables, feature comparisons, data lists'
-    },
-    {
-      value: 'rich_text',
-      label: '✍️ Rich Text',
-      description: 'Long-form content with rich formatting',
-      example: 'Articles, documentation, detailed guides'
-    },
-    {
-      value: 'narrative',
-      label: '📄 Narrative',
-      description: 'Story-style content flow',
-      example: 'Blog posts, case studies, tutorials'
-    },
-    {
-      value: 'mixed_content',
-      label: '🎨 Mixed Content',
-      description: 'Combination of multiple content types',
-      example: 'Complex pages with various sections'
-    }
-  ];
+  const slugChanged = isEditMode && formData.slug.trim() !== editingPage.slug;
+  const affectedDescendants = isEditMode ? countDescendants(editingPage) : 0;
 
-  /**
-   * Handle form field changes
-   */
-  const handleChange = (field: string, value: string | null | string[]) => {
-    setFormData(prev => ({
+  function handleChange(field: string, value: string | null | string[]) {
+    setFormData((prev) => ({
       ...prev,
       [field]: value,
-      // Auto-generate slug when title changes (only in create mode)
-      ...(field === 'title' && !isEditMode && value && {
-        slug: generateSlug(value as string)
-      })
+      // Slug follows the title only while creating. In edit mode the slug is load-bearing
+      // and must change only when deliberately typed.
+      ...(field === 'title' && !isEditMode && value && { slug: generateSlug(value as string) }),
     }));
-    
-    // Clear error when user changes something
+
     if (error) setError(null);
-  };
+  }
 
   /**
-   * Handle country toggle for multi-select
+   * "ALL" is exclusive both ways, and deselecting the last specific country falls back to
+   * "ALL" rather than an empty list — an empty list would mean "visible to nobody", which
+   * `isVisibleToCountry` does not model.
    */
-  const handleCountryToggle = (countryCode: string) => {
-    setFormData(prev => {
-      const currentCountries = prev.targetCountries;
-      
-      // Special handling for "ALL"
+  function handleCountryToggle(countryCode: string) {
+    setFormData((prev) => {
       if (countryCode === ALL_COUNTRIES) {
-        // If ALL is being selected, clear everything else and select only ALL
         return { ...prev, targetCountries: [ALL_COUNTRIES] };
       }
-      
-      // If a specific country is being selected
-      let newCountries: string[];
-      
-      if (currentCountries.includes(countryCode)) {
-        // Remove the country
-        newCountries = currentCountries.filter(c => c !== countryCode);
-        // If nothing left, default to ALL
-        if (newCountries.length === 0) {
-          newCountries = [ALL_COUNTRIES];
-        }
+
+      const current = prev.targetCountries;
+      let next: string[];
+
+      if (current.includes(countryCode)) {
+        next = current.filter((c) => c !== countryCode);
+        if (next.length === 0) next = [ALL_COUNTRIES];
       } else {
-        // Add the country
-        // Remove ALL if it was selected (since we're now selecting specific countries)
-        newCountries = currentCountries.filter(c => c !== ALL_COUNTRIES);
-        newCountries.push(countryCode);
+        next = [...current.filter((c) => c !== ALL_COUNTRIES), countryCode];
       }
-      
-      return { ...prev, targetCountries: newCountries };
+
+      return { ...prev, targetCountries: next };
     });
-    
+
     if (error) setError(null);
-  };
+  }
 
-  /**
-   * Generate URL-friendly slug from title
-   */
-  const generateSlug = (title: string): string => {
-    return title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')     // Replace non-alphanumeric with hyphens
-      .replace(/^-+|-+$/g, '')        // Remove leading/trailing hyphens
-      .substring(0, 50);               // Limit length
-  };
-
-  /**
-   * Get available parent options (exclude current page and descendants in edit mode)
-   */
-  const getParentOptions = (): Page[] => {
-    const allPages = getAllPages();
-    
-    if (isEditMode && editingPage) {
-      // In edit mode, exclude the current page and its descendants
-      const excludeIds = new Set([editingPage.id]);
-      
-      // Add all descendant IDs
-      const addDescendants = (page: Page) => {
-        page.children.forEach(child => {
-          excludeIds.add(child.id);
-          addDescendants(child);
-        });
-      };
-      addDescendants(editingPage);
-      
-      return allPages.filter(page => !excludeIds.has(page.id));
-    }
-    
-    return allPages;
-  };
-
-  /**
-   * Validate form data
-   */
-  const validateForm = (): string | null => {
-    if (!formData.title.trim()) {
-      return 'Page title is required';
-    }
-    
-    if (!formData.slug.trim()) {
-      return 'Page slug is required';
-    }
-    
-    if (!formData.contentType) {
-      return 'Content type is required';
-    }
-    
-    // Validate slug format
-    const slugRegex = /^[a-z0-9-]+$/;
-    if (!slugRegex.test(formData.slug)) {
+  /** Client-side checks, for fast feedback. The server re-validates all of them. */
+  function validateForm(): string | null {
+    if (!formData.title.trim()) return 'Page title is required';
+    if (!formData.slug.trim()) return 'URL slug is required';
+    if (!formData.contentType) return 'Content type is required';
+    if (!/^[a-z0-9-]+$/.test(formData.slug)) {
       return 'Slug must contain only lowercase letters, numbers, and hyphens';
     }
-    
-    // Check for slug conflicts within same domain and parent
-    const allPages = getAllPages();
-    const conflictingPage = allPages.find(page => 
-      page.slug === formData.slug && 
-      page.parentId === formData.parentId &&
-      (!isEditMode || page.id !== editingPage?.id)
-    );
-    
-    if (conflictingPage) {
-      return `A page with slug "${formData.slug}" already exists ${formData.parentId ? 'under the same parent' : 'at the root level'}`;
-    }
-    
-    return null;
-  };
 
-  /**
-   * Handle form submission
-   */
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+    /*
+      Slugs must be unique among SIBLINGS, not across the domain — two different parents can
+      each have a "courses" child, and they get distinct URLs. So the comparison includes
+      `parentId`, and skips the page being edited so saving it unchanged is not a conflict.
+    */
+    const conflict = allPages.find(
+      (page) =>
+        page.slug === formData.slug &&
+        page.parentId === formData.parentId &&
+        (!isEditMode || page.id !== editingPage?.id)
+    );
+
+    if (conflict) {
+      return `A page with slug "${formData.slug}" already exists ${
+        formData.parentId ? 'under the same parent' : 'at the root level'
+      }`;
+    }
+
+    return null;
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+
     const validationError = validateForm();
     if (validationError) {
       setError(validationError);
@@ -303,304 +268,313 @@ export function PageForm({
         contentType: formData.contentType,
         domainId: domain.id,
         parentId: formData.parentId || null,
-        targetCountries: formData.targetCountries
+        targetCountries: formData.targetCountries,
       };
 
       const url = isEditMode ? `/api/admin/pages/${editingPage.id}` : '/api/admin/pages';
-      const method = isEditMode ? 'PUT' : 'POST';
-      
+
       const response = await fetch(url, {
-        method,
+        method: isEditMode ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(submitData)
+        body: JSON.stringify(submitData),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Failed to ${isEditMode ? 'update' : 'create'} page`);
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          errorData?.message ?? `Failed to ${isEditMode ? 'update' : 'create'} page`
+        );
       }
 
-      // Success
       onSuccess();
-      
     } catch (err) {
       console.error(`Error ${isEditMode ? 'updating' : 'creating'} page:`, err);
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
   /**
-   * Build preview URL
+   * The URL this page will have, from the chosen parent's already-computed `fullPath`.
+   *
+   * ⚠️ `__main__` is skipped in public URLs — that is the entire point of a `direct` domain
+   * (#11) — so a page parented to it sits directly under the domain.
    */
-  const buildPreviewUrl = (): string => {
+  function buildPreviewUrl(): string {
     if (!formData.slug) return `/domain/${domain.slug}`;
-    
-    const parentPage = getParentOptions().find(p => p.id === formData.parentId);
-    
-    if (domain.pageType === 'direct') {
-      // For direct domains, if parent is __main__, just use the slug
-      if (parentPage && parentPage.slug === '__main__') {
-        return `/domain/${domain.slug}/${formData.slug}`;
-      }
-      // If not __main__, build path including parent
-      if (parentPage) {
-        return `/domain/${domain.slug}/${parentPage.fullPath}/${formData.slug}`;
-      }
-    } else {
-      // For hierarchical domains, build full path
-      if (parentPage) {
-        return `/domain/${domain.slug}/${parentPage.fullPath}/${formData.slug}`;
-      }
-    }
-    
-    return `/domain/${domain.slug}/${formData.slug}`;
-  };
 
-  const parentOptions = getParentOptions();
-  const selectedParent = parentOptions.find(p => p.id === formData.parentId);
+    if (selectedParent && selectedParent.slug !== '__main__') {
+      return `/domain/${domain.slug}/${selectedParent.fullPath}/${formData.slug}`;
+    }
+
+    return `/domain/${domain.slug}/${formData.slug}`;
+  }
+
+  const targetsEverywhere = formData.targetCountries.includes(ALL_COUNTRIES);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      
-      {/* Title and Slug */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        {/* Page Title */}
-        <div>
-          <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
-            Page Title *
-          </label>
-          <input
-            id="title"
-            type="text"
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="page-title">
+            Title <RequiredMark />
+          </Label>
+          <Input
+            id="page-title"
             value={formData.title}
-            onChange={(e) => handleChange('title', e.target.value)}
-            placeholder="e.g., YouTube Channels, Courses, Design Tools"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            onChange={(event) => handleChange('title', event.target.value)}
+            placeholder="e.g. YouTube Channels"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">Descriptive title shown to users</p>
         </div>
 
-        {/* Page Slug */}
-        <div>
-          <label htmlFor="slug" className="block text-sm font-medium text-gray-700 mb-2">
-            URL Slug *
-          </label>
-          <input
-            id="slug"
-            type="text"
+        <div className="space-y-1.5">
+          <Label htmlFor="page-slug">
+            URL slug <RequiredMark />
+          </Label>
+          <Input
+            id="page-slug"
             value={formData.slug}
-            onChange={(e) => handleChange('slug', e.target.value)}
-            placeholder="e.g., youtube-channels, courses, design-tools"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            onChange={(event) => handleChange('slug', event.target.value)}
+            placeholder="e.g. youtube-channels"
+            className="font-mono"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">
-            {isEditMode ? 'URL identifier (be careful changing this)' : 'Auto-generated from title'}
-          </p>
-        </div>
-
-      </div>
-
-      {/* Content Type Selection */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3">
-          Content Type *
-        </label>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {contentTypeOptions.map((option) => (
-            <label
-              key={option.value}
-              className={`relative flex cursor-pointer rounded-lg border p-4 focus:outline-none ${
-                formData.contentType === option.value
-                  ? 'border-blue-600 bg-blue-50 text-blue-900'
-                  : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <input
-                type="radio"
-                name="contentType"
-                value={option.value}
-                checked={formData.contentType === option.value}
-                onChange={(e) => handleChange('contentType', e.target.value)}
-                className="sr-only"
-              />
-              <div className="flex-1">
-                <div className="text-sm">
-                  <div className="font-medium">{option.label}</div>
-                  <div className={`mt-1 ${
-                    formData.contentType === option.value ? 'text-blue-700' : 'text-gray-500'
-                  }`}>
-                    {option.description}
-                  </div>
-                  <div className={`text-xs mt-1 italic ${
-                    formData.contentType === option.value ? 'text-blue-600' : 'text-gray-400'
-                  }`}>
-                    {option.example}
-                  </div>
-                </div>
-              </div>
-            </label>
-          ))}
         </div>
       </div>
 
-      {/* Parent Page Selection */}
-      <div>
-        <label htmlFor="parentId" className="block text-sm font-medium text-gray-700 mb-2">
-          Parent Page
-        </label>
-        <select
-          id="parentId"
-          value={formData.parentId || ''}
-          onChange={(e) => handleChange('parentId', e.target.value || null)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        >
-          <option value="">
-            {domain.pageType === 'direct' 
-              ? 'Default (__main__ page)' 
-              : 'Root Level (No Parent)'
+      {slugChanged && (
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" aria-hidden="true" />
+          <AlertDescription>
+            <span>
+              This changes the page's public URL. The old address will stop working — there
+              are no redirects.
+              {affectedDescendants > 0 && (
+                <>
+                  {' '}
+                  All <strong>{affectedDescendants}</strong> nested page
+                  {affectedDescendants === 1 ? '' : 's'} will move too.
+                </>
+              )}
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/*
+          ⚠️ SIX RADIO CARDS BECAME ONE SELECT.
+
+          The old control was a `md:grid-cols-2 lg:grid-cols-3` grid of six bordered cards,
+          each three lines tall (label, description, italic example) — roughly 250px of an
+          inline form you are trying to see PAST to reach the tree. The descriptions are kept
+          inside the dropdown, where they help at the moment of choosing; the third "example"
+          line is dropped as the least load-bearing of the three.
+
+          It also fixes an invisible-focus bug: the cards had `focus:outline-none` on the
+          label and an `sr-only` radio, so a keyboard user moving through the six options got
+          **no visual indication of where they were**.
+        */}
+        <div className="space-y-1.5">
+          <Label htmlFor="page-content-type">
+            Content type <RequiredMark />
+          </Label>
+          <Select
+            value={formData.contentType}
+            onValueChange={(value) => handleChange('contentType', value)}
+          >
+            <SelectTrigger id="page-content-type" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CONTENT_TYPE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  <span>
+                    <span className="block">{option.label}</span>
+                    <span className="text-muted-foreground block text-xs">
+                      {option.description}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="page-parent">Parent page</Label>
+          <Select
+            // `?? ROOT_PARENT` maps a null parent onto the sentinel, since Radix cannot
+            // represent "no value" as a real option.
+            value={formData.parentId ?? ROOT_PARENT}
+            onValueChange={(value) =>
+              handleChange('parentId', value === ROOT_PARENT ? null : value)
             }
-          </option>
-          {parentOptions.map((page) => (
-            <option key={page.id} value={page.id}>
-              {'  '.repeat(page.depth)} {page.title} ({page.slug})
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-gray-500 mt-1">
-          {domain.pageType === 'direct'
-            ? 'Leave default to use __main__ page, or select a specific parent'
-            : 'Select a parent page for nesting, or leave empty for root level'
-          }
-        </p>
-        
-        {/* Selected Parent Info */}
-        {selectedParent && (
-          <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
-            <div className="text-sm text-purple-800">
-              <strong>Parent:</strong> {selectedParent.title}
-              {selectedParent.slug === '__main__' && <span className="ml-1 text-purple-600">(Hidden)</span>}
-              <span className="ml-3"><strong>Depth:</strong> Level {selectedParent.depth + 1}</span>
-            </div>
-          </div>
-        )}
-      </div>
+          >
+            <SelectTrigger id="page-parent" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {/*
+                ⚠️ ONLY HIERARCHICAL DOMAINS GET A "ROOT LEVEL" OPTION.
 
-      {/* Target Countries Selection */}
-      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-        <div className="mb-3">
-          <h4 className="text-sm font-medium text-gray-700">
-            🌍 Target Countries
-          </h4>
-          <p className="text-xs text-gray-500 mt-1">
-            Select which countries this page should be visible to
+                A `direct` domain's pages all hang off `__main__`, so offering "no parent"
+                there produced the PUT bug in the header comment. `__main__` itself appears
+                in the list below as a normal, selectable row, so the default is a real id.
+              */}
+              {!isDirect && <SelectItem value={ROOT_PARENT}>Root level (no parent)</SelectItem>}
+
+              {parentOptions.map((page) => (
+                <SelectItem key={page.id} value={page.id}>
+                  {/*
+                    Depth as real padding. The old code wrote `{'  '.repeat(page.depth)}`
+                    inside an `<option>`, and HTML collapses runs of whitespace — so a
+                    116-page tree rendered as a flat, unreadable list.
+                  */}
+                  <span style={{ paddingLeft: `${page.depth * 12}px` }}>
+                    {page.slug === '__main__' ? 'Main page (hidden root)' : page.title}
+                    <span className="text-muted-foreground ml-2 font-mono text-xs">
+                      /{page.slug}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-muted-foreground text-xs">
+            {isDirect
+              ? 'Pages sit under the hidden main page unless you nest them deeper.'
+              : 'Leave at root level, or nest under an existing page.'}
           </p>
         </div>
-        
+      </div>
+
+      {/* ── Target countries ── */}
+      <div className="space-y-3 rounded-lg border p-3">
+        <div>
+          <h4 className="flex items-center gap-2 text-sm font-medium">
+            <Globe className="size-4" aria-hidden="true" />
+            Target countries
+          </h4>
+          <p className="text-muted-foreground text-xs">
+            Who this page is visible to. "All countries" clears the rest.
+          </p>
+        </div>
+
         <div className="flex flex-wrap gap-2">
-          {countryOptions.map(country => {
+          {countryOptions.map((country) => {
             const isSelected = formData.targetCountries.includes(country.code);
-            const isAll = country.code === ALL_COUNTRIES;
-            
+
             return (
-              <button
+              // `type="button"` — inside a <form>, an untyped button defaults to submit, so
+              // picking a country would save the page.
+              <Button
                 key={country.code}
                 type="button"
+                size="sm"
+                variant={isSelected ? 'default' : 'outline'}
+                aria-pressed={isSelected}
                 onClick={() => handleCountryToggle(country.code)}
-                className={`
-                  px-3 py-1.5 rounded-full text-sm font-medium transition-all cursor-pointer
-                  ${isSelected 
-                    ? isAll
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-green-600 text-white' 
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }
-                `}
               >
-                {country.flag} {country.name}
-              </button>
+                <span aria-hidden="true">{country.flag}</span>
+                {country.name}
+              </Button>
             );
           })}
         </div>
-        
-        {/* Selected Countries Summary */}
-        <div className="mt-3 text-xs text-gray-600">
-          <strong>Selected:</strong>{' '}
-          {formData.targetCountries.includes(ALL_COUNTRIES)
-            ? '🌐 All Countries (Global)'
-            : formData.targetCountries.map(code => {
-                const country = countryOptions.find(c => c.code === code);
-                return country ? `${country.flag} ${country.name}` : code;
-              }).join(', ')
-          }
-        </div>
       </div>
 
-      {/* URL Preview */}
-      {formData.title && formData.slug && (
-        <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-          <h4 className="text-sm font-medium text-green-900 mb-2">🔗 Page Preview</h4>
-          <div className="text-sm text-green-800 space-y-1">
-            <div><strong>Title:</strong> {formData.title}</div>
-            <div><strong>URL:</strong> <code className="bg-green-100 px-2 py-1 rounded">{buildPreviewUrl()}</code></div>
-            <div><strong>Content Type:</strong> {contentTypeOptions.find(opt => opt.value === formData.contentType)?.label}</div>
-            <div><strong>Parent:</strong> {selectedParent ? selectedParent.title : (domain.pageType === 'direct' ? '__main__ (Default)' : 'Root Level')}</div>
-            <div><strong>Visible To:</strong> {
-              formData.targetCountries.includes(ALL_COUNTRIES)
-                ? '🌐 All Countries'
-                : formData.targetCountries.map(code => {
-                    const country = countryOptions.find(c => c.code === code);
-                    return country?.flag || code;
-                  }).join(' ')
-            }</div>
-          </div>
+      {/* ── Preview ── */}
+      {formData.slug && (
+        <div className="bg-muted/50 space-y-1 rounded-lg p-3 text-sm">
+          <p className="font-mono text-xs">{buildPreviewUrl()}</p>
+          <p className="text-muted-foreground text-xs">
+            {CONTENT_TYPE_OPTIONS.find((o) => o.value === formData.contentType)?.label}
+            {' · '}
+            {selectedParent
+              ? selectedParent.slug === '__main__'
+                ? 'under the main page'
+                : `under ${selectedParent.title}`
+              : 'at root level'}
+            {' · '}
+            {targetsEverywhere
+              ? 'all countries'
+              : formData.targetCountries
+                  .map((code) => countryOptions.find((c) => c.code === code)?.name ?? code)
+                  .join(', ')}
+          </p>
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <span className="text-red-500 mr-2">❌</span>
-            <span className="text-red-700 text-sm">{error}</span>
-          </div>
-        </div>
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" aria-hidden="true" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      {/* Form Actions */}
-      <div className="flex items-center justify-between pt-6 border-t border-gray-200">
-        <div className="text-sm text-gray-500">* Required fields</div>
-        
-        <div className="flex items-center space-x-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-          >
+      <div className="flex items-center justify-between gap-3 border-t pt-3">
+        <p className="text-muted-foreground text-xs">
+          <RequiredMark /> Required
+        </p>
+
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
             Cancel
-          </button>
-          
-          <button
-            type="submit"
-            disabled={isLoading}
-            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-              isLoading 
-                ? 'bg-gray-400 text-gray-700 cursor-not-allowed' 
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
-          >
-            {isLoading 
-              ? (isEditMode ? 'Updating...' : 'Creating...') 
-              : (isEditMode ? 'Update Page' : 'Create Page')
-            }
-          </button>
+          </Button>
+          <Button type="submit" disabled={isLoading}>
+            {isLoading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            {isLoading
+              ? isEditMode
+                ? 'Saving…'
+                : 'Creating…'
+              : isEditMode
+                ? 'Save changes'
+                : 'Create page'}
+          </Button>
         </div>
       </div>
-      
     </form>
+  );
+}
+
+/**
+ * Flatten the nested tree into a depth-first list.
+ *
+ * Order matters: depth-first keeps each page immediately after its parent, so the parent
+ * dropdown reads top-to-bottom the way the tree looks.
+ */
+function flattenPages(pages: Page[]): Page[] {
+  return pages.flatMap((page) => [page, ...flattenPages(page.children)]);
+}
+
+/** Every descendant of a page, at any depth. */
+function countDescendants(page: Page): number {
+  return page.children.reduce((total, child) => total + 1 + countDescendants(child), 0);
+}
+
+/**
+ * Title → URL-safe slug.
+ *
+ * The `[^a-z0-9]+` pass collapses emoji, spaces and punctuation into single hyphens, and the
+ * second pass trims them from the ends — so "▶️ YouTube Channels" becomes "youtube-channels"
+ * rather than "-youtube-channels".
+ */
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 50);
+}
+
+/** `aria-hidden` because the inputs carry `required`, which assistive tech announces itself. */
+function RequiredMark() {
+  return (
+    <span className="text-destructive" aria-hidden="true">
+      *
+    </span>
   );
 }
