@@ -1,4 +1,4 @@
-import { Globe, FileText, Blocks, FolderTree, Zap, Activity, History } from 'lucide-react';
+import { Globe, FileText, FolderTree, Zap, Activity, History } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
@@ -102,11 +102,23 @@ export default async function AdminDashboard() {
       />
 
       {/*
-        Stat tiles. `sm:grid-cols-2` before `lg:grid-cols-4` so they pair up on a tablet
-        rather than jumping straight from one column to four — the old breakpoints skipped
-        that middle case.
+        Stat tiles.
+
+        ⚠️ THE "CONTENT BLOCKS" TILE WAS REMOVED — it always read 0, and correctly so.
+        It counted `prisma.contentBlock.count()`, but `ContentBlock` is an **unused model**:
+        production has 0 rows in it while the actual content lives in `RichTextContent`
+        (415) and `Table` (652). Paired with "Across 1198 pages" it read as a real measure
+        of emptiness and was simply measuring the wrong table.
+
+        Removed rather than repointed, on request. If a content metric is wanted later,
+        `RichTextContent` + `Table` is the honest count — but a single number spanning two
+        unrelated content types is arguably not useful either, and both already have their
+        own screens showing real totals.
+
+        `sm:grid-cols-3` so three tiles divide evenly; with four they previously wrapped
+        2+2 on a tablet.
       */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatsCard
           title="Total Domains"
           value={stats.totalDomains}
@@ -120,13 +132,6 @@ export default async function AdminDashboard() {
           icon={FileText}
           description={`${stats.pagesWithContent} with content`}
           trend={stats.pagesGrowth}
-        />
-        <StatsCard
-          title="Content Blocks"
-          value={stats.totalContentBlocks}
-          icon={Blocks}
-          description={`Across ${stats.totalPages} pages`}
-          trend={stats.contentGrowth}
         />
         <StatsCard
           title="Categories"

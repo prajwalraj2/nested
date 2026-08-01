@@ -30,14 +30,15 @@ type AdminPageHeaderProps = {
 
 export function AdminPageHeader({ title, description, actions }: AdminPageHeaderProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-3">
       <div className="min-w-0">
         {/*
-          `text-2xl`, not the old `text-3xl`. With the breadcrumb bar now sitting directly
-          above (G-1), a 3xl heading competed with it for attention; the two together read
-          as one unit at this size.
+          `text-xl`, down from the original `text-3xl` (and briefly `text-2xl`).
+          With the breadcrumb bar directly above naming the same screen, a large heading
+          repeated information at size — and at 100% zoom the two together dominated the
+          viewport before any data appeared.
         */}
-        <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
+        <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
           {title}
         </h1>
         {description && (

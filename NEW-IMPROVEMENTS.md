@@ -4718,6 +4718,133 @@ rows, which is #2's work over again.
 
 ---
 
+### 23.2 — ⚠️ The first fix was INCOMPLETE. Corrected root cause.
+
+**The Node-version theory was wrong.** Vercel's project settings already showed
+**Node.js Version = 22.x**, which supports `require()` of ES modules — so the `engines` pin
+could not have been what fixed the listing. The **lazy import** was.
+
+That mattered, because a lazy import in the list route only protects **that** route. Testing
+"Edit HTML" on production confirmed it:
+
+```
+Error Loading Page
+Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+```
+
+`GET /api/admin/rich-text/[pageId]` returned a 500 **HTML error page**, and the client reported
+a JSON parse failure because it tried to parse that page as the expected payload. So the
+misleading client message was a symptom, not the bug.
+
+#### The real cause is in the stack frame, not the Node version
+
+```
+at Context.externalRequire (.next/server/chunks/[turbopack]_runtime.js:501:15)
+```
+
+The `require()` was being performed by **Turbopack's own `externalRequire` shim** — not by
+Node. Node 22.12+ can require an ES module; that shim cannot. This explains everything the Node
+theory could not: why 22.x did not help, and why it never reproduced locally in dev.
+
+#### What was changed
+
+1. **`next build` no longer passes `--turbopack`** (package.json) — the production server bundle
+   is built by webpack, whose externals handling loads ESM correctly. **Dev keeps Turbopack**;
+   it works there and is far faster.
+2. **`serverExternalPackages: ['isomorphic-dompurify', 'jsdom']`** in `next.config.ts` — states
+   the intent explicitly instead of relying on Next's heuristics.
+3. **Lazy import in `rich-text/[pageId]/route.ts`** as well, so `GET` and `DELETE` — neither of
+   which sanitises anything — no longer load a DOM implementation just to read a row.
+
+⚠️ **NOT VERIFIED.** The local test was interrupted before it ran, and local success would prove
+little anyway: this failure only ever appeared in the Vercel build, so the only meaningful test
+is deploying and clicking **Edit HTML** on production. **Treat this as an untested fix.**
+
+⚠️ **Cost of the webpack switch:** the production build went from seconds to **~2.2 minutes**.
+That is a real trade for correctness, and worth revisiting if Turbopack's externals handling
+improves.
+
+### 23.3 — Status: rich-text authoring is being redesigned, so this may be moot
+
+The user's decision, 31 Jul:
+
+> "Currently a plain text with paragraph does not look that good. It looks like a simple
+> textbook page. Anyone would get bored… they would think people directly generated from AI &
+> kept it here. So I think there will be refactoring of this whole structure."
+
+So the raw-HTML authoring model — a `<textarea>` of HTML, sanitised on write, rendered with
+`dangerouslySetInnerHTML` — is expected to be **replaced**, not improved. Public rendering is to
+be **left exactly as it is** in the meantime.
+
+That reframes several open items:
+
+| Item | Effect |
+| ---- | ------ |
+| #23's jsdom problem | May disappear entirely — a block/structured editor stores JSON, so nothing needs HTML sanitising and jsdom is not required at all |
+| #2's sanitiser + its allow-list derived from 415 rows | Becomes migration input rather than a thing to maintain |
+| #21.4's light "content island" | Exists only because stored HTML carries 2,519 inline colour declarations. Structured content would theme natively |
+| #22's rich-text screens (G-7) | Should not be rebuilt on shadcn until the authoring model is decided — that would be the work twice |
+
+### 23.4 — ⛔ DECISION: the 23.2 fix was REVERTED. Edit HTML stays broken, knowingly.
+
+**Reverted 31 Jul at the user's direction:** *"Its fine for now - let it be broken - good that
+you have captured it - I will come back to it."*
+
+Three files returned to their committed state:
+
+```
+next.config.ts                            serverExternalPackages removed
+package.json                              `next build --turbopack` restored
+api/admin/rich-text/[pageId]/route.ts     back to a module-scope sanitiser import
+```
+
+**Kept:** `engines.node: ">=22.12.0"` and `.nvmrc` — pinning the runtime is correct regardless
+of this bug, and was already committed. The lazy import in the *list* route also stays committed,
+which is why the rich-text **listing** works while **Edit HTML** does not.
+
+**Why reverting is the right call here, not a compromise:** the fix cost the production build
+~2.2 minutes (webpack instead of Turbopack) on every deploy, to repair a screen that is about to
+be replaced wholesale (23.3). Paying that on every future deploy for a doomed feature is worse
+value than a known-broken editor the user has consciously accepted.
+
+#### ⚠️ CURRENT STATE — read this before touching rich text
+
+| Operation | Production |
+| --------- | ---------- |
+| Public rendering of rich-text pages | ✅ works |
+| `/admin/rich-text` listing | ✅ works (lazy import, committed) |
+| **`/admin/rich-text/edit/[pageId]` — load** | ❌ **500** (`Unexpected token '<'`) |
+| **Saving rich text** | ❌ **broken** — the `PUT` cannot load jsdom |
+
+**Rich-text content cannot be edited on production at all.** The fix is known and recorded in
+23.2 — restore those three changes and it should work, though it was never verified.
+
+### 23.5 — Chosen direction for the replacement
+
+> "I think this idea looks good: **Structured page templates** — define the shape per page type:
+> Resource list, Step-by-step, Comparison, FAQ. The admin fills labelled fields; the renderer
+> owns the design entirely." — 31 Jul
+
+The observation that led there: **most of this content is not prose.** `Learn & Build in Public`
+is "Description → 4 bullets, Advantages → 6 bullets". `Client Questionnaires` is the same shape.
+It is structured data being forced through freeform HTML — which is also why the **tables** look
+good and the rich-text pages look like a textbook.
+
+What that direction removes, not just improves:
+
+- **jsdom and #2's sanitiser entirely** — structured content is JSON, so there is no HTML to
+  clean and #23 cannot recur
+- **#21.4's light "content island"** — it exists only because stored HTML carries 2,519 inline
+  colour declarations; structured content themes natively
+- **`dangerouslySetInnerHTML`** from the public render path
+
+⚠️ **G-7 (rich-text screens) should NOT be rebuilt on shadcn until this is decided** — rebuilding
+an HTML editor that is being replaced is the work twice.
+
+Deferred by the user: *"We will see to it afterwards."*
+
+---
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -5317,7 +5444,9 @@ cases, so a regression is traceable to one screen.
 | ---- | ----- | ----- |
 | **G-1** ✅ | **Shell** — `AdminLayout`, `AdminSidebar`, `AdminHeader`, breadcrumb | **DONE 30 Jul.** See below. **Zero new installs** — every primitive was already present. |
 | **G-2** ✅ | **Dashboard** | **DONE 30 Jul.** Hardcoded colours **89 → 8** (all 8 intentional). Found and fixed **three real bugs** — see below. |
-| **G-3** | **Domains** | Most-used screen. |
+| **G-3a** ✅ | **Domains — page container** | **DONE 30 Jul.** Colours **53 → 1**. Form → dialog; 4 stat panels → 3; 2 dead buttons removed; stray `Roboto` import removed. Also fixed a document-level **horizontal scrollbar** (`min-w-0` on `SidebarInset`). |
+| **G-3b** ✅ | **Domains — the table** | **DONE 31 Jul.** Colours **64 → 0**. Found **four real bugs** — the publish button was never wired to its API at all, and both modal backdrops rendered solid black (`bg-opacity-50` is dead in Tailwind v4). Installed `alert-dialog`. See below. |
+| **G-3c** | **Domains — `DomainForm` + `DomainFilters`** | `DomainForm` 500 lines / 65 colours, `DomainFilters` 306 lines / 33 colours. ⚠️ `DomainFilters`' three `min-w-*` columns are what forced the G-3a overflow fix — it should wrap instead of overflow. Its Page Type `<option>`s still carry emoji. |
 | **G-4** | **Pages** | Same. |
 | **G-5** | **Tables list + editor** | Biggest. **`#22.2(b)` row editing and `#22.2(c)` schema editing land here**, plus tables **pagination** (the residual 1.73 MB from #22.1). |
 | **G-6** | **Categories + Section Layout** | |
@@ -5472,6 +5601,159 @@ the hardcoded "System Operational" string is gone.
 
 **E. Regression** — the other 7 admin screens still return 200.
 
+#### ✅ G-3a DONE — 30 Jul 2026 (Domains — page container)
+
+`/admin/domains` was split into two commits because the page shell and the table are
+independent: **G-3a** the container, **G-3b** the table. `DomainForm` and `DomainFilters`
+remain untouched — those are **G-3c**.
+
+**Hardcoded colours in `page.tsx`: 53 → 1.**
+
+- **`DomainForm` moved into a dialog** (`NewDomainDialog.tsx`, new). It used to sit permanently
+  expanded above the list, taking most of the first screen before any of the 35 domains was
+  reachable — inverting how the page is used (creating is occasional, *looking* is constant).
+  A thin client wrapper, so the page itself stays a Server Component.
+- **Four stat panels → three `StatsCard`s** (reused from G-2). Published and Draft are
+  complements of Total — three numbers carrying two facts. The freed tile shows how many rows
+  the **current filters** return, which the page never surfaced despite having filters.
+- **Two dead buttons removed** — "📥 Export" and "🔄 Bulk Actions", neither with an `onClick`
+  nor a link (the #22.5 pattern). "Bulk Actions" was the worse of the two: it implies row
+  selection that exists nowhere in this table.
+- **Gradient intro banner removed** — described the screen you are already on, and its
+  `from-green-50 to-emerald-50` was hardcoded light.
+- **Tips box → `Collapsible defaultOpen={false}`** (per request) — advice you read once and
+  then scroll past forever.
+- **⚠️ A stray `Roboto` Google-Fonts import removed.** This one screen loaded a second webfont
+  and applied it to individual headings, fighting the app-wide Geist. No other admin page does
+  this. *Still imported in 6 other places* — the sweep is outstanding.
+
+##### ⚠️ Horizontal-scrollbar fix (`AdminLayout`) — one line, easy to reintroduce
+
+The rebuilt page scrolled **the whole document** sideways, dragging the header and sidebar out
+of view and clipping the "New domain" button.
+
+`SidebarInset` renders as `flex w-full flex-1 flex-col` with **no `min-w-0`**. As a flex *item*
+beside the sidebar, its default `min-width: auto` refuses to shrink below its content's
+intrinsic width — and `DomainFilters` carries a `min-w-48` column plus two `min-w-32` ones.
+
+Fixed by passing `className="min-w-0"` **from `AdminLayout`**, not by editing
+`components/ui/sidebar.tsx` — a vendored primitive `shadcn add sidebar` would silently revert.
+
+⚠️ **Two levels need it**: the inset (stops it growing inside the sidebar row) *and* the inner
+content column (stops that growing inside the inset). Remove either and the scrollbar returns.
+
+#### ✅ G-3b DONE — 31 Jul 2026 (Domains — the table)
+
+**Hardcoded colours: 64 → 0** (the ones a grep still finds are comments quoting what was
+removed). **1 new dependency:** `alert-dialog`, which pulled in the unified `radix-ui` package
+— it is the only vendored component using that import style; the rest use `@radix-ui/react-*`.
+`button.tsx` was offered for overwrite during install and **declined**.
+
+##### ⚠️ FOUR REAL BUGS, not styling
+
+**1. The publish/unpublish button did nothing whatsoever.** The handler was, in full:
+
+```tsx
+onPublishToggle={() => setPublishingDomain(domain.id)}
+```
+
+No network request — and nothing ever cleared the flag, so clicking it swapped the icon to an
+hourglass **permanently** and never changed the domain. Meanwhile
+`PATCH /api/admin/domains/[id]` already accepted `{ isPublished }`, already worked, and already
+called `invalidateDomains()` to bust the public cache. **The endpoint was fine; the button was
+never wired to it.** This is the concrete shape of the complaint recorded under #20 — "I
+change things and it doesn't show up in the Admin UI".
+
+**2. Both modal backdrops rendered SOLID BLACK.** They used
+`className="fixed inset-0 bg-black bg-opacity-50"`, but **`bg-opacity-*` is Tailwind v3 syntax
+and was removed in v4** — which is what this project runs. An unknown utility is silently
+dropped, so only `bg-black` survived and the "translucent" overlay blacked out the entire page.
+Radix's own overlay uses `bg-black/50` (v4 slash-opacity), so this cannot recur here.
+**⚠️ `CategoryList.tsx` has the identical bug — still live, lands in G-6.**
+
+**3. Delete cascaded without saying how far.** `DELETE /api/admin/domains/[id]` runs a
+transaction deleting every ContentBlock → every Page → the Domain, with **no guard on page
+count**. The old dialog said pages "will also be deleted" but never said that "Graphic
+Designing" means **70 of them**, one click from a red button, with no undo anywhere in this app
+(no soft delete, no trash, no revision history). It now states the exact count and requires
+typing an identifier.
+
+**4. Two no-ops:** a `⋯` "More actions" button with no `onClick` (just a `TODO`), and `w-mx` on
+the delete modal — not a real Tailwind class.
+
+##### ⚠️ Type-to-confirm uses the SLUG, not the name — because of the real data
+
+34 of the 35 domain names **start with an emoji**: `"🖌️ Graphic Designing"`,
+`"🍄 Social Media Marketing"`. You cannot type those, and `🖌️` is two code points
+(U+1F58C U+FE0F), so even copy-paste is fragile — a paste that drops the variation selector
+compares unequal and the button stays dead with no explanation. The slug (`gdesign`) is ASCII,
+short, already visible in the row, and is what the public URL is built from. Match is
+case-**in**sensitive, since slugs are lowercase by construction.
+
+An **empty** domain gets a plain confirm — nothing is lost, so no friction is added.
+
+##### Other changes
+
+- **Four emoji icon-buttons per row → one `DropdownMenu`.** They were ~24px unlabelled targets
+  with destructive delete two pixels from edit; emoji also render per-platform and cannot
+  inherit `currentColor`. Each action now has a *name*, delete is separated and marked
+  `variant="destructive"`, and the reclaimed width was itself feeding the page overflow.
+- **Hand-rolled `fixed inset-0` modals → `Dialog` / `AlertDialog`.** What the hand-rolled ones
+  lacked: Escape-to-close, focus trapping, focus restored to the trigger, `aria-modal`, body
+  scroll lock.
+- **`alert()` → an inline `Alert` banner** showing the server's actual message, and the delete
+  dialog now **stays open on failure**. The old code fired an `alert()` and left a dead modal
+  behind it, so a failed delete looked like it had worked.
+- **`window.location.reload()` → `router.refresh()`** (#22.6 landing early here). Re-runs only
+  the Server Components, so no white flash and surrounding state survives. **Six calls remain
+  elsewhere.** Consequence: `NewDomainDialog` now needs `setOpen(false)` on success, because
+  `DomainForm` only falls back to a reload when given no `onSuccess`.
+- **The row glyph** was derived by regex-matching the first non-word character out of the domain
+  *name*, so "C++ Tutorials" would show a `+`. Now the category's own `icon` field, with a
+  neutral globe fallback.
+
+##### ⚠️ Verification note — how `/admin/*` was tested
+
+Admin routes 307 to `/login`, so assertions need a session. Rather than hardcode a password,
+a short-lived session JWT was signed with the project's own `AUTH_SECRET` (Auth.js v5 derives
+its key from `(secret, salt)` where **the salt is the cookie name**). The script lives in the
+scratchpad; it was copied into the repo root only to resolve `@auth/core` and deleted in the
+same command. **Its `maxAge` is 10 minutes — an expired cookie silently reads as a 307, which
+briefly looked like eight broken screens.**
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. The table renders** — 35 rows (`aria-label="Actions for …"` × 35), 33 Direct + 2
+Hierarchical badges, 35 Live / 0 Draft. Matches the database.
+
+**B. Empty state** — `?search=zzzznomatch` → "No domains found", `colspan="6"`.
+
+**C. Publish toggle actually mutates** — bug #1's fix, driven over HTTP: `PATCH` a real domain
+to `false` → page renders **1 Draft / 34 Live**; `PATCH` back to `true` → **0 / 35**. Dev data
+restored. *(This is the one to re-check by hand in the browser, since it was never wired.)*
+
+**D. Error paths** — `PATCH` and `DELETE` against the all-zero UUID both return
+`{"success":false,"message":"Domain not found"}` with 404, confirming the `body?.message` the
+new error banner reads actually exists.
+
+**E. Old styling gone from the rendered HTML** — `bg-opacity-50`, `bg-gray-50`, `text-blue-800`,
+`text-gray-500`, `divide-gray-200`, `w-mx`, `tracking-wider`: **all absent**. Emoji
+✏️ 🗑️ 🚀 👁️‍🗨️ ⏳ 🔗: **all absent**.
+
+**F. Portal content** — menu items and dialog copy are **not** in server HTML (Radix mounts
+Portals lazily; asserting on server HTML here has produced false failures before). Verified in
+the client chunks instead: "Edit domain", "View live page", "Unpublish", "Delete domain",
+"Type the domain's slug", "of its page", "Could not update".
+⚠️ `"all 70 of its page"` was a **badly formed assertion** — the count is interpolated at
+runtime, so no such literal can exist in a static bundle.
+
+**G. Regression** — all 8 admin screens 200 (`/admin/sections`, *not* `/admin/section-layout`
+— the nav label is "Section Layout" but the route is `/admin/sections`); `/domain` and
+`/sitemap.xml` still 200.
+
+**H. Still to check in a browser** (no headless browser installed): dark mode on this screen,
+and that the dropdown/dialogs open and are positioned correctly.
+
 ---
 
 ### Phase G — original scope notes
@@ -5564,6 +5846,26 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 37 (July 31): **G-3a + G-3b DONE — the Domains screen and its table.** Hardcoded
+colours* **53 → 1** *and* **64 → 0***. The rebuild surfaced* **four real bugs**, *the worst
+being that the* **publish/unpublish button was never wired to anything** *— its handler set a
+state flag and stopped, so it showed a permanent hourglass and never published. The API had
+worked all along, cache invalidation included; only the call was missing. This is the concrete
+shape of the #20 complaint. Second worst:* **both modal backdrops rendered solid black**,
+*because* `bg-opacity-50` *is Tailwind* **v3** *syntax silently dropped by* **v4** *(⚠️ the same
+bug is still live in* `CategoryList.tsx`*, landing in G-6). Delete now names the exact page count
+— the API cascades through every Page with no guard, so "Graphic Designing" meant* **70 pages**
+*one click away, with no undo anywhere in this app — and requires typing the domain's* **slug**,
+*not its name, because* **34 of 35 domain names start with an emoji** *that cannot be typed and
+whose two code points make even paste-equality fragile. Also fixed a document-level* **horizontal
+scrollbar**: `SidebarInset` *ships without* `min-w-0`*, so as a flex item it refused to shrink
+below* `DomainFilters`*' intrinsic width — fixed from* `AdminLayout` *rather than by editing the
+vendored primitive.* `alert-dialog` *installed;* `button.tsx` *overwrite declined. First
+`window.location.reload()` → `router.refresh()` conversions (#22.6);* **six remain**.
+*⚠️ Two of my own verification steps were wrong and are recorded as such: asserting a
+runtime-interpolated count as a bundle literal, and reading an* **expired session cookie** *as
+eight broken admin screens.*
+
 *Revision 36 (July 30): **#22.2(a) DONE — tables are no longer write-once.** One file changed.
 Rows can now be **replaced or appended from a CSV** without deleting and rebuilding the table.
 **Nothing new was built:** `CSVUploadInterface` *already existed and already did header
