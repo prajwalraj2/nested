@@ -357,6 +357,12 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
                 // `['ALL']` is the "visible everywhere" default — see the country
                 // targeting in #8. A domain with no explicit list must not become invisible.
                 targetCountries: domainToEdit.targetCountries || ['ALL'],
+                /*
+                  Passed purely so the form's slug-change warning can state how many pages
+                  would move if the slug is edited (G-3c). We already have the count here —
+                  the table renders it in the Pages column — so this costs nothing.
+                */
+                pageCount: domainToEdit.pageCount,
               }}
               onSuccess={() => {
                 setEditingId(null);
