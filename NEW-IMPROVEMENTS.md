@@ -5446,7 +5446,7 @@ cases, so a regression is traceable to one screen.
 | **G-2** ✅ | **Dashboard** | **DONE 30 Jul.** Hardcoded colours **89 → 8** (all 8 intentional). Found and fixed **three real bugs** — see below. |
 | **G-3a** ✅ | **Domains — page container** | **DONE 30 Jul.** Colours **53 → 1**. Form → dialog; 4 stat panels → 3; 2 dead buttons removed; stray `Roboto` import removed. Also fixed a document-level **horizontal scrollbar** (`min-w-0` on `SidebarInset`). |
 | **G-3b** ✅ | **Domains — the table** | **DONE 31 Jul.** Colours **64 → 0**. Found **four real bugs** — the publish button was never wired to its API at all, and both modal backdrops rendered solid black (`bg-opacity-50` is dead in Tailwind v4). Installed `alert-dialog`. See below. |
-| **G-3c** | **Domains — `DomainForm` + `DomainFilters`** | `DomainForm` 500 lines / 65 colours, `DomainFilters` 306 lines / 33 colours. ⚠️ `DomainFilters`' three `min-w-*` columns are what forced the G-3a overflow fix — it should wrap instead of overflow. Its Page Type `<option>`s still carry emoji. |
+| **G-3c** ✅ | **Domains — `DomainForm` + `DomainFilters`** | **DONE 1 Aug.** Colours **65 → 0** and **33 → 0**; no new installs. Filters became a responsive grid, so the component that *caused* the G-3a overflow no longer needs the workaround. Hit **two Radix `Select` traps** (empty-string values throw; `SelectValue` server-renders blank). Added a **slug-change warning** — renaming a slug 404s every page under it and there is no redirect table. **`/admin/domains` is now fully rebuilt.** |
 | **G-4** | **Pages** | Same. |
 | **G-5** | **Tables list + editor** | Biggest. **`#22.2(b)` row editing and `#22.2(c)` schema editing land here**, plus tables **pagination** (the residual 1.73 MB from #22.1). |
 | **G-6** | **Categories + Section Layout** | |
@@ -5754,6 +5754,118 @@ runtime, so no such literal can exist in a static bundle.
 **H. Still to check in a browser** (no headless browser installed): dark mode on this screen,
 and that the dropdown/dialogs open and are positioned correctly.
 
+#### ✅ G-3c DONE — 1 Aug 2026 (Domains — form + filters)
+
+**Hardcoded colours: `DomainForm` 65 → 0, `DomainFilters` 33 → 0.** No new dependencies —
+`input`, `label`, `select`, `checkbox`, `badge`, `alert` were all vendored already.
+**`/admin/domains` is now fully rebuilt** (G-3a container, G-3b table, G-3c form + filters).
+
+##### `DomainFilters`
+
+- **⚠️ This component caused the page-wide horizontal scrollbar.** Its three filters were
+  `flex-1 min-w-48` + two `flex-1 min-w-32` in a flex row — ~450px of minimum width that could
+  not shrink, which is what forced `min-w-0` onto `SidebarInset` in G-3a. Now a responsive
+  grid (`1 / sm:2 / lg:4`), because **grid tracks do not carry flexbox's `min-width: auto`**,
+  so they wrap instead of pushing the document wider. *(The `min-w-0` stays — it is correct in
+  its own right and protects every other admin screen — but it is no longer load-bearing here.)*
+- **⚠️ The doc comment claimed debouncing that was never implemented.** The handler documented
+  as "Handle search input change with debouncing" had the body `setSearchInput(value)` and
+  nothing else. **Kept the explicit submit and corrected the comment** rather than adding a
+  debounce, which would fire a server round-trip per keystroke.
+- **A fake invisible label removed** — `<label className="text-xs text-transparent">.</label>`,
+  a literal full stop rendered transparent purely to push "Clear All" into vertical alignment.
+- **Labels had no `htmlFor`/`id`**, so clicking one did nothing and screen readers announced
+  three unlabelled comboboxes.
+- The four active-filter chips were four copies of the same block differing only by colour
+  (blue/purple/green/orange, none of which meant anything) → one `FilterChip` component. Their
+  remove control was a bare `×` character, which reads as "multiplication sign".
+
+##### ⚠️ Two Radix `Select` traps, both hit during this step
+
+**1. `SelectItem` throws on `value=""`.** The old native `<option value="">All Categories</option>`
+cannot be ported directly — Radix reserves the empty string internally for "nothing selected".
+Fixed with a `NO_FILTER = '__all__'` sentinel converted back to `''` at the URL boundary, so
+**the URL shape is unchanged and the server page needed no modification**.
+
+**2. `SelectValue` renders EMPTY on the server.** It resolves the trigger's label by looking
+through its `SelectItem` children — which live in a Portal that only mounts in the browser. So
+all three dropdowns server-rendered **blank** and filled in on hydration, a visible regression
+against the native `<select>` they replaced. Caught by reading the actual markup after a grep
+returned empty strings. Fixed by passing explicit children to `SelectValue`, computed from
+props we already hold. Verified in server HTML: unfiltered → `All categories / All statuses /
+All types`; `?status=published&pageType=direct` → `All categories / Published / Direct`.
+*`DomainForm`'s selects deliberately do NOT need this — they exist only inside a dialog, which
+cannot be reached before JS has loaded.*
+
+##### `DomainForm`
+
+- **⚠️ Every label was `text-black` and every input `bg-gray-200 text-gray-800`** — black labels
+  on a dark card in dark mode, while the inputs stayed light grey. The worst dark-mode offender
+  left on this screen after #21.
+- **⚠️ Dead success path deleted.** `if (onSuccess) … else if (!isEditMode) { alert(...);
+  window.location.reload(); }` became unreachable in G-3b once both call sites passed
+  `onSuccess`. **`onSuccess` is now a required prop**, so the dead branch cannot return by
+  someone forgetting to pass it. (#22.6.)
+- **⚠️ Cancel only rendered in edit mode** (`isEditMode && onCancel`), so the create dialog had
+  no Cancel button despite being handed one.
+- **`SUPPORTED_COUNTRIES` was imported and never used.**
+- Country picker: hand-rolled `bg-blue-600`/`bg-green-600` pills → toggle `Button`s with
+  `aria-pressed`, so selection is announced rather than conveyed by colour alone.
+- Publication checkbox: `<input type="checkbox" className="text-blue-600 …">` → shadcn
+  `Checkbox`. *(`text-blue-600` never did anything — a native checkbox ignores text colour;
+  `accent-color` is what tints one.)*
+- `parseInt(e.target.value) || 0` → `Number(...) || 0`: an emptied number input yields `''`, and
+  `parseInt('')` is **NaN** where `Number('')` is 0. The `|| 0` masked it, but the intent is now
+  explicit.
+
+##### ⚠️ NEW SAFETY FEATURE — the slug-change warning
+
+**Changing a domain's slug silently breaks every public URL beneath it.** Pages are served from
+`/domain/<domainSlug>/<pagePath>` and **this app has no redirect table**, so renaming `gdesign`
+404s all **70** of its pages at once — every inbound link, search result and bookmark. The old
+form's entire guard was placeholder text reading *"be careful changing this"*.
+
+A destructive-variant `Alert` now appears **only when the slug of an existing domain has
+actually been edited**, naming the old address, the new one, and the page count. `pageCount` is
+plumbed through from `DomainsTable`, which already had it for the Pages column.
+
+Confirmed against the API: `PUT` validates slug *uniqueness* and maintains the `__main__`
+invariant (#11) server-side, but nothing anywhere addresses orphaned URLs. **A redirect table
+remains genuinely absent — this warns, it does not fix.**
+
+##### ⚠️ TEST CASES — run these before pushing
+
+**A. Filters still filter** — `?status=published&pageType=direct` returns 200 and the page
+renders the matching subset; unfiltered and filtered pages both 200.
+
+**B. The `value=""` trap** — the filtered URL is the one that would throw if a `SelectItem`
+still carried an empty value. It renders.
+
+**C. Trigger labels in server HTML** — all three show their current value *before* hydration
+(see above for the exact expected strings).
+
+**D. Chips are conditional** — "Active filters:" appears 0 times unfiltered, 1 when filtered,
+with one `Remove filter: …` per active filter (2 for the two-filter URL) and a "Clear all".
+
+**E. Accessibility wiring** — `id="filter-category"` / `for="filter-category"` present; 3
+`role="combobox"`.
+
+**F. Dead code is gone from source** — `window.location.reload`, `alert(`,
+`SUPPORTED_COUNTRIES`, `text-transparent`: **1 occurrence each, all inside comments** quoting
+what was removed.
+
+**G. Regression** — all 8 admin screens 200; `/domain` and `/sitemap.xml` 200.
+
+**H. Still to check in a browser**: dark mode on the form and filters; the slug warning
+appearing when (and only when) you edit an existing slug; that the filter grid wraps rather
+than overflowing at a narrow width.
+
+##### Roboto sweep — progress
+
+`next/font/google` is now imported in **5** files, of which **`src/app/layout.tsx` is the
+legitimate app-wide font**. The remaining 4 are `admin/categories/page.tsx`, `admin/pages/page.tsx`,
+`CategoryForm.tsx` and `PagesManager.tsx` — they land in **G-4** (pages) and **G-6** (categories).
+
 ---
 
 ### Phase G — original scope notes
@@ -5846,6 +5958,23 @@ design. It just needs invalidation (#5) to be trustworthy.
 *Revision 4 (July 26): #13* `robots.ts` *shipped; corrected the planned* `/api/` *disallow
 list (it would have hidden table content from Google); logged* `/header1` *for deletion;
 root* `/` *redirect changed 307 → 308 (#14 A0).*
+*Revision 38 (Aug 1): **G-3c DONE — `/admin/domains` is now fully rebuilt.** Colours* **65 → 0**
+*and* **33 → 0**, *no new installs.* `DomainFilters` *— the component whose three* `min-w-*`
+*flex columns* **caused** *the G-3a horizontal scrollbar — is now a responsive grid, so it wraps
+instead of overflowing (grid tracks have no* `min-width: auto`*). Two Radix* `Select` *traps hit
+and recorded:* `SelectItem` **throws on an empty-string value** *(the native* `<option value="">`
+*"All …" pattern cannot be ported directly — solved with a sentinel, leaving the URL shape
+unchanged), and* `SelectValue` **server-renders blank** *because it resolves its label from
+Portal-mounted children, so all three dropdowns were empty until hydration — caught only by
+reading the raw markup after a grep came back with empty strings. New safety feature:* **a
+slug-change warning**, *because renaming a domain slug 404s every page beneath it (70 for
+"Graphic Designing") and* **this app has no redirect table** *— the previous guard was
+placeholder text saying "be careful". Also deleted an* `alert()` + `window.location.reload()`
+*path that G-3b had made unreachable, a* `Cancel` *button that only rendered in edit mode, an
+unused import, a comment claiming debouncing that was never written, and a transparent full-stop
+label used to fake vertical alignment. Roboto sweep:* **7 → 5 files** *(one of which is the
+legitimate app-wide font).*
+
 *Revision 37 (July 31): **G-3a + G-3b DONE — the Domains screen and its table.** Hardcoded
 colours* **53 → 1** *and* **64 → 0***. The rebuild surfaced* **four real bugs**, *the worst
 being that the* **publish/unpublish button was never wired to anything** *— its handler set a
