@@ -1,37 +1,43 @@
+import { ChevronDown, Info } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
 import { PagesManager } from '@/components/admin/pages/PagesManager';
-import { Roboto } from 'next/font/google';
-
-const roboto = Roboto({
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
-});
 
 /**
- * Admin Pages Management Page
- * 
- * Comprehensive page management system with correct parent logic:
- * 
- * DIRECT DOMAINS:
- * - Auto-create __main__ page when domain is created
- * - All first-level pages use __main__ as parent
- * - URLs: /domain/gdesign/ytube (ytube → __main__ → domain)
- * 
- * HIERARCHICAL DOMAINS: 
- * - NO __main__ page created
- * - First-level pages use domain as parent
- * - URLs: /domain/webdev/with-code (with-code → domain)
- * 
- * UI Features:
- * - Domain selection first
- * - Tree view with expand/collapse
- * - Page details: Title, Slug, Link, Parent
- * - Actions: + (add child), 🔗 (link), ✏️ (edit), 🗑️ (delete)
+ * Admin — Pages (shell rebuilt in Phase G-4b).
+ * ============================================================================
+ *
+ * Picks a domain, then manages that domain's page hierarchy. The interesting logic all
+ * lives in `PagesManager` and below; this file is the server shell that supplies the
+ * domain list.
+ *
+ * ⚠️ A DEAD `Roboto` IMPORT WAS REMOVED. This file called
+ * `const roboto = Roboto({ subsets: ['latin'], weight: ['400','500','700'] })` and then
+ * **never referenced `roboto` again** — not one `roboto.className` in the whole file. The
+ * other three remaining importers at least use theirs. Pure dead weight, and it pulled a
+ * second webfont into a build that already sets Geist app-wide in the root layout.
+ *
+ * ⚠️ THE GRADIENT BANNER WAS REMOVED, for the third time in this phase (dashboard in G-2,
+ * domains in G-3a). `from-purple-50 to-blue-50` described the screen you are already looking
+ * at, and was hardcoded light so it survived dark mode unchanged.
+ *
+ * ⚠️ THE "UNDERSTANDING DOMAIN TYPES" PANEL IS NOW COLLAPSED BY DEFAULT. It was a permanently
+ * open two-column cyan/blue/purple explainer — genuinely useful the first time and pure
+ * scroll-past on every visit after. Same treatment as the Domains tips box in G-3a, and the
+ * content is kept verbatim because the direct-vs-hierarchical distinction is the one piece of
+ * this app's model that is not self-evident from the UI.
  */
 
 type SearchParams = {
-  domain?: string;    // Selected domain ID for filtering
-  expand?: string;    // Comma-separated list of expanded page IDs
+  domain?: string; // Selected domain ID for filtering
+  expand?: string; // Comma-separated list of expanded page IDs
 };
 
 type PagesPageProps = {
@@ -39,80 +45,113 @@ type PagesPageProps = {
 };
 
 export default async function PagesManagePage({ searchParams }: PagesPageProps) {
-  // Await searchParams for Next.js 15 compatibility
+  // Awaited because searchParams is a Promise in Next 15.
   const awaitedSearchParams = await searchParams;
-  
-  // Fetch domains for selection
-  const domains = await fetchDomainsForPageManagement();
-  
-  return (
-    <div className="space-y-8">
-      
-      {/* Page Header */}
-      <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-6 border border-purple-100">
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">
-          📄 Page Management System
-        </h2>
-        <p className="text-gray-600">
-          Create and organize your content pages with proper hierarchical structures. 
-          Support both direct and hierarchical domain types.
-        </p>
-      </div>
 
-      {/* Main Pages Manager Component */}
-      <div className="bg-white rounded-lg border border-gray-200">
-        <PagesManager 
+  const domains = await fetchDomainsForPageManagement();
+
+  return (
+    <>
+      <AdminPageHeader
+        title="Pages"
+        description={`Organise the page hierarchy across ${domains.length} domains.`}
+      />
+
+      {/*
+        No `CardContent` padding wrapper — `PagesManager` draws its own sections with their
+        own dividers, and an outer inset would double the padding on every one of them.
+      */}
+      <Card className="overflow-hidden">
+        <PagesManager
           domains={domains}
           selectedDomainId={awaitedSearchParams.domain}
-          expandedPageIds={awaitedSearchParams.expand?.split(',') || []}
+          // `?expand=a,b,c` persists which branches are open across a reload. An absent
+          // parameter must become an empty array, not `['']`, which would be treated as a
+          // page id that never matches.
+          expandedPageIds={awaitedSearchParams.expand?.split(',').filter(Boolean) || []}
         />
-      </div>
+      </Card>
 
-      {/* Domain Type Explanation */}
-      <div className="bg-cyan-50 rounded-lg p-6 border border-cyan-100">
-        <h4 className="font-semibold text-cyan-900 mb-3">
-          🔍 Understanding Domain Types
-        </h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-black">
-          
-          {/* Direct Domain */}
-          <div className="bg-white rounded-lg p-4 border border-cyan-200">
-            <h5 className="font-semibold mb-3 text-blue-900">🎯 Direct Domains</h5>
-            <div className="space-y-2">
-              <div><strong>Auto-creates:</strong> Hidden __main__ page</div>
-              <div><strong>Parent Logic:</strong> All pages → __main__ → domain</div>
-              <div><strong>URL Example:</strong> <code>/domain/gdesign/ytube</code></div>
-              <div><strong>Use Case:</strong> Single topic with organized sections</div>
-            </div>
-            <div className="mt-3 p-2 bg-blue-50 rounded text-xs">
-              <strong>Flow:</strong> Domain → __main__ (hidden) → Your Pages
-            </div>
-          </div>
+      <Collapsible defaultOpen={false}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="text-muted-foreground">
+            <Info className="size-4" aria-hidden="true" />
+            Understanding domain types
+            <ChevronDown
+              className="size-4 transition-transform [[data-state=open]_&]:rotate-180"
+              aria-hidden="true"
+            />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Card className="mt-2">
+            <CardContent className="grid gap-6 text-sm md:grid-cols-2">
+              <div className="space-y-2">
+                <h5 className="font-medium">Direct domains</h5>
+                <dl className="text-muted-foreground space-y-1">
+                  {/*
+                    A description list rather than a stack of <div><strong>…</strong></div>:
+                    these are label/value pairs, and `<dt>`/`<dd>` is what conveys that
+                    relationship to a screen reader.
+                  */}
+                  <div>
+                    <dt className="text-foreground inline font-medium">Auto-creates: </dt>
+                    <dd className="inline">a hidden <code>__main__</code> page</dd>
+                  </div>
+                  <div>
+                    <dt className="text-foreground inline font-medium">Parent logic: </dt>
+                    <dd className="inline">all pages → <code>__main__</code> → domain</dd>
+                  </div>
+                  <div>
+                    <dt className="text-foreground inline font-medium">URL: </dt>
+                    <dd className="inline">
+                      <code>/domain/gdesign/ytube</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-foreground inline font-medium">Use for: </dt>
+                    <dd className="inline">a single topic with organised sections</dd>
+                  </div>
+                </dl>
+              </div>
 
-          {/* Hierarchical Domain */}
-          <div className="bg-white rounded-lg p-4 border border-cyan-200">
-            <h5 className="font-semibold mb-3 text-purple-900">🏗️ Hierarchical Domains</h5>
-            <div className="space-y-2">
-              <div><strong>Auto-creates:</strong> Nothing (clean start)</div>
-              <div><strong>Parent Logic:</strong> Top pages → domain directly</div>
-              <div><strong>URL Example:</strong> <code>/domain/webdev/with-code</code></div>
-              <div><strong>Use Case:</strong> Multiple main categories</div>
-            </div>
-            <div className="mt-3 p-2 bg-purple-50 rounded text-xs">
-              <strong>Flow:</strong> Domain → Your Main Categories → Sub Pages
-            </div>
-          </div>
-          
-        </div>
-      </div>
-      
-    </div>
+              <div className="space-y-2">
+                <h5 className="font-medium">Hierarchical domains</h5>
+                <dl className="text-muted-foreground space-y-1">
+                  <div>
+                    <dt className="text-foreground inline font-medium">Auto-creates: </dt>
+                    <dd className="inline">nothing — a clean start</dd>
+                  </div>
+                  <div>
+                    <dt className="text-foreground inline font-medium">Parent logic: </dt>
+                    <dd className="inline">top-level pages attach to the domain directly</dd>
+                  </div>
+                  <div>
+                    <dt className="text-foreground inline font-medium">URL: </dt>
+                    <dd className="inline">
+                      <code>/domain/webdev/with-code</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-foreground inline font-medium">Use for: </dt>
+                    <dd className="inline">several main categories under one domain</dd>
+                  </div>
+                </dl>
+              </div>
+            </CardContent>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
+    </>
   );
 }
 
 /**
- * Fetch domains for page management
- * Include only essential data needed for page management
+ * Fetch domains for page management.
+ *
+ * An explicit `select` rather than a bare `findMany`, so this does not haul every column of
+ * all 35 rows across the wire for a picker that shows a name, an icon and a type — the same
+ * payload discipline as #22.1.
  */
 async function fetchDomainsForPageManagement() {
   try {
@@ -127,19 +166,18 @@ async function fetchDomainsForPageManagement() {
           select: {
             id: true,
             name: true,
-            icon: true
-          }
-        }
+            icon: true,
+          },
+        },
       },
       orderBy: [
         { category: { columnPosition: 'asc' } },
         { orderInCategory: 'asc' },
-        { name: 'asc' }
-      ]
+        { name: 'asc' },
+      ],
     });
 
     return domains;
-
   } catch (error) {
     console.error('Error fetching domains for page management:', error);
     return [];

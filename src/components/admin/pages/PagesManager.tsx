@@ -2,15 +2,26 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle, Globe, Loader2, Network, Plus, Target, X } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { DomainSelector } from './DomainSelector';
 import { PageTree } from './PageTree';
 import { PageForm } from './PageForm';
-import { Roboto } from 'next/font/google';
 
-const roboto = Roboto({
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
-});
+// ⚠️ The `Roboto` import was removed (G-4b). It styled five headings in this one component,
+// fighting the app-wide Geist set in the root layout and costing a second webfont download.
 
 /**
  * Main Pages Manager Component
@@ -77,6 +88,14 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
   const [createParentId, setCreateParentId] = useState<string | null>(null);
 
   /**
+   * The page awaiting delete confirmation, or `null`.
+   *
+   * The whole PAGE is held, not just its id, because the dialog needs `title` and the
+   * nested `children` to state how many descendants go with it.
+   */
+  const [deletingPage, setDeletingPage] = useState<Page | null>(null);
+
+  /**
    * Initialize selected domain on mount or when selectedDomainId changes
    */
   useEffect(() => {
@@ -84,39 +103,75 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
       const domain = domains.find(d => d.id === selectedDomainId);
       if (domain) {
         setSelectedDomain(domain);
-        fetchPagesForDomain(domain.id);
+        // ⚠️ The DOMAIN OBJECT is passed, not its id — see the long note on
+        // `fetchPagesForDomain`. Passing only the id is what made this screen render an
+        // empty tree on first load.
+        fetchPagesForDomain(domain);
       }
     } else if (domains.length > 0) {
       // Default to first domain if none selected
       setSelectedDomain(domains[0]);
-      fetchPagesForDomain(domains[0].id);
+      fetchPagesForDomain(domains[0]);
     }
   }, [selectedDomainId, domains]);
 
   /**
-   * Fetch pages for the selected domain
+   * Fetch the pages of a domain and build the tree.
+   *
+   * ⚠️ TAKES THE DOMAIN OBJECT, NOT AN ID — AND THAT IS THE WHOLE FIX (G-4a).
+   * ==========================================================================
+   * This function used to take `domainId: string` and then read the domain from state:
+   *
+   *     const fetchPagesForDomain = async (domainId: string) => {
+   *       ...
+   *       const hierarchicalPages = buildPageHierarchy(data.pages, selectedDomain);
+   *     };
+   *
+   * `selectedDomain` there is the value captured when this function was CREATED, during a
+   * particular render. Calling `setSelectedDomain(d)` immediately before does not change it —
+   * a state setter schedules the next render, it does not reach back into a closure that
+   * already exists. That produced two separate bugs from one mistake:
+   *
+   * 1. ⚠️ THE TREE WAS EMPTY ON FIRST LOAD. On mount the effect above ran
+   *    `setSelectedDomain(d)` then `fetchPagesForDomain(d.id)`, so inside the call
+   *    `selectedDomain` was still its initial `null`. `buildPageHierarchy` starts with
+   *    `if (!domain || !flatPages.length) return []`, so it returned an empty array and we
+   *    called `setPages([])`. **The network request succeeded and its result was thrown
+   *    away.** Nothing recovered afterwards: the effect's deps are
+   *    `[selectedDomainId, domains]`, neither of which changes, so it never ran again.
+   *
+   * 2. ⚠️ SWITCHING DOMAINS BUILT ANOTHER DOMAIN'S URLS. After the first render the closure
+   *    held the PREVIOUS domain, so `buildPageHierarchy` used the wrong `pageType` — which
+   *    decides whether the hidden `__main__` segment is skipped — and the wrong
+   *    `domain.slug`. Preview links pointed into a different domain.
+   *
+   * Taking the domain as an argument removes the closure from the equation entirely: the
+   * data used to build the tree is the same data the caller used to request it. That is
+   * also why this is preferable to adding `selectedDomain` to a dependency array — there is
+   * no timing left to get wrong.
    */
-  const fetchPagesForDomain = async (domainId: string) => {
+  const fetchPagesForDomain = async (domain: Domain) => {
     setLoading(true);
     setError(null);
-    
+
     try {
-      const response = await fetch(`/api/admin/pages?domain=${domainId}`);
-      
+      const response = await fetch(`/api/admin/pages?domain=${domain.id}`);
+
       if (!response.ok) {
         throw new Error('Failed to fetch pages');
       }
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
-        // Build hierarchical structure and calculate paths
-        const hierarchicalPages = buildPageHierarchy(data.pages, selectedDomain);
+        // Build hierarchical structure and calculate paths, using the domain we were
+        // handed rather than whatever state happens to hold right now.
+        const hierarchicalPages = buildPageHierarchy(data.pages, domain);
         setPages(hierarchicalPages);
       } else {
         throw new Error(data.message || 'Failed to fetch pages');
       }
-      
+
     } catch (err) {
       console.error('Error fetching pages:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch pages');
@@ -140,9 +195,10 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
     url.searchParams.set('domain', domain.id);
     url.searchParams.delete('expand'); // Reset expanded state
     router.push(url.toString());
-    
-    // Fetch pages for new domain
-    fetchPagesForDomain(domain.id);
+
+    // Fetch pages for the NEW domain. Passing the object is what stops the tree being
+    // built against the previously selected domain — symptom 2 in the note above.
+    fetchPagesForDomain(domain);
   };
 
   /**
@@ -171,9 +227,10 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
     setEditingPage(null);
     setCreateParentId(null);
     
-    // Refresh pages
+    // Refresh pages. `selectedDomain` is safe to use HERE — this runs from a user action
+    // long after the state settled, not in the same tick as the setter that assigned it.
     if (selectedDomain) {
-      fetchPagesForDomain(selectedDomain.id);
+      fetchPagesForDomain(selectedDomain);
     }
   };
 
@@ -187,30 +244,58 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
   };
 
   /**
-   * Handle page deletion
+   * Open the delete confirmation.
+   *
+   * ⚠️ THIS USED TO BE A BROWSER `confirm()` — AND IT UNDERSTATED WHAT DELETE DOES.
+   * ==========================================================================
+   * The old guard was:
+   *
+   *     if (!confirm('Are you sure you want to delete this page? This action cannot be undone.'))
+   *
+   * `DELETE /api/admin/pages/[id]` does not delete one page. It collects every DESCENDANT,
+   * then removes their content blocks and each page in one transaction. So deleting a
+   * branch near the top of a 50-page tree takes everything under it, and the only warning
+   * was a generic sentence that never named a number.
+   *
+   * The count is computed from the tree we already hold rather than asking the server —
+   * `buildPageHierarchy` has already nested every page of this domain, so the answer is
+   * local and exact. (Part of #22.6: `confirm()` is *synchronous*, so it cannot be swapped
+   * for a dialog in place — the call site has to be split into "open" and "confirm", which
+   * is what these two functions are.)
    */
-  const handleDeletePage = async (pageId: string) => {
-    if (!confirm('Are you sure you want to delete this page? This action cannot be undone.')) {
-      return;
-    }
-    
+  const handleDeletePage = (pageId: string) => {
+    const page = findPageInTree(pages, pageId);
+    if (page) setDeletingPage(page);
+  };
+
+  /**
+   * Actually delete, once confirmed. Returns an error message, or `null` on success, so the
+   * dialog can stay open and show the failure instead of firing an `alert()` and closing.
+   */
+  const confirmDeletePage = async (page: Page): Promise<string | null> => {
     try {
-      const response = await fetch(`/api/admin/pages/${pageId}`, {
+      const response = await fetch(`/api/admin/pages/${page.id}`, {
         method: 'DELETE'
       });
-      
+
       if (!response.ok) {
-        throw new Error('Failed to delete page');
+        // The API answers `{ success, message }` — including the one refusal that matters
+        // here, "Cannot delete the main page" for `__main__` (#11).
+        const body = await response.json().catch(() => null);
+        return body?.message ?? `Request failed (${response.status})`;
       }
-      
-      // Refresh pages after deletion
+
+      setDeletingPage(null);
+
+      // Refresh pages after deletion — same reasoning as `handleFormSuccess`.
       if (selectedDomain) {
-        fetchPagesForDomain(selectedDomain.id);
+        fetchPagesForDomain(selectedDomain);
       }
-      
+
+      return null;
     } catch (err) {
       console.error('Error deleting page:', err);
-      alert('Failed to delete page. Please try again.');
+      return err instanceof Error ? err.message : 'Network error.';
     }
   };
 
@@ -236,85 +321,120 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
     router.replace(url.toString());
   };
 
+  const isDirect = selectedDomain?.pageType === 'direct';
+
+  /**
+   * Every page in the domain, at any depth — `pages` holds only the roots.
+   *
+   * Reuses `countDescendants` so this number and the tree's own header cannot drift apart:
+   * one recursion, two call sites.
+   */
+  const totalPageCount = pages.reduce((total, page) => total + 1 + countDescendants(page), 0);
+
   return (
-    <div className="space-y-6">
-      
-      {/* Domain Selection */}
-      <div className="px-6 py-4 border-b border-gray-200">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className={`text-xl font-semibold text-gray-900 ${roboto.className}`}>
-              Select Domain
-            </h3>
-            <p className={`text-sm text-gray-600 mt-1 ${roboto.className}`}>
-              Choose a domain to manage its page hierarchy
-            </p>
-          </div>
-          
-          {selectedDomain && (
-            <div className="flex items-center space-x-4 text-sm">
-              <span className="text-gray-600">
-                📊 {pages.length} page{pages.length !== 1 ? 's' : ''} total
-              </span>
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                selectedDomain.pageType === 'direct' 
-                  ? 'bg-blue-100 text-blue-800'
-                  : 'bg-purple-100 text-purple-800'
-              }`}>
-                {selectedDomain.pageType === 'direct' ? '🎯 Direct' : '🏗️ Hierarchical'}
-              </span>
-            </div>
-          )}
+    <div>
+      {/* ── Domain selection ── */}
+      <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          {/*
+            `h3`, not a styled `div` — this is the section heading, and the outline is what
+            lets a screen-reader user skip between regions. The old markup used the right
+            tag but overrode the type scale with `text-xl` plus a second webfont.
+          */}
+          <h3 className="text-sm font-medium">Domain</h3>
+          <p className="text-muted-foreground text-xs">
+            Choose a domain to manage its page hierarchy.
+          </p>
         </div>
-        
-        <DomainSelector 
+
+        {selectedDomain && (
+          <div className="flex shrink-0 items-center gap-2">
+            {/*
+              Was `📊 {n} pages total` in muted grey next to a hand-rolled pill. Both are
+              facts about the selected domain, so both are badges now — and the type badge
+              matches the one on the Domains table (G-3b), so "Direct" looks the same
+              wherever it appears.
+            */}
+            {/*
+              ⚠️ COUNTS EVERY PAGE, NOT JUST THE ROOTS.
+
+              This read `{pages.length} pages total` — but `pages` is the array of ROOT
+              pages, so for the hierarchical "App Development" domain it announced
+              **"3 pages total"** while the tree immediately below said "116 pages in this
+              domain". Two numbers, one screen, both claiming to be the page count.
+
+              For a `direct` domain it was worse: every page hangs off `__main__`, which is
+              the only root, so the badge always said "1 page" no matter how many there were.
+            */}
+            <Badge variant="secondary" className="font-normal">
+              {totalPageCount} page{totalPageCount === 1 ? '' : 's'}
+            </Badge>
+            <Badge variant="outline" className="gap-1 font-normal">
+              {isDirect ? (
+                <Target className="size-3" aria-hidden="true" />
+              ) : (
+                <Network className="size-3" aria-hidden="true" />
+              )}
+              {isDirect ? 'Direct' : 'Hierarchical'}
+            </Badge>
+          </div>
+        )}
+      </div>
+
+      <div className="border-b p-4">
+        <DomainSelector
           domains={domains}
           selectedDomain={selectedDomain}
           onDomainChange={handleDomainChange}
         />
       </div>
 
-      {/* Content Area */}
-      {selectedDomain && (
-        <div className="px-6 pb-6">
-          
-          {/* Create Page Button */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h4 className={`text-lg font-semibold text-gray-900 ${roboto.className}`}>
-                Pages in {selectedDomain.name}
-              </h4>
-              <p className={`text-sm text-gray-600 mt-1 ${roboto.className}`}>
-                {selectedDomain.pageType === 'direct' 
-                  ? 'Pages will be created under the hidden __main__ page'
-                  : 'Create root-level pages or nested sub-pages'
-                }
+      {/* ── Content ── */}
+      {selectedDomain ? (
+        <div className="space-y-4 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h4 className="font-medium">Pages in {selectedDomain.name}</h4>
+              <p className="text-muted-foreground text-xs">
+                {isDirect
+                  ? 'New pages are created under the hidden __main__ page.'
+                  : 'Create root-level pages, or nest them under an existing page.'}
               </p>
             </div>
-            
-            <button
-              onClick={() => handleCreatePage(null)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-            >
-              + Create New Page
-            </button>
+
+            <Button size="sm" className="shrink-0" onClick={() => handleCreatePage(null)}>
+              <Plus className="size-4" aria-hidden="true" />
+              New page
+            </Button>
           </div>
 
-          {/* Page Creation/Edit Form */}
+          {/*
+            The create/edit form stays INLINE rather than moving into a dialog like the
+            domain form did in G-3a. Deliberate: you pick a parent from the tree behind it,
+            and the tree is the context for what you are typing. A modal would cover the
+            thing the form is about.
+          */}
           {(showCreateForm || editingPage) && (
-            <div className="mb-6 bg-gray-50 rounded-lg p-6 border border-gray-200">
-              <div className="flex items-center justify-between mb-4">
-                <h5 className={`text-md font-semibold text-gray-900 ${roboto.className}`}>
-                  {editingPage ? `Edit Page: ${editingPage.title}` : 'Create New Page'}
+            <div className="bg-muted/40 space-y-4 rounded-lg border p-4">
+              <div className="flex items-start justify-between gap-2">
+                <h5 className="font-medium">
+                  {editingPage ? `Edit "${editingPage.title}"` : 'New page'}
                 </h5>
-                <button
+                {/*
+                  Was a bare `✕` character in a grey span — which a screen reader announces
+                  as "multiplication sign" and which cannot inherit the theme.
+                */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0"
                   onClick={handleFormCancel}
-                  className="text-gray-400 hover:text-gray-600"
+                  aria-label="Close the form"
                 >
-                  ✕
-                </button>
+                  <X className="size-4" aria-hidden="true" />
+                </Button>
               </div>
-              
+
               <PageForm
                 domain={selectedDomain}
                 pages={pages}
@@ -326,25 +446,22 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
             </div>
           )}
 
-          {/* Loading State */}
           {loading && (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="text-gray-600 mt-2">Loading pages...</p>
+            <div className="text-muted-foreground flex items-center justify-center gap-2 py-10 text-sm">
+              {/* `animate-spin` on a lucide icon, replacing a hand-rolled
+                  `animate-spin rounded-full border-b-2 border-blue-600` div. */}
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              Loading pages…
             </div>
           )}
 
-          {/* Error State */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <div className="flex items-center">
-                <span className="text-red-500 mr-2">❌</span>
-                <span className="text-red-700 text-sm">{error}</span>
-              </div>
-            </div>
+            <Alert variant="destructive">
+              <AlertTriangle className="size-4" aria-hidden="true" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
-          {/* Pages Tree */}
           {!loading && !error && (
             <PageTree
               pages={pages}
@@ -356,25 +473,151 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
               onDeletePage={handleDeletePage}
             />
           )}
-
         </div>
-      )}
-
-      {/* No Domain Selected State */}
-      {!selectedDomain && (
-        <div className="text-center py-16">
-          <div className="text-6xl mb-4">🌐</div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
-            Select a Domain to Get Started
-          </h3>
-          <p className="text-gray-600 mb-6">
-            Choose a domain from the dropdown above to manage its pages
+      ) : (
+        <div className="flex flex-col items-center gap-2 py-16 text-center">
+          <Globe className="text-muted-foreground size-8" aria-hidden="true" />
+          <p className="font-medium">Select a domain to get started</p>
+          <p className="text-muted-foreground text-sm">
+            Choose one above to manage its pages.
           </p>
         </div>
       )}
-      
+
+      {/*
+        Delete confirmation. Keyed by id so the in-flight/error state cannot carry over from
+        one page to the next — the same reasoning as the domain delete dialog in G-3b.
+      */}
+      {deletingPage && (
+        <DeletePageDialog
+          key={deletingPage.id}
+          page={deletingPage}
+          onConfirm={() => confirmDeletePage(deletingPage)}
+          onCancel={() => setDeletingPage(null)}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * Delete confirmation for a page and everything beneath it.
+ *
+ * ⚠️ The API deletes the WHOLE SUBTREE — see `handleDeletePage`. This states the descendant
+ * count before you commit, which the browser `confirm()` it replaces never did.
+ *
+ * Unlike the domain delete in G-3b there is no type-to-confirm step. That is a judgement
+ * about proportion: deleting a domain destroys 70 pages and is rare, while pruning a page is
+ * routine. The count plus a destructive button is the right amount of friction — adding more
+ * to a frequent action just trains people to click through it.
+ */
+type DeletePageDialogProps = {
+  page: Page;
+  /** Resolves to an error message, or `null` on success. */
+  onConfirm: () => Promise<string | null>;
+  onCancel: () => void;
+};
+
+function DeletePageDialog({ page, onConfirm, onCancel }: DeletePageDialogProps) {
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const descendants = countDescendants(page);
+
+  async function handleConfirm() {
+    setIsDeleting(true);
+    setError(null);
+
+    const failure = await onConfirm();
+
+    if (failure) {
+      setError(failure);
+      setIsDeleting(false);
+    }
+    // On success the parent clears `deletingPage`, unmounting this — so no state update
+    // here, which would run against an unmounted component.
+  }
+
+  return (
+    <AlertDialog open onOpenChange={(open) => !open && onCancel()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete "{page.title}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {descendants > 0 ? (
+              <>
+                This page has{' '}
+                <strong className="text-foreground">
+                  {descendants} nested page{descendants === 1 ? '' : 's'}
+                </strong>{' '}
+                beneath it. Deleting it removes all of them and their content. This cannot be
+                undone.
+              </>
+            ) : (
+              <>
+                This will permanently delete the page and its content. It has no nested pages.
+                This cannot be undone.
+              </>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertTriangle className="size-4" aria-hidden="true" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+          {/*
+            `preventDefault()` stops Radix closing the dialog on click, so a failed delete
+            can report itself here instead of vanishing. Same pattern as G-3b — see the long
+            note there for why Radix honours it.
+          */}
+          <AlertDialogAction
+            variant="destructive"
+            disabled={isDeleting}
+            onClick={(event) => {
+              event.preventDefault();
+              handleConfirm();
+            }}
+          >
+            {isDeleting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            {isDeleting ? 'Deleting…' : 'Delete page'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
+ * Find a page anywhere in the nested tree by id.
+ *
+ * The tree is nested, so a flat `.find()` would only ever match root pages. This walks
+ * depth-first and returns as soon as it hits the id.
+ */
+function findPageInTree(pages: Page[], pageId: string): Page | null {
+  for (const page of pages) {
+    if (page.id === pageId) return page;
+
+    const found = findPageInTree(page.children, pageId);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Count every descendant of a page — children, grandchildren, all the way down.
+ *
+ * This is the number the delete dialog needs, because the API deletes the whole subtree.
+ * Counting `page.children.length` alone would report 3 for a branch that actually takes 20
+ * pages with it, which is worse than saying nothing.
+ */
+function countDescendants(page: Page): number {
+  return page.children.reduce((total, child) => total + 1 + countDescendants(child), 0);
 }
 
 /**
