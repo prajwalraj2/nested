@@ -63,10 +63,15 @@ export function AdminHeader({ recordName, pageActions }: AdminHeaderProps) {
      * old header scrolled away, which on the tables screen meant losing your place with no
      * indication of where you were.
      *
-     * `h-16` fixed, matching the shadcn dashboard convention, so page content can rely on
+     * `h-12` fixed, so page content can rely on a stable offset. Shadcn's dashboard
+     * convention is `h-16`, but this bar holds a single line of breadcrumb text — 64px
+     * made it a band of empty space above every screen, and was part of why the panel
+     * read as oversized at 100% zoom.
+     *
+     * (original note) matching the shadcn dashboard convention, so page content can rely on
      * a stable offset.
      */
-    <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4">
+    <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
       {/* The collapse control. `-ml-1` optically aligns it with the content below. */}
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />

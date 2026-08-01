@@ -30,7 +30,27 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   return (
     <SidebarProvider>
       <AdminSidebar />
-      <SidebarInset>
+      {/*
+        ⚠️ `min-w-0` IS LOAD-BEARING — without it the whole page scrolls sideways.
+        ==========================================================================
+        `SidebarInset` renders as `flex w-full flex-1 flex-col`. It is a flex ITEM sitting
+        next to the sidebar, and a flex item's default `min-width: auto` refuses to shrink
+        below its content's intrinsic width. So any wide child — `DomainFilters` has a
+        `min-w-48` column plus two `min-w-32` ones — pushes this container wider than the
+        viewport and produces a horizontal scrollbar on the document, dragging the header
+        and sidebar out of view with it.
+
+        `min-w-0` lets it shrink, so overflow is handled by whichever child owns it
+        (`DomainsTable` already wraps itself in `overflow-x-auto`) instead of by the page.
+
+        Passed as a `className` rather than edited into `components/ui/sidebar.tsx` — that
+        is a vendored shadcn primitive and `shadcn add sidebar` would silently revert it.
+
+        ⚠️ The inner `div` below ALSO has `min-w-0`. Both are needed: this one stops the
+        inset growing inside the sidebar row, that one stops the content column growing
+        inside the inset. Removing either brings the scrollbar back.
+      */}
+      <SidebarInset className="min-w-0">
         <AdminHeader />
         {/*
           `min-w-0` matters more than it looks: without it a wide child — the tables grid,

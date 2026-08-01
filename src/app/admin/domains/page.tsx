@@ -1,13 +1,26 @@
+import { Globe, CheckCircle2, Filter, Lightbulb, ChevronDown } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
+import { StatsCard } from '@/components/admin/dashboard/StatsCard';
 import { DomainsTable } from '@/components/admin/domains/DomainsTable';
-import { DomainForm } from '@/components/admin/domains/DomainForm';
 import { DomainFilters } from '@/components/admin/domains/DomainFilters';
-import { Roboto } from 'next/font/google';
+import { NewDomainDialog } from '@/components/admin/domains/NewDomainDialog';
 
-const roboto = Roboto({
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
-});
+/**
+ * ⚠️ THE `Roboto` FONT IMPORT WAS REMOVED (Phase G-3a).
+ *
+ * This page loaded Roboto from Google Fonts and applied `roboto.className` to individual
+ * headings, fighting the app-wide Geist set in the root layout. So this one screen rendered
+ * its text in a different typeface from every other admin page — and paid for an extra font
+ * download to do it. No other admin page does this.
+ */
 
 /**
  * Admin Domains Management Page
@@ -53,163 +66,134 @@ export default async function DomainsManagePage({ searchParams }: DomainsPagePro
   const { domains, categories, stats } = await fetchDomainsWithFilters(awaitedSearchParams);
   
   return (
-    <div className="space-y-8">
-      
-      {/* Page Introduction */}
-      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-6 border border-green-100">
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">
-          🌐 Manage Content Domains
-        </h2>
-        <p className="text-gray-600">
-          Create and organize your content domains. Manage categories, page types, and publication status.
-        </p>
-      </div>
+    <>
+      {/*
+        The gradient "🌐 Manage Content Domains" intro banner was removed, for the same
+        reason as the dashboard's welcome banner in G-2: it described the screen you are
+        already looking at, and its `from-green-50 to-emerald-50` gradient was hardcoded
+        light so it broke in dark mode.
 
-      {/* Domain Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Domains</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalDomains}</p>
-            </div>
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <span className="text-blue-600 text-xl">🌐</span>
-            </div>
-          </div>
-        </div>
+        Title and primary action now share one row — which is where the eye goes first.
+      */}
+      <AdminPageHeader
+        title="Domains"
+        description={`${stats.totalDomains} domains across ${stats.categoriesUsed} categories.`}
+        actions={<NewDomainDialog categories={categories} />}
+      />
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Published</p>
-              <p className="text-2xl font-bold text-green-600">{stats.publishedDomains}</p>
-            </div>
-            <div className="p-2 bg-green-100 rounded-lg">
-              <span className="text-green-600 text-xl">✅</span>
-            </div>
-          </div>
-        </div>
+      {/*
+        Stats reuse `StatsCard` from G-2 rather than four bespoke `bg-white` panels with
+        their own coloured icon chips. Same information, one component, and it themes.
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Draft</p>
-              <p className="text-2xl font-bold text-orange-600">{stats.draftDomains}</p>
-            </div>
-            <div className="p-2 bg-orange-100 rounded-lg">
-              <span className="text-orange-600 text-xl">📝</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Categories</p>
-              <p className="text-2xl font-bold text-purple-600">{stats.categoriesUsed}</p>
-            </div>
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <span className="text-purple-600 text-xl">📂</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Domain Creation Form */}
-      <div className="bg-white rounded-3xl border border-gray-300 p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h3 className={`text-xl font-semibold text-gray-900 ${roboto.className}`}>
-              Create New Domain
-            </h3>
-            <p className={`text-md text-gray-600 mt-1 ${roboto.className}`}>
-              Add a new content domain to your platform
-            </p>
-          </div>
-          
-          {/* Quick Stats */}
-          <div className="flex items-center space-x-4 text-sm text-gray-600">
-            <span>📊 {domains.length} domain{domains.length !== 1 ? 's' : ''} shown</span>
-            <span>🏷️ {categories.length} categories available</span>
-          </div>
-        </div>
-        
-        {/* Domain Form Component */}
-        <DomainForm categories={categories} />
-      </div>
-
-      {/* Filters and Search */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <div className="mb-4">
-          <h3 className={`text-lg font-semibold text-gray-900 ${roboto.className}`}>
-            Filter & Search Domains
-          </h3>
-          <p className={`text-sm text-gray-600 mt-1 ${roboto.className}`}>
-            Find and organize your domains using filters and search
-          </p>
-        </div>
-        
-        <DomainFilters 
-          categories={categories}
-          currentFilters={awaitedSearchParams}
+        ⚠️ Four tiles became three. The old set was Total / Published / Draft / Categories,
+        but Published and Draft are complements of Total — three numbers carrying two facts.
+        "Published" now states the split in its own description, and the freed slot shows
+        how many rows the current filters are actually returning, which the page never
+        surfaced despite having filters.
+      */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatsCard
+          title="Total Domains"
+          value={stats.totalDomains}
+          icon={Globe}
+          description={`${stats.categoriesUsed} categories in use`}
+        />
+        <StatsCard
+          title="Published"
+          value={stats.publishedDomains}
+          icon={CheckCircle2}
+          description={`${stats.draftDomains} still draft`}
+        />
+        <StatsCard
+          title="Showing"
+          value={domains.length}
+          icon={Filter}
+          description={
+            domains.length === stats.totalDomains
+              ? 'No filters applied'
+              : 'Filtered by your search'
+          }
         />
       </div>
 
-      {/* Domains Table */}
-      <div className="bg-white rounded-lg border border-gray-200">
+      {/*
+        Filters. The old version wrapped these in a card with its own "Filter & Search
+        Domains" heading and a subtitle explaining that filters filter things — three lines
+        of chrome above one row of controls.
+      */}
+      <Card>
+        <CardContent>
+          <DomainFilters
+            categories={categories}
+            currentFilters={awaitedSearchParams}
+          />
+        </CardContent>
+      </Card>
 
+      {/*
+        The list.
 
+        ⚠️ TWO DEAD BUTTONS REMOVED from this header: "📥 Export" and "🔄 Bulk Actions", both
+        with no `onClick` and no link — the same dead-control pattern as #22.5. "Bulk
+        Actions" was the worse of the two, since it implies row selection that does not
+        exist anywhere in this table. Removed rather than stubbed, on request.
+      */}
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b">
+          <CardTitle className="text-base">All domains</CardTitle>
+          <CardDescription>Manage and edit your content domains.</CardDescription>
+        </CardHeader>
+        {/*
+          No `CardContent` padding wrapper — the table draws its own edge-to-edge rows, and
+          padding here would inset them from the card border.
+        */}
+        <DomainsTable domains={domains} categories={categories} />
+      </Card>
 
-        {/* Table Header Wrapper */}
-        <div className="px-6 py-4 border-b border-gray-200">
+      {/*
+        Best-practice tips, now COLLAPSED by default (kept, per request).
 
-            {/* Table Header */}
-          <div className="flex items-center justify-between">
+        They were a permanently-open green panel of five static tips about naming and slugs
+        — advice you read once and then scroll past on every subsequent visit. As a
+        `Collapsible` the guidance stays available without occupying the screen forever.
 
-            {/* Table Heading and Description */}
-            <div>
-              <h3 className={`text-lg font-semibold text-gray-900 ${roboto.className}`}>
-                All Domains
-              </h3>
-              <p className={`text-sm text-gray-600 mt-1 ${roboto.className}`}>
-                Manage and edit your content domains
-              </p>
-            </div>
-            
-            {/* Table Actions  Export and Bulk Actions */}
-            <div className="flex items-center space-x-3">
-              <button className="px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-                📥 Export
-              </button>
-              <button className="px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-                🔄 Bulk Actions
-              </button>
-            </div>
-          </div>
-        </div>
-        
-        <DomainsTable 
-          domains={domains}
-          categories={categories}
-        />
-      </div>
-
-      {/* Domain Management Tips */}
-      <div className="bg-green-50 rounded-lg p-6 border border-green-100">
-        <h4 className="font-semibold text-green-900 mb-3">
-          💡 Domain Management Best Practices
-        </h4>
-        <ul className="text-sm text-black space-y-2">
-          <li>• <strong>Clear Names:</strong> Use descriptive domain names that clearly indicate the content focus</li>
-          <li>• <strong>Category Organization:</strong> Assign domains to appropriate categories for better user navigation</li>
-          <li>• <strong>Page Types:</strong> Choose "Direct" for content domains, "Hierarchical" for subcategory domains</li>
-          <li>• <strong>SEO-Friendly Slugs:</strong> Keep URLs short, descriptive, and search-engine optimized</li>
-          <li>• <strong>Publishing Strategy:</strong> Use draft status for domains under development</li>
-        </ul>
-      </div>
-      
-    </div>
+        `defaultOpen={false}` is explicit rather than relying on the default, because it is
+        the whole point of the change.
+      */}
+      <Collapsible defaultOpen={false}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="text-muted-foreground">
+            <Lightbulb className="size-4" aria-hidden="true" />
+            Domain management tips
+            <ChevronDown className="size-4 transition-transform [[data-state=open]_&]:rotate-180" aria-hidden="true" />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Card className="mt-2">
+            <CardContent>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li>
+                  <strong className="text-foreground">Clear names:</strong> use descriptive
+                  domain names that indicate the content focus.
+                </li>
+                <li>
+                  <strong className="text-foreground">Categories:</strong> assign every domain
+                  to a category so it appears in the right place in navigation.
+                </li>
+                <li>
+                  <strong className="text-foreground">Page types:</strong> "Direct" for content
+                  domains, "Hierarchical" for ones that hold subcategories.
+                </li>
+                <li>
+                  <strong className="text-foreground">Slugs:</strong> keep them short and
+                  descriptive — they become the public URL and are awkward to change later.
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
+    </>
   );
 }
 
