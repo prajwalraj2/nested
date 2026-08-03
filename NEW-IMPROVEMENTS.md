@@ -5458,7 +5458,7 @@ cases, so a regression is traceable to one screen.
 | **G-5c** ✅ | **Tables — row editing (`#22.2(b)`)** | The data tab currently renders the **public read-only** `DataTable`. `PUT /api/admin/tables/[id]/data` already accepts `{ data: { rows }, operation: 'replace' \| 'append' }`. |
 | **G-5d(i)** ✅ | **Creation flow — shell + wizard chrome** | **DONE 3 Aug.** `new/page.tsx` **3 → 0** + `TableCreationWizard` **15 → 0**. Added a **Cancel** route (the wizard previously had no exit but the back button); `include:` → `select:` on the domains query; three stacked cards → two; hardcoded `bg-green-600` final button and blue/grey step indicators → theme tokens with `aria-current="step"`. |
 | **G-5d(ii)** ✅ | **Creation flow — `tables/DomainPageSelector`** | **DONE 3 Aug.** Colours **31 → 0**. This was the near-invisible text in the user's screenshot. Selection states moved off hardcoded blue to `primary`/`accent`; emoji step headings and a `text-4xl` 🔍 → lucide. **Reordered ahead of the other two** because it is step 1 of the wizard and was the worst-looking thing on it. ⚠️ **NOT shared with `SectionsManager`** — see the correction note below. |
-| **G-5d(iii)** | **Creation flow — `TablePreview` + `CSVUploadInterface`** | `TablePreview.tsx` (429 / **53** — the most in the screen) + `CSVUploadInterface.tsx` (550 / 44). ⚠️ `TablePreview:417` still carries a bare `toLocaleDateString()` — the **hydration hazard** class that produced the "1 Issue" badge on `/admin/tables`. |
+| **G-5d(iii)** ✅ | **Creation flow — `TablePreview` + `CSVUploadInterface`** | **DONE 3 Aug.** Colours **53 → 0** and **44 → 0**. Fixed the outstanding `toLocaleDateString()` **hydration hazard**. ⚠️ `Card` has no `variant` prop — a mechanical replace tried to give it one and `tsc` caught it; the error block is an `Alert`. **G-5 is now colour-clean.** |
 | **G-6** | **Categories + Section Layout** | |
 | **G-7** | **Rich Text list + editor** | |
 | **G-8** | **Users** | Gains the "Add New Admin" button removed from the nav in G-1. |
@@ -6584,6 +6584,48 @@ a replace round-trip preserves targeting. Hand-building a CSV and replacing is w
 
 ⚠️ **Not done:** a warning when replacing from a CSV that lacks the column. That is the one
 remaining sharp edge here.
+
+##### ✅ G-5d(iii) DONE — 3 Aug 2026 — and PHASE G-5 IS COMPLETE
+
+`TablePreview` **53 → 0** and `CSVUploadInterface` **44 → 0**. With this, **all 10 files of the
+Tables screen carry 0 hardcoded colours** — the remaining grep hits across the phase are
+comments quoting what was removed.
+
+**Phase G-5 totals: 253 → 0 colours across 3,872 lines, with one new dependency
+(`alert-dialog`, added in G-3b and reused here).**
+
+- ⚠️ **`Card` has no `variant` prop.** A mechanical find-and-replace turned
+  `className="border-red-200 bg-red-50"` into `variant="destructive"` on a `Card`, and **`tsc`
+  caught it** — `Property 'variant' does not exist`. The error block is now a proper
+  destructive `Alert`, which is the primitive that actually carries that treatment *and*
+  brings the right ARIA role for a message the user must notice. Worth recording as the
+  limit of sed-driven colour sweeps: they cannot know which component accepts which prop.
+- ⚠️ **The outstanding hydration hazard is fixed.** `TablePreview`'s date cell formatter used
+  a bare `toLocaleDateString()` — the same class of bug that produced the "1 Issue" badge on
+  `/admin/tables`. Now pinned to `en-GB` + `timeZone: 'UTC'`.
+- Four stat tiles that used `text-blue-600` / `text-green-600` / `text-orange-600` for
+  Sortable / Filterable / Required are now uniform. The colours distinguished categories that
+  are already distinguished by their labels, and none of them themed.
+- `bg-white divide-gray-200` preview tables → `divide-y` on the themed surface; ✅ and ℹ️ status
+  emoji → lucide; `bg-green-600` on the import button → default primary.
+
+###### ⚠️ Hydration sweep — where things stand now
+
+Every **client** component under `src/components/admin/` was re-checked for unpinned
+locale formatting. **One remains:**
+
+- `HtmlEditor.tsx:435` — bare `toLocaleString()` → **G-7** (rich text)
+- *(`RichTextManager.tsx:117` pins the locale but not the time zone — partial; also G-7)*
+
+###### TEST CASES
+
+**A. Every route 200** — `/admin`, `/admin/tables`, `/admin/tables/[id]`, `/admin/tables/new`,
+`/admin/sections`, `/admin/pages`, `/admin/domains`.
+**B. Wizard steps 3–4 copy in the client bundle** — "Upload errors", "CSV Format Requirements",
+"Data Ready for Import", "Empty Table", "Total Columns".
+**C. Colours** — 0 outside comments in all five G-5d files.
+**D. Still to check in a browser**: dark mode on the Upload and Preview steps; a CSV with a
+deliberate validation error, to see the new `Alert`; and the date column rendering in a preview.
 
 ##### ✅ Two search affordances added on request — 3 Aug 2026
 
