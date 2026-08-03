@@ -3,6 +3,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { AlertTriangle, FileText, Globe, Search, SearchX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,9 +88,28 @@ export function DomainPageSelector({
   );
 
   // Get available pages for selected domain
-  const availablePages = selectedDomain 
+  const availablePages = selectedDomain
     ? domains.find(d => d.id === selectedDomain.id)?.pages || []
     : [];
+
+  /**
+   * ⚠️ PAGE SEARCH — added on request (G-5d(ii)).
+   *
+   * Selecting a domain such as "Graphic Designing" lists **26 pages**, and the only way to
+   * find one was to read every title top to bottom. Matches title AND slug, since either is
+   * what you might remember.
+   */
+  const [pageSearch, setPageSearch] = useState('');
+
+  const filteredPages = (() => {
+    const term = pageSearch.trim().toLowerCase();
+    if (term === '') return availablePages;
+
+    return availablePages.filter(
+      (page) =>
+        page.title.toLowerCase().includes(term) || page.slug.toLowerCase().includes(term)
+    );
+  })();
 
   // Handle domain selection
   const handleDomainSelect = (domain: Domain) => {
@@ -102,6 +122,9 @@ export function DomainPageSelector({
     onSelection(domainData, null); // Reset page selection when domain changes
     setShowCreateForm(false);
     setNewPageData({ title: '', slug: '' });
+    // Clear the page search too — a term left over from the previous domain would filter the
+    // new domain's list down to nothing and look like it has no pages.
+    setPageSearch('');
   };
 
   // Handle page selection
@@ -156,10 +179,10 @@ export function DomainPageSelector({
       
       {/* Step Description */}
       <div className="text-center">
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+        <h3 className="text-xl font-semibold mb-2">
           Choose Where to Create Your Table
         </h3>
-        <p className="text-gray-600">
+        <p className="text-muted-foreground">
           Select a domain and page where your new data table will be displayed.
         </p>
       </div>
@@ -167,8 +190,8 @@ export function DomainPageSelector({
       {/* Domain Selection */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center">
-            🌐 Step 1: Select Domain
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Globe className="size-4" aria-hidden="true" />Step 1 · Select a domain
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -199,18 +222,18 @@ export function DomainPageSelector({
                   onClick={() => handleDomainSelect(domain)}
                   className={`p-4 border rounded-lg cursor-pointer transition-all ${
                     selectedDomain?.id === domain.id
-                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      ? 'border-primary bg-accent ring-2 ring-ring/30'
+                      : 'hover:border-muted-foreground/40 hover:bg-muted/50'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium text-gray-900">{domain.name}</h4>
+                    <h4 className="font-medium">{domain.name}</h4>
                     {selectedDomain?.id === domain.id && (
                       <Badge variant="default">Selected</Badge>
                     )}
                   </div>
-                  <p className="text-sm text-gray-600 mb-2">/{domain.slug}</p>
-                  <div className="text-xs text-gray-500">
+                  <p className="text-sm text-muted-foreground mb-2">/{domain.slug}</p>
+                  <div className="text-xs text-muted-foreground">
                     {tablePagesCount} table pages • {availablePagesCount} available pages
                   </div>
                 </div>
@@ -219,9 +242,12 @@ export function DomainPageSelector({
           </div>
 
           {filteredDomains.length === 0 && (
-            <div className="text-center py-8 text-gray-500">
-              <div className="text-4xl mb-2">🔍</div>
-              <p>No domains found matching "{searchTerm}"</p>
+            // A lucide icon rather than a 🔍 emoji at `text-4xl`: it inherits `currentColor`
+            // so it follows the theme, and at `size-6` it stops dominating an empty state
+            // whose message is the actual point.
+            <div className="text-muted-foreground flex flex-col items-center gap-2 py-8 text-center">
+              <SearchX className="size-6" aria-hidden="true" />
+              <p className="text-sm">No domains match &ldquo;{searchTerm}&rdquo;.</p>
             </div>
           )}
 
@@ -233,7 +259,7 @@ export function DomainPageSelector({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span>📄 Step 2: Select or Create Page</span>
+              <span className="flex items-center gap-2"><FileText className="size-4" aria-hidden="true" />Step 2 · Select or create a page</span>
               <Badge variant="outline">{selectedDomain.name}</Badge>
             </CardTitle>
           </CardHeader>
@@ -242,9 +268,50 @@ export function DomainPageSelector({
             {/* Existing Pages */}
             {availablePages.length > 0 && (
               <div className="mb-6">
-                <h4 className="font-medium text-gray-900 mb-3">Choose Existing Page</h4>
-                <div className="space-y-2">
-                  {availablePages.map(page => {
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h4 className="font-medium">Choose an existing page</h4>
+                  {/*
+                    Shows how much the search has narrowed things. Only when it is actually
+                    filtering — "26 of 26" on every visit is noise.
+                  */}
+                  {pageSearch.trim() !== '' && (
+                    <span className="text-muted-foreground text-xs">
+                      {filteredPages.length} of {availablePages.length} pages
+                    </span>
+                  )}
+                </div>
+
+                {/*
+                  ⚠️ PAGE SEARCH — added on request. Selecting a domain like "Graphic
+                  Designing" lists **26 pages**, and the only way to find one was to read
+                  every title. Matches title AND slug, because you may remember either.
+
+                  Rendered only past a handful of pages: a search box above a two-item list
+                  is chrome that cannot help.
+                */}
+                {availablePages.length > 5 && (
+                  <div className="relative mb-3">
+                    <Search
+                      className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
+                      aria-hidden="true"
+                    />
+                    <Input
+                      value={pageSearch}
+                      onChange={(e) => setPageSearch(e.target.value)}
+                      placeholder="Search pages by title or slug…"
+                      className="pl-9"
+                      aria-label="Search pages"
+                    />
+                  </div>
+                )}
+
+                {/*
+                  `max-h-80 overflow-y-auto` so a 26-page domain does not push the wizard's
+                  Next button far below the fold. `-mx-1 px-1` keeps the focus ring on a card
+                  from being clipped by the scroll container.
+                */}
+                <div className="-mx-1 max-h-80 space-y-2 overflow-y-auto px-1">
+                  {filteredPages.map(page => {
                     const hasTable = !!page.table;
                     const canUse = page.contentType === 'table' || 
                       (page.contentType === 'narrative' && !hasTable);
@@ -256,14 +323,14 @@ export function DomainPageSelector({
                         className={`p-3 border rounded-lg flex items-center justify-between ${
                           canUse
                             ? selectedPage?.id === page.id
-                              ? 'border-blue-500 bg-blue-50 cursor-pointer'
-                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 cursor-pointer'
-                            : 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60'
+                              ? 'border-primary bg-accent cursor-pointer'
+                              : 'hover:border-muted-foreground/40 hover:bg-muted/50 cursor-pointer'
+                            : 'bg-muted cursor-not-allowed opacity-60'
                         }`}
                       >
                         <div>
                           <div className="flex items-center space-x-2">
-                            <h5 className="font-medium text-gray-900">{page.title}</h5>
+                            <h5 className="font-medium">{page.title}</h5>
                             <Badge 
                               variant={page.contentType === 'table' ? 'default' : 'secondary'}
                               className="text-xs"
@@ -271,10 +338,15 @@ export function DomainPageSelector({
                               {page.contentType}
                             </Badge>
                           </div>
-                          <p className="text-sm text-gray-600">/{page.slug}</p>
+                          <p className="text-sm text-muted-foreground">/{page.slug}</p>
                           {hasTable && (
-                            <p className="text-xs text-orange-600">
-                              ⚠️ Already has table: {page.table?.name}
+                            // ⚠️ Was `text-orange-600` with a ⚠️ emoji — a colour my sweep
+                            // missed because the pattern did not include orange. `destructive`
+                            // is the theme's "this blocks you" colour, and a lucide icon
+                            // inherits it instead of ignoring the theme.
+                            <p className="text-destructive flex items-center gap-1 text-xs">
+                              <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
+                              Already has a table: {page.table?.name}
                             </p>
                           )}
                         </div>
@@ -290,6 +362,18 @@ export function DomainPageSelector({
                       </div>
                     );
                   })}
+
+                  {/*
+                    Only reachable when the search filtered everything out — the surrounding
+                    block already requires `availablePages.length > 0`, so "this domain has no
+                    pages" is a different case and cannot land here.
+                  */}
+                  {filteredPages.length === 0 && (
+                    <div className="text-muted-foreground flex flex-col items-center gap-2 py-6 text-center">
+                      <SearchX className="size-5" aria-hidden="true" />
+                      <p className="text-sm">No pages match &ldquo;{pageSearch}&rdquo;.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -299,7 +383,7 @@ export function DomainPageSelector({
             {/* Create New Page */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h4 className="font-medium text-gray-900">Create New Page</h4>
+                <h4 className="font-medium">Create New Page</h4>
                 <Button
                   variant="outline"
                   size="sm"
@@ -310,7 +394,7 @@ export function DomainPageSelector({
               </div>
 
               {showCreateForm && (
-                <div className="space-y-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                <div className="space-y-4 p-4 border rounded-lg bg-muted/50">
                   <div>
                     <Label htmlFor="page-title">Page Title</Label>
                     <Input
@@ -331,7 +415,7 @@ export function DomainPageSelector({
                       onChange={(e) => setNewPageData(prev => ({ ...prev, slug: e.target.value }))}
                       className="mt-1"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       URL: /domain/{selectedDomain.slug}/{newPageData.slug || 'page-slug'}
                     </p>
                   </div>
@@ -353,18 +437,18 @@ export function DomainPageSelector({
 
       {/* Selection Summary */}
       {selectedDomain && selectedPage && (
-        <Card className="border-green-200 bg-green-50">
+        <Card className="bg-muted/50">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-3">
               <div className="text-2xl">✅</div>
               <div>
-                <h4 className="font-medium text-green-900">Selection Complete</h4>
-                <p className="text-green-700 text-sm mt-1">
+                <h4 className="font-medium">Selection Complete</h4>
+                <p className="text-muted-foreground text-sm mt-1">
                   <span className="font-medium">Domain:</span> {selectedDomain.name} • 
                   <span className="font-medium ml-2">Page:</span> {selectedPage.title}
                   {selectedPage.isNew && <Badge variant="secondary" className="ml-2">New Page</Badge>}
                 </p>
-                <p className="text-green-600 text-xs mt-1">
+                <p className="text-muted-foreground text-xs mt-1">
                   Table URL: /domain/{selectedDomain.slug}/{selectedPage.slug}
                 </p>
               </div>

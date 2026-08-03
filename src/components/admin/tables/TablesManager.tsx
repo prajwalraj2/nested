@@ -6,12 +6,13 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
+  Check,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   Columns3,
   Database,
   FileDown,
-  Globe,
   LayoutGrid,
   List,
   MoreHorizontal,
@@ -32,12 +33,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { downloadTableExport, type TableExportFormat } from '@/lib/export-table';
 import type { TableStats } from '@/types/table';
@@ -46,7 +49,9 @@ import type { TableStats } from '@/types/table';
  * Tables list (rebuilt in Phase G-5a(ii)).
  * ============================================================================
  *
- * Three views of the same 652 tables: a flat list, grouped by domain, and recent activity.
+ * Two views of the same 652 tables: a searchable, paginated flat list, and recent activity.
+ *
+ * ⚠️ There was a third — "By domain" — removed on 3 Aug; see the note at `TabsList`.
  *
  * WHAT THE REBUILD FIXED
  * ----------------------
@@ -59,7 +64,10 @@ import type { TableStats } from '@/types/table';
  *    `AdminPageHeader` with a "New table" action, so the screen had two titles and two create
  *    buttons stacked on each other. The inner one is gone.
  *
- * 3. **A native `<select>`** carrying `border-gray-300 focus:ring-blue-500` → shadcn `Select`.
+ * 3. **A native `<select>`** carrying `border-gray-300 focus:ring-blue-500`. It first became a
+ *    shadcn `Select`, then — on the user's request once they saw it — a **searchable
+ *    `Popover` + `Command` combobox**, because a plain dropdown of 33 domains still has to be
+ *    scrolled and read.
  *
  * 4. **The view toggle was a dropdown** labelled "📄 View" that opened to offer List or Grid —
  *    two clicks and a menu to flip a binary. Now two icon buttons showing which is active.
@@ -145,20 +153,77 @@ type TablesManagerProps = {
 };
 
 /**
- * ⚠️ Radix `SelectItem` throws on an empty-string value, so "no filter" needs a sentinel.
- * Same trap as `DomainFilters` in G-3c. `'all'` was already the value this component used,
- * and it is non-empty, so it doubles as the sentinel.
+ * The "no domain filter" value.
+ *
+ * ⚠️ It has to be a non-empty string. That was originally because Radix `SelectItem` throws
+ * on `''` (the G-3c trap), and it still holds now the control is a `Command` combobox: `''`
+ * would be indistinguishable from "nothing selected" in the comparisons below. `'all'` was
+ * already this component's value, so it doubles as the sentinel.
  */
 const ALL_DOMAINS = 'all';
 
 /** Tables rendered per page. 24 divides evenly by 2, 3 and 4, so no ragged last grid row. */
 const PAGE_SIZE = 24;
 
+/**
+ * ⚠️ DATES ARE FORMATTED WITH AN EXPLICIT LOCALE **AND** TIME ZONE — DO NOT DROP EITHER.
+ * ============================================================================
+ * This is a client component, but the page is server-rendered first, so these strings are
+ * produced twice: once by Node and once by the browser. A bare `toLocaleDateString()` uses
+ * whatever default each runtime resolves, and those differ —
+ *
+ *   Node (server, often en-US / UTC) : "8/3/2026"
+ *   Browser (this user is en-IN)     : "3/8/2026"
+ *
+ * — so the two renders disagree and React reports a hydration mismatch. Worse, the day and
+ * month silently swap, which is a wrong date rather than an ugly one.
+ *
+ * Pinning both the locale and `timeZone: 'UTC'` makes the output identical on both sides.
+ * UTC specifically because Prisma returns timestamps in UTC; formatting in the viewer's zone
+ * would be friendlier but cannot be done here without reintroducing the mismatch — it would
+ * have to be formatted on the server and passed down as a string.
+ */
+const DATE_FORMAT: Intl.DateTimeFormatOptions = {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+};
+
+const DATE_TIME_FORMAT: Intl.DateTimeFormatOptions = {
+  ...DATE_FORMAT,
+  hour: '2-digit',
+  minute: '2-digit',
+};
+
+/** `en-GB` for an unambiguous day-month order, and stable across both runtimes. */
+function formatDate(value: Date | string, options = DATE_FORMAT): string {
+  return new Date(value).toLocaleDateString('en-GB', options);
+}
+
+/**
+ * ⚠️ NUMBERS NEED A PINNED LOCALE FOR THE SAME REASON AS DATES.
+ *
+ * Easy to overlook because it looks like plain formatting, but the thousands separator is
+ * locale-specific: **1,198** (en) vs **1.198** (de) vs **1 198** (fr, with a narrow no-break
+ * space). A bare `toLocaleString()` in a server-rendered client component can therefore
+ * produce two different strings and trip the same hydration mismatch the dates did.
+ *
+ * ⚠️ `StatsCard` and the page shell call `toLocaleString()` too, but both are **server**
+ * components — they render once, so they are safe as written. The rule applies to client
+ * components only.
+ */
+function formatCount(value: number): string {
+  return value.toLocaleString('en-GB');
+}
+
 export function TablesManager({ tables, domains, stats }: TablesManagerProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string>(ALL_DOMAINS);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [page, setPage] = useState(1);
+  /** Open state for the searchable domain combobox below. */
+  const [domainPickerOpen, setDomainPickerOpen] = useState(false);
 
   /**
    * `useMemo` because this filters 652 rows and runs on every keystroke. Without it the work
@@ -219,14 +284,29 @@ export function TablesManager({ tables, domains, stats }: TablesManagerProps) {
     <Card>
       <CardContent>
         <Tabs defaultValue="tables" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3">
+          {/*
+            ⚠️ THE "BY DOMAIN" TAB WAS REMOVED (3 Aug, on request) — three tabs became two.
+            ==========================================================================
+            It rendered one card per domain, each listing every table beneath it. That made
+            sense before this screen had a domain filter; it does not now:
+
+              • the searchable domain filter below does the same job, and adds pagination
+                and table-name search on top;
+              • the per-domain count it showed is now on each row of that filter;
+              • ⚠️ it was the ONLY unpaginated list left here — 31 cards covering all 652
+                table links — which is exactly why the screen still scrolled forever, and it
+                partly undid the pagination added in G-5a(ii).
+
+            The one thing it uniquely offered was seeing several domains side by side. That
+            was judged not worth the cost.
+
+            `DomainCard` was deleted with it. `domainsWithTables` is KEPT — the domain filter
+            still needs it.
+          */}
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="tables">
               <Table2 className="size-4" aria-hidden="true" />
               All tables ({tables.length})
-            </TabsTrigger>
-            <TabsTrigger value="domains">
-              <Globe className="size-4" aria-hidden="true" />
-              By domain ({domainsWithTables.length})
             </TabsTrigger>
             <TabsTrigger value="activity">
               <RefreshCw className="size-4" aria-hidden="true" />
@@ -251,34 +331,93 @@ export function TablesManager({ tables, domains, stats }: TablesManagerProps) {
                 />
               </div>
 
-              <Select
-                value={selectedDomain}
-                onValueChange={(value) => updateFilter(() => setSelectedDomain(value))}
-              >
-                {/* `w-full sm:w-56` — SelectTrigger ships as `w-fit`, which would size to the
-                    longest domain name and jump around as the filter changes. */}
-                <SelectTrigger className="w-full sm:w-56" aria-label="Filter by domain">
-                  {/*
-                    Explicit children so the label is server-renderable and correct before
-                    hydration — Radix otherwise resolves it from Portal-mounted items. Same
-                    fix as `DomainFilters` in G-3c.
-                  */}
-                  <SelectValue>
-                    {selectedDomain === ALL_DOMAINS
-                      ? 'All domains'
-                      : (domainsWithTables.find((d) => d.id === selectedDomain)?.name ??
-                        'All domains')}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_DOMAINS}>All domains</SelectItem>
-                  {domainsWithTables.map((domain) => (
-                    <SelectItem key={domain.id} value={domain.id}>
-                      {domain.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/*
+                ⚠️ A SEARCHABLE COMBOBOX, NOT A PLAIN `Select` — changed on request.
+                ==================================================================
+                A `Select` lists all 33 domains with no way to filter, so finding one meant
+                scrolling and reading. `Popover` + `Command` gives type-to-filter, arrow-key
+                navigation, Enter to choose and Escape to dismiss — the same pattern already
+                used by the Pages screen's domain picker in G-4c.
+
+                ⚠️ The searchable `value` includes the **slug** as well as the name, because
+                most domain names begin with an emoji ("🖌️ Graphic Designing") — typing the
+                visible label is often not how you would look for one.
+              */}
+              <Popover open={domainPickerOpen} onOpenChange={setDomainPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={domainPickerOpen}
+                    aria-label="Filter by domain"
+                    // `justify-between` keeps the chevron pinned right; the fixed `sm:w-56`
+                    // stops the control resizing as the selection changes.
+                    className="w-full justify-between sm:w-56"
+                  >
+                    <span className="truncate">
+                      {selectedDomain === ALL_DOMAINS
+                        ? 'All domains'
+                        : (domainsWithTables.find((d) => d.id === selectedDomain)?.name ??
+                          'All domains')}
+                    </span>
+                    <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden="true" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search domains…" />
+                    <CommandList>
+                      <CommandEmpty>No domain found.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value="All domains"
+                          onSelect={() => {
+                            updateFilter(() => setSelectedDomain(ALL_DOMAINS));
+                            setDomainPickerOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={
+                              'size-4 shrink-0 ' +
+                              (selectedDomain === ALL_DOMAINS ? 'opacity-100' : 'opacity-0')
+                            }
+                            aria-hidden="true"
+                          />
+                          All domains
+                        </CommandItem>
+
+                        {domainsWithTables.map((domain) => (
+                          <CommandItem
+                            key={domain.id}
+                            value={`${domain.name} ${domain.slug}`}
+                            onSelect={() => {
+                              updateFilter(() => setSelectedDomain(domain.id));
+                              setDomainPickerOpen(false);
+                            }}
+                          >
+                            {/*
+                              Always rendered and toggled with opacity, so every row keeps the
+                              same left edge — conditionally mounting it would make the list
+                              shift horizontally as the selection moves.
+                            */}
+                            <Check
+                              className={
+                                'size-4 shrink-0 ' +
+                                (selectedDomain === domain.id ? 'opacity-100' : 'opacity-0')
+                              }
+                              aria-hidden="true"
+                            />
+                            <span className="min-w-0 flex-1 truncate">{domain.name}</span>
+                            <span className="text-muted-foreground shrink-0 text-xs">
+                              {domain.pages.filter((p) => p.table).length}
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
 
               {/*
                 Two buttons instead of a dropdown. The old control was a menu labelled
@@ -378,24 +517,6 @@ export function TablesManager({ tables, domains, stats }: TablesManagerProps) {
             )}
           </TabsContent>
 
-          {/* ── By domain ── */}
-          <TabsContent value="domains" className="space-y-4">
-            {domainsWithTables.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {domainsWithTables.map((domain) => (
-                  <DomainCard key={domain.id} domain={domain} />
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-12 text-center">
-                <Globe className="text-muted-foreground size-8" aria-hidden="true" />
-                <p className="font-medium">No domains with tables</p>
-                <p className="text-muted-foreground text-sm">
-                  Create some tables first to see them grouped here.
-                </p>
-              </div>
-            )}
-          </TabsContent>
 
           {/* ── Recent activity ── */}
           <TabsContent value="activity" className="space-y-2">
@@ -519,7 +640,7 @@ function TableCard({ table, viewMode }: TableCardProps) {
     <>
       <span className="flex items-center gap-1">
         <Rows3 className="size-3" aria-hidden="true" />
-        {rowCount.toLocaleString()}
+        {formatCount(rowCount)}
       </span>
       <span className="flex items-center gap-1">
         <Columns3 className="size-3" aria-hidden="true" />
@@ -570,7 +691,7 @@ function TableCard({ table, viewMode }: TableCardProps) {
         </p>
         <div className="text-muted-foreground mt-0.5 flex items-center gap-3 text-xs">
           {counts}
-          <span>Updated {new Date(table.updatedAt).toLocaleDateString()}</span>
+          <span>Updated {formatDate(table.updatedAt)}</span>
         </div>
         {error}
       </div>
@@ -583,48 +704,6 @@ function TableCard({ table, viewMode }: TableCardProps) {
   );
 }
 
-/**
- * One domain and the tables beneath it.
- */
-type DomainCardProps = {
-  domain: Domain;
-};
-
-function DomainCard({ domain }: DomainCardProps) {
-  // Computed once rather than filtering twice — the old version called `.filter()` for the
-  // count and again for the list, walking the same array a second time.
-  const pagesWithTables = domain.pages.filter((page) => page.table);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2 text-base">
-          <span className="min-w-0 truncate">{domain.name}</span>
-          <Badge variant="secondary" className="shrink-0 font-normal">
-            {pagesWithTables.length}
-          </Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-1">
-        {pagesWithTables.map((page) => (
-          /*
-            The whole row is the link, rather than a "Edit" anchor floated to the right of it
-            — a bigger target, and it removes a `text-blue-600 hover:underline` that ignored
-            the theme.
-          */
-          <Link
-            key={page.id}
-            href={`/admin/tables/${page.table?.id}`}
-            className="hover:bg-muted flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors"
-          >
-            <span className="min-w-0 truncate">{page.table?.name}</span>
-            <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
-          </Link>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
 
 /**
  * One entry in the recent-activity list.
@@ -652,7 +731,7 @@ function ActivityItem({ activity }: ActivityItemProps) {
           )}
         </p>
         <p className="text-muted-foreground text-xs">
-          {new Date(activity.timestamp).toLocaleString()}
+          {formatDate(activity.timestamp, DATE_TIME_FORMAT)}
           {activity.domainName && ` · ${activity.domainName}`}
         </p>
       </div>

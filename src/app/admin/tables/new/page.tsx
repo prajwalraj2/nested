@@ -1,6 +1,9 @@
 // src/app/admin/tables/new/page.tsx
 
+import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
+import { Button } from '@/components/ui/button';
+import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
 import { TableCreationWizard } from '@/components/admin/tables/TableCreationWizard';
 
 /**
@@ -44,9 +47,19 @@ export const dynamic = 'force-dynamic';
 // Fetch available domains and pages for table creation
 async function getTableCreationData() {
   try {
-    // Get all domains with their pages
+    /**
+     * ⚠️ `select`, NOT `include` (the #22.1 discipline).
+     *
+     * This used `include: { pages: … }`, and `include` returns **every column of every
+     * domain** alongside the nested pages — name, slug, pageType, isPublished,
+     * targetCountries, orderInCategory, timestamps — when the picker displays only the name
+     * and needs only the id. Naming the four fields keeps the rest off the wire.
+     */
     const domains = await prisma.domain.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
         pages: {
           where: {
             contentType: {
@@ -89,21 +102,30 @@ export default async function NewTablePage() {
   const { domains } = await getTableCreationData();
 
   return (
-    <div className="space-y-6">
-      
-      {/* Page Header */}
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-          ➕ Create New Table
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Follow the steps below to create a powerful, interactive data table for your domain.
-        </p>
-      </div>
+    <>
+      {/*
+        ⚠️ REBUILT IN G-5d. Was a hand-rolled `text-3xl text-gray-900` title with a
+        `border-b border-gray-200` rule and an emoji — light-only, like every other page shell
+        in this screen before its rebuild.
 
-      {/* Creation Wizard */}
+        `AdminPageHeader` also gives this page a **Cancel** route. Previously the only way out
+        of the wizard was the browser back button: nothing on screen led back to the list.
+      */}
+      <AdminPageHeader
+        title="New table"
+        description={
+          domains.length > 0
+            ? `Create a data table on one of ${domains.length} eligible pages.`
+            : 'No eligible pages yet — a table needs a page of type "table" or "narrative".'
+        }
+        actions={
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/admin/tables">Cancel</Link>
+          </Button>
+        }
+      />
+
       <TableCreationWizard domains={domains} />
-
-    </div>
+    </>
   );
 }

@@ -180,7 +180,20 @@ async function getTablesData() {
     // Summed from the integers Postgres already computed — no JSON walked in JS.
     const totalRows = tablesWithCounts.reduce((acc, t) => acc + t.rowCount, 0);
 
-    const totalDomains = domains.filter(domain => domain.pages.length > 0).length;
+    /**
+     * ⚠️ COUNTS DOMAINS THAT ACTUALLY HOLD A TABLE — the label used to lie.
+     *
+     * This was `domains.filter(d => d.pages.length > 0).length`, and `pages` is already
+     * filtered to `contentType: 'table'` — so it counted domains with a table-type **page**,
+     * whether or not a table had been created on it. That read **33** while the list's own
+     * grouping read **31**: two domains have a table-type page with no table on it yet.
+     *
+     * Both numbers were correct; the tile's label ("Domains holding tables") described the
+     * 31. Now the number matches the label, and matches the domain filter's own list.
+     */
+    const totalDomains = domains.filter(domain =>
+      domain.pages.some(page => page.table)
+    ).length;
 
     // Get recent activity (simplified for now)
     const recentActivity = tablesWithCounts.slice(0, 5).map(table => ({
