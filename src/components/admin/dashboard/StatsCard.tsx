@@ -17,7 +17,12 @@ import { Badge } from '@/components/ui/badge';
  */
 type StatsCardProps = {
   title: string;
-  value: number;
+  /**
+   * Widened from `number` in G-5b: the table editor shows a "Last updated" date, which is
+   * already formatted by the time it reaches here. Numbers still get thousands separators
+   * (see the render), strings are printed verbatim.
+   */
+  value: number | string;
   icon: LucideIcon;
   /** Secondary context, e.g. "34 published". */
   description: string;
@@ -57,7 +62,12 @@ export function StatsCard({ title, value, icon: Icon, description, trend }: Stat
         <div className="flex items-baseline gap-2">
           {/* `toLocaleString` so 1197 reads as 1,197 — kept from the original. */}
           <span className="text-2xl font-bold text-foreground">
-            {value.toLocaleString()}
+            {/*
+              `toLocaleString()` only for numbers — it groups thousands (1198 → "1,198"),
+              which is the point. Calling it on a string is a no-op that would quietly
+              suggest formatting is happening when it is not.
+            */}
+            {typeof value === 'number' ? value.toLocaleString() : value}
           </span>
           {trend && (
             <Badge variant={trendVariant} className="text-xs">
