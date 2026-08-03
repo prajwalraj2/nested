@@ -478,7 +478,7 @@ export function CSVUploadInterface({
                         {schema.columns.map(column => (
                           <td 
                             key={column.id}
-                            className="px-4 py-3 text-sm max-w-xs truncate"
+                            className="px-4 py-3 text-sm align-top max-w-md break-words whitespace-normal"
                           >
                             {String(row[column.id] || '-')}
                           </td>

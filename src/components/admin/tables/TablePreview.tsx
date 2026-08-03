@@ -234,7 +234,7 @@ export function TablePreview({
                         {schema.columns.map(column => (
                           <td 
                             key={column.id}
-                            className="px-4 py-3 text-sm max-w-xs truncate"
+                            className="px-4 py-3 text-sm align-top max-w-md break-words whitespace-normal"
                           >
                             {formatCellValue(row[column.id], column.type)}
                           </td>

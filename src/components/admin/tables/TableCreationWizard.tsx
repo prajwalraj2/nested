@@ -236,9 +236,17 @@ export function TableCreationWizard({ domains }: TableCreationWizardProps) {
   const CurrentStepIcon = STEPS[currentStepIndex].icon;
 
   return (
-    // `max-w-4xl` rather than `6xl`: a four-field form reads badly at full width, and the
-    // admin shell already constrains the page.
-    <div className="mx-auto w-full max-w-4xl space-y-4">
+    /*
+      ⚠️ FULL WIDTH — no `max-w-*`, on the user's instruction.
+
+      G-5d(i) narrowed this to `max-w-4xl` on the theory that a form reads badly at full
+      width. In practice the steps are not forms: step 1 is a grid of domain cards, step 2 a
+      list of pages, step 3 a CSV preview table and step 4 a column list — all of which want
+      the room. The centred column left large empty margins and squeezed the tables.
+
+      The admin shell already supplies the page padding, so this just stops fighting it.
+    */
+    <div className="w-full space-y-4">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
