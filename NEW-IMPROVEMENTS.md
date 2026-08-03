@@ -5459,7 +5459,10 @@ cases, so a regression is traceable to one screen.
 | **G-5d(i)** ✅ | **Creation flow — shell + wizard chrome** | **DONE 3 Aug.** `new/page.tsx` **3 → 0** + `TableCreationWizard` **15 → 0**. Added a **Cancel** route (the wizard previously had no exit but the back button); `include:` → `select:` on the domains query; three stacked cards → two; hardcoded `bg-green-600` final button and blue/grey step indicators → theme tokens with `aria-current="step"`. |
 | **G-5d(ii)** ✅ | **Creation flow — `tables/DomainPageSelector`** | **DONE 3 Aug.** Colours **31 → 0**. This was the near-invisible text in the user's screenshot. Selection states moved off hardcoded blue to `primary`/`accent`; emoji step headings and a `text-4xl` 🔍 → lucide. **Reordered ahead of the other two** because it is step 1 of the wizard and was the worst-looking thing on it. ⚠️ **NOT shared with `SectionsManager`** — see the correction note below. |
 | **G-5d(iii)** ✅ | **Creation flow — `TablePreview` + `CSVUploadInterface`** | **DONE 3 Aug.** Colours **53 → 0** and **44 → 0**. Fixed the outstanding `toLocaleDateString()` **hydration hazard**. ⚠️ `Card` has no `variant` prop — a mechanical replace tried to give it one and `tsc` caught it; the error block is an `Alert`. **G-5 is now colour-clean.** |
-| **G-6** | **Categories + Section Layout** | |
+| **G-6a** ✅ | **Categories — shell + list** | **DONE 3 Aug.** Colours **16 + 34 + 38 → 0**. Fixed **both solid-black modal overlays** (`bg-opacity-50` × 2), a **dead "Create First Category" button**, a subtitle **promising drag-and-drop that does not exist**, and three "Add to Column N" buttons that **ignored the column**. The delete dialog now states the domain count and surfaces the API's real refusal message instead of "Please try again". Both `window.location.reload()` calls → `router.refresh()`. Details below. |
+| **G-6b** ✅ | **Categories — `CategoryForm`** | **DONE 3 Aug.** Colours **47 → 0**, so `/admin/categories` is entirely colour-clean. ⚠️ **Retired the LAST `Roboto` import in the app.** Removed `alert()` + `window.location.reload()` (#22.6), and **completed the `?column=N` wiring G-6a promised** — verified `?column=3` pre-selects 3 and `?column=99` clamps to 1. |
+| **G-6c** | **Section Layout — shell + manager + picker** | `admin/sections/page.tsx` (197 / 14) + `SectionsManager.tsx` (174 / 8) + `sections/DomainPageSelector.tsx` (210 / 33). ⚠️ This is the **second** `DomainPageSelector` — see the correction note above; it is a separate file from the tables one. |
+| **G-6d** | **Section Layout — `SectionEditor`** | 504 lines / **54 colours** — the largest single file left in Phase G outside Rich Text. |
 | **G-7** | **Rich Text list + editor** | |
 | **G-8** | **Users** | Gains the "Add New Admin" button removed from the nav in G-1. |
 
@@ -6584,6 +6587,124 @@ a replace round-trip preserves targeting. Hand-building a CSV and replacing is w
 
 ⚠️ **Not done:** a warning when replacing from a CSV that lacks the column. That is the one
 remaining sharp edge here.
+
+##### ✅ G-6b DONE — 3 Aug 2026 (`CategoryForm`) — and `/admin/categories` is complete
+
+**47 → 0 colours.** With G-6a, the entire Categories screen (4 files, 1,417 lines, 135 colours)
+is colour-clean.
+
+###### 🎉 `Roboto` IS RETIRED FROM THE APP
+
+This file held the **last** `next/font/google` importer other than the root layout. It styled
+every label in the form, fighting the app-wide Geist and paying for a second webfont download
+to do it.
+
+**Verified: the only remaining importer is `src/app/layout.tsx`'s `Geist` / `Geist_Mono`** —
+which is the legitimate one. The sweep that started at **7 files** in G-3a is finished.
+
+###### The same shape of problems as `DomainForm` before G-3c
+
+- **`text-black` labels and `bg-gray-200 text-gray-800` inputs** — in dark mode, black labels
+  on a dark card with light-grey input boxes. This was the light panel visible at the top of
+  the user's screenshot.
+- ⚠️ **`alert()` + `window.location.reload()`** on save. Both callbacks are optional, so the
+  create form on `/admin/categories` — which passes neither — hit that branch **every time**:
+  a blocking browser alert, then the whole document thrown away. Now `onSuccess?.()` plus
+  `router.refresh()`.
+- ⚠️ **Cancel was gated on `isEditMode && onCancel`** — the identical bug `DomainForm` had:
+  the create form rendered no Cancel even when handed one. Now shown whenever a handler exists.
+- The `bg-red-50` error panel → destructive `Alert`; `bg-blue-600` submit → default primary.
+
+###### ✅ The `?column=N` promise from G-6a is now kept
+
+G-6a's "Add to column N" buttons push `?column=N`; this step makes the form read it. Two
+details that matter:
+
+- ⚠️ **Clamped, not trusted.** The value comes from the URL, so `?column=99` is possible and
+  the API rejects anything outside 1–3. Out-of-range falls back to 1.
+- ⚠️ **Edit mode wins over the URL.** An existing category's own column must not be silently
+  changed because `?column=2` is left in the address bar from an earlier click.
+- After a successful create the form resets to the **requested** column, not hardcoded 1, so
+  adding several categories to column 3 in a row does not reset the field each time.
+
+###### TEST CASES
+
+**A. The whole page is colour-clean** — `bg-white`, `text-gray-900/800/700/500`,
+`bg-gray-200`, `border-gray-300/200`, `bg-blue-600`, `text-black`: **all absent** from the
+rendered page.
+**B. Column pre-selection** — `?column=1` → `value="1" selected`; `?column=3` →
+`value="3" selected`; ⚠️ `?column=99` → falls back to `value="1" selected`.
+**C. Roboto** — `grep -rn "^import.*next/font/google" src/` returns **only** `layout.tsx`.
+**D. Regression** — all 9 admin routes and `/domain` return 200.
+⚠️ **A first attempt at (D) reported 307 across the board** — my session cookie had expired
+(10-minute `maxAge`), exactly the trap recorded in G-3b. Re-run with a fresh cookie before
+believing a wall of redirects.
+**E. Still to check in a browser**: dark mode on the form; creating a category (no alert, no
+white flash, appears in the layout below); clicking "Add to column 3" and confirming the form's
+column field is already 3.
+
+##### ✅ G-6a DONE — 3 Aug 2026 (Categories — shell + list)
+
+**Colours: page 16 → 0, `CategoryList` 34 → 0, `CategoryCard` 38 → 0.**
+
+###### ⚠️ BOTH modal overlays rendered solid black
+
+`bg-opacity-50` appeared **twice** in `CategoryList` (the delete confirm and the edit modal).
+It is Tailwind **v3** syntax, removed in **v4** — which this project uses — so the utility was
+silently dropped and only `bg-black` applied. Both overlays blacked out the entire page.
+
+This is the **same bug fixed in `DomainsTable` in G-3b**, and it was recorded then as still
+live here. Both are now real `AlertDialog` / `Dialog`, which also brings Escape-to-close, focus
+trapping, focus restoration, `aria-modal` and scroll lock. *(The delete modal also carried
+`w-mx` — not a real Tailwind class — the identical typo `DomainsTable` had.)*
+
+###### ⚠️ Four controls that lied about what they did
+
+1. **"Create First Category"** in the empty state — no `onClick`, no `href`. It rendered, it
+   was clickable, and it did nothing (the #22.5 pattern, third occurrence). The form is at the
+   top of the same page, so it now points there rather than inventing a route.
+2. **"Drag categories to reorder within columns or move between columns"** — the Column Layout
+   subtitle. **There is no drag-and-drop anywhere in these components**: grepped for
+   `draggable`, `onDragStart`, `onDrop` and every dnd library — nothing. `CategoryList`'s own
+   header comment says "drag-and-drop in future". The label was instructing the user to do
+   something impossible; it now describes how reordering actually works.
+3. **Three "Add Category to Column N" buttons** whose entire handler was
+   `window.scrollTo({ top: 0 })`, with a `TODO` admitting the column was not pre-selected. So
+   after telling the app which column you wanted, you scrolled to a form and had to pick it
+   again. They now also record the choice as `?column=N`. ⚠️ **The form does not read that
+   parameter yet — that is G-6b.** Flagged rather than left implied.
+
+###### ⚠️ The delete dialog contradicted the API
+
+It read *"Any domains in this category will need to be reassigned"*, implying the delete would
+succeed and leave you to tidy up. In fact `DELETE /api/admin/categories/[id]` **refuses**
+outright when the category holds domains, returning
+`"Cannot delete category. It contains N domain(s)…"`.
+
+And the UI **threw that message away**, replacing it with
+`alert('Failed to delete category. Please try again.')` — advice that is not merely unhelpful
+but wrong, since a retry fails identically every time.
+
+`domainCount` was already on the category object, so the dialog now:
+
+- states the count and **disables the delete button** when it is non-zero, preventing the
+  doomed attempt entirely;
+- shows the **server's own message** verbatim if a delete does fail.
+
+###### TEST CASES
+
+**A. Rendered page is clean** — `bg-white`, `text-gray-900/600`, `border-gray-200`,
+`from-blue-50`, `bg-blue-50`, `bg-gray-50` and ⚠️ **`bg-opacity-50`**: all absent.
+**B. Copy corrected** — "Drag categories" and "Create First Category" both gone.
+**C. New shell present** — the header count, "Create a category", "Column layout", the
+corrected reorder sentence, "Category tips".
+**D. ⚠️ Three classes remain on the page** (`text-gray-500` ×7, `border-gray-300`,
+`border-gray-200`) and were **attributed by grep to `CategoryForm`** — G-6b, rendered on this
+page. Not stragglers from this step.
+**E. Roboto** — now **one** importer left in the whole app (`CategoryForm`, G-6b);
+`layout.tsx`'s Geist is the legitimate app-wide font.
+**F. Still to check in a browser**: both dialogs opening and dimming rather than blacking out;
+deleting a category that has domains (should refuse with the count) and one that has none.
 
 ##### ✅ G-5d(iii) DONE — 3 Aug 2026 — and PHASE G-5 IS COMPLETE
 

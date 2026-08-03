@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Roboto } from 'next/font/google';
-const roboto = Roboto({
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
-});
-
+import { useRouter, useSearchParams } from 'next/navigation';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+// ⚠️ THE LAST `Roboto` IMPORT IN THE APP was here, styling every label in this form against
+// the app-wide Geist and downloading a second webfont to do it. With this removed, the only
+// remaining `next/font/google` importer is `src/app/layout.tsx` — which is the legitimate one.
 /**
  * Category Form Component
  * 
@@ -36,13 +37,37 @@ type CategoryFormProps = {
 };
 
 export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryFormProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  /**
+   * ⚠️ COMPLETES THE PROMISE G-6a's BUTTONS MADE.
+   *
+   * `CategoryList`'s "Add to column N" buttons push `?column=N` — before G-6a their entire
+   * handler was `window.scrollTo({ top: 0 })` with a `TODO` admitting the column was not
+   * pre-selected, so after telling the app which column you wanted you had to pick it again.
+   * This is the other half: the form reads that parameter.
+   *
+   * Clamped to 1–3 rather than trusted: it comes from the URL, so anyone can type
+   * `?column=99`, and the API rejects anything outside that range. Falls back to 1.
+   */
+  const requestedColumn = (() => {
+    const raw = Number(searchParams.get('column'));
+    return raw >= 1 && raw <= 3 ? raw : 1;
+  })();
+
   // Form state - initialize with category data if editing, defaults if creating
   const [formData, setFormData] = useState({
     name: category?.name || '',
     slug: category?.slug || '',
     icon: category?.icon || '',
     description: category?.description || '',
-    columnPosition: category?.columnPosition || 1,
+    /*
+      ⚠️ Edit mode wins over the URL. An existing category's own column must not be silently
+      changed just because `?column=2` happens to be in the address bar from an earlier click.
+      `??` not `||`, since column 0 is invalid anyway but the intent should be explicit.
+    */
+    columnPosition: category?.columnPosition ?? requestedColumn,
     isActive: category?.isActive ?? true
   });
   
@@ -150,26 +175,34 @@ export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryF
         throw new Error(errorData.message || `Failed to ${isEditMode ? 'update' : 'create'} category`);
       }
 
-      // Success! Reset form if creating, call success callback
+      // Reset the form after a create, so the next one starts blank.
       if (!isEditMode) {
         setFormData({
           name: '',
           slug: '',
           icon: '',
           description: '',
-          columnPosition: 1,
+          // Back to whichever column the URL asked for, not hardcoded 1 — so adding several
+          // categories to column 3 in a row does not reset the field each time.
+          columnPosition: requestedColumn,
           isActive: true
         });
       }
-      
-      if (onSuccess) {
-        onSuccess();
-      } else if (!isEditMode) {
-        // Only show alert and reload for create mode when no onSuccess callback
-        alert(`Category ${isEditMode ? 'updated' : 'created'} successfully!`);
-        window.location.reload();
-      }
-      
+
+      /**
+       * ⚠️ `alert()` + `window.location.reload()` REMOVED (#22.6).
+       *
+       * This branch used to fire a blocking browser alert and then throw the whole document
+       * away. `onCancel`/`onSuccess` are optional, so the create form on
+       * `/admin/categories` — which passes neither — hit it every time.
+       *
+       * `router.refresh()` re-runs the page's server component so the new category appears in
+       * the column layout below, without the reload's white flash, and without discarding the
+       * form's own state.
+       */
+      onSuccess?.();
+      router.refresh();
+
     } catch (err) {
       console.error(`Error ${isEditMode ? 'updating' : 'creating'} category:`, err);
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
@@ -186,7 +219,7 @@ export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryF
         
         {/* Category Name */}
         <div>
-          <label htmlFor="name" className={`block text-sm font-medium text-black mb-2 ${roboto.className}`}>
+          <label htmlFor="name" className="mb-2 block text-sm font-medium">
             Category Name *
           </label>
           <input
@@ -195,17 +228,17 @@ export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryF
             value={formData.name}
             onChange={(e) => handleChange('name', e.target.value)}
             placeholder="e.g., Design & Creative"
-            className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent bg-gray-200 text-gray-800"
+            className="border-input bg-background focus:ring-ring w-full rounded-md border px-3 py-2 focus:ring-2 focus:outline-none"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-muted-foreground mt-1 text-xs">
             Descriptive name shown to users
           </p>
         </div>
 
         {/* Category Slug */}
         <div>
-          <label htmlFor="slug" className={`block text-sm font-medium text-black mb-2 ${roboto.className}`}>
+          <label htmlFor="slug" className="mb-2 block text-sm font-medium">
             URL Slug *
           </label>
           <input
@@ -214,17 +247,17 @@ export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryF
             value={formData.slug}
             onChange={(e) => handleChange('slug', e.target.value)}
             placeholder="e.g., design-creative"
-            className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent bg-gray-200 text-gray-800"
+            className="border-input bg-background focus:ring-ring w-full rounded-md border px-3 py-2 focus:ring-2 focus:outline-none"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-muted-foreground mt-1 text-xs">
             {isEditMode ? 'URL identifier (be careful changing this)' : 'Auto-generated from name'}
           </p>
         </div>
 
         {/* Category Icon */}
         <div>
-          <label htmlFor="icon" className={`block text-sm font-medium text-black mb-2 ${roboto.className}`}>
+          <label htmlFor="icon" className="mb-2 block text-sm font-medium">
             Icon
           </label>
           <input
@@ -233,38 +266,38 @@ export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryF
             value={formData.icon}
             onChange={(e) => handleChange('icon', e.target.value)}
             placeholder="🎨"
-            className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent bg-gray-200 text-gray-800"
+            className="border-input bg-background focus:ring-ring w-full rounded-md border px-3 py-2 focus:ring-2 focus:outline-none"
             maxLength={10}
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-muted-foreground mt-1 text-xs">
             Emoji or short text (optional)
           </p>
         </div>
 
         {/* Column Position */}
         <div>
-          <label htmlFor="columnPosition" className={`block text-sm font-medium text-black mb-2 ${roboto.className}`}>
+          <label htmlFor="columnPosition" className="mb-2 block text-sm font-medium">
             Column Position *
           </label>
           <select
             id="columnPosition"
             value={formData.columnPosition}
             onChange={(e) => handleChange('columnPosition', parseInt(e.target.value))}
-            className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent bg-gray-200 text-gray-800"
+            className="border-input bg-background focus:ring-ring w-full rounded-md border px-3 py-2 focus:ring-2 focus:outline-none"
             required
           >
             <option value={1}>Column 1 (Left)</option>
             <option value={2}>Column 2 (Center)</option>
             <option value={3}>Column 3 (Right)</option>
           </select>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-muted-foreground mt-1 text-xs">
             Which column to display in
           </p>
         </div>
 
         {/* Active Status */}
         <div>
-          <label htmlFor="isActive" className={`block text-sm font-medium text-black mb-2 ${roboto.className}`}>
+          <label htmlFor="isActive" className="mb-2 block text-sm font-medium">
             Status
           </label>
           <div className="flex items-center">
@@ -273,13 +306,13 @@ export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryF
               type="checkbox"
               checked={formData.isActive}
               onChange={(e) => handleChange('isActive', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-gray-300 border-gray-300 rounded bg-gray-200 text-gray-800"
+              className="border-input size-4 rounded"
             />
-            <label htmlFor="isActive" className={`ml-2 text-sm text-gray-700 ${roboto.className}`}>
+            <label htmlFor="isActive" className="ml-2 text-sm font-normal">
               Active (visible to users)
             </label>
           </div>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-muted-foreground mt-1 text-xs">
             Inactive categories are hidden from public view
           </p>
         </div>
@@ -288,7 +321,7 @@ export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryF
 
       {/* Description Field (Full Width) */}
       <div>
-        <label htmlFor="description" className={`block text-sm font-medium text-black mb-2 ${roboto.className}`}>
+        <label htmlFor="description" className="mb-2 block text-sm font-medium">
           Description
         </label>
         <textarea
@@ -297,61 +330,54 @@ export function CategoryForm({ category = null, onSuccess, onCancel }: CategoryF
           onChange={(e) => handleChange('description', e.target.value)}
           placeholder="Optional description of this category..."
           rows={3}
-          className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent bg-gray-200 text-gray-800"
+          className="border-input bg-background focus:ring-ring w-full rounded-md border px-3 py-2 focus:ring-2 focus:outline-none"
         />
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-muted-foreground mt-1 text-xs">
           Optional description for admin reference
         </p>
       </div>
 
-      {/* Error Message */}
+      {/* Was a `bg-red-50 border-red-200` panel with a ❌ emoji — light-only, and duplicating
+          what shadcn's destructive `Alert` already provides. */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <span className="text-red-500 mr-2">❌</span>
-            <span className="text-red-700 text-sm">{error}</span>
-          </div>
-        </div>
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" aria-hidden="true" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      {/* Form Footer */}
-      <div className="flex items-center justify-between pt-6 border-t border-gray-200">
-        <div className="text-sm text-gray-500">
-          * Required fields
-        </div>
-        
-        <div className="flex items-center space-x-3">
-          {/* Cancel Button (only show in edit mode) */}
-          {isEditMode && onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
-            >
+      <div className="flex items-center justify-between gap-3 border-t pt-4">
+        <p className="text-muted-foreground text-xs">
+          <span className="text-destructive" aria-hidden="true">*</span> Required
+        </p>
+
+        <div className="flex items-center gap-2">
+          {/*
+            ⚠️ Shown whenever a handler exists, not only in edit mode.
+
+            The old gate was `isEditMode && onCancel`, the identical bug `DomainForm` had before
+            G-3c: the create form rendered no Cancel even when one was passed to it.
+          */}
+          {onCancel && (
+            <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
               Cancel
-            </button>
+            </Button>
           )}
-          
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className={`
-              px-6 py-2 rounded-lg font-medium transition-colors cursor-pointer
-              ${isLoading 
-                ? 'bg-gray-400 text-gray-700 cursor-not-allowed' 
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-              }
-            `}
-          >
-            {isLoading 
-              ? (isEditMode ? 'Updating...' : 'Creating...') 
-              : (isEditMode ? 'Update Category' : 'Create Category')
-            }
-          </button>
+
+          {/* `bg-blue-600` removed — the default primary style is what marks the primary action. */}
+          <Button type="submit" disabled={isLoading}>
+            {isLoading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            {isLoading
+              ? isEditMode
+                ? 'Saving…'
+                : 'Creating…'
+              : isEditMode
+                ? 'Save changes'
+                : 'Create category'}
+          </Button>
         </div>
       </div>
-      
+
     </form>
   );
 }
