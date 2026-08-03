@@ -3,11 +3,13 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
@@ -266,10 +268,10 @@ export function CSVUploadInterface({
       
       {/* Step Description */}
       <div className="text-center">
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+        <h3 className="text-xl font-semibold mb-2">
           Import Data from CSV
         </h3>
-        <p className="text-gray-600">
+        <p className="text-muted-foreground">
           Upload a CSV file to populate your table with data. This step is optional.
         </p>
       </div>
@@ -285,20 +287,20 @@ export function CSVUploadInterface({
               {...getRootProps()}
               className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
                 isDragActive 
-                  ? 'border-blue-500 bg-blue-50' 
-                  : 'border-gray-300 hover:border-gray-400'
+                  ? 'border-primary bg-accent' 
+                  : 'hover:border-muted-foreground/40'
               }`}
             >
               <input {...getInputProps()} />
               <div className="text-4xl mb-4">📄</div>
               {isDragActive ? (
-                <p className="text-blue-600 font-medium">Drop your CSV file here...</p>
+                <p className="text-primary font-medium">Drop your CSV file here...</p>
               ) : (
                 <div>
-                  <p className="text-gray-900 font-medium mb-2">
+                  <p className="font-medium mb-2">
                     Drag & drop your CSV file here, or click to browse
                   </p>
-                  <p className="text-gray-500 text-sm">
+                  <p className="text-muted-foreground text-sm">
                     Supports .csv files up to 10MB
                   </p>
                 </div>
@@ -306,9 +308,9 @@ export function CSVUploadInterface({
             </div>
             
             {/* CSV Format Help */}
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium text-gray-900 mb-2">CSV Format Requirements:</h4>
-              <ul className="text-sm text-gray-600 space-y-1">
+            <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+              <h4 className="font-medium mb-2">CSV Format Requirements:</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
                 <li>• First row should contain column headers</li>
                 <li>• Use commas to separate values</li>
                 <li>• Enclose text with commas in quotes</li>
@@ -326,7 +328,7 @@ export function CSVUploadInterface({
           <CardContent className="pt-6">
             <div className="text-center">
               <div className="text-4xl mb-4">⏳</div>
-              <h4 className="font-medium text-gray-900 mb-2">
+              <h4 className="font-medium mb-2">
                 {uploadState === 'uploading' ? 'Uploading file...' : 'Parsing CSV data...'}
               </h4>
               <Progress value={uploadState === 'uploading' ? 50 : 75} className="w-full max-w-sm mx-auto" />
@@ -351,16 +353,16 @@ export function CSVUploadInterface({
               {parseResult.headers?.map(csvHeader => (
                 <div key={csvHeader} className="flex items-center justify-between p-3 border rounded-lg">
                   <div>
-                    <h4 className="font-medium text-gray-900">{csvHeader}</h4>
-                    <p className="text-sm text-gray-600">CSV Column</p>
+                    <h4 className="font-medium">{csvHeader}</h4>
+                    <p className="text-sm text-muted-foreground">CSV Column</p>
                   </div>
                   
                   <div className="flex items-center space-x-2">
-                    <span className="text-gray-400">→</span>
+                    <span className="text-muted-foreground" aria-hidden="true">&rarr;</span>
                     <select
                       value={columnMapping[csvHeader] || ''}
                       onChange={(e) => updateColumnMapping(csvHeader, e.target.value)}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="px-3 py-2 border border-input bg-background rounded-md focus:ring-2 focus:ring-ring focus:border-ring"
                     >
                       <option value="">Skip this column</option>
                       {schema.columns.map(column => (
@@ -408,23 +410,23 @@ export function CSVUploadInterface({
           <CardContent>
             
             {/* Validation Summary */}
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium text-gray-900 mb-2">Import Summary</h4>
+            <div className="mb-6 p-4 bg-muted/50 rounded-lg">
+              <h4 className="font-medium mb-2">Import Summary</h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-600">Total Rows:</span>
+                  <span className="text-muted-foreground">Total Rows:</span>
                   <span className="ml-2 font-medium">{validationResult.summary.totalRows}</span>
                 </div>
                 <div>
-                  <span className="text-gray-600">Valid:</span>
-                  <span className="ml-2 font-medium text-green-600">{validationResult.summary.validRows}</span>
+                  <span className="text-muted-foreground">Valid:</span>
+                  <span className="ml-2 font-medium">{validationResult.summary.validRows}</span>
                 </div>
                 <div>
-                  <span className="text-gray-600">Invalid:</span>
-                  <span className="ml-2 font-medium text-red-600">{validationResult.summary.invalidRows}</span>
+                  <span className="text-muted-foreground">Invalid:</span>
+                  <span className="ml-2 font-medium text-destructive">{validationResult.summary.invalidRows}</span>
                 </div>
                 <div>
-                  <span className="text-gray-600">Mapped Columns:</span>
+                  <span className="text-muted-foreground">Mapped Columns:</span>
                   <span className="ml-2 font-medium">{mappedColumnsCount}</span>
                 </div>
               </div>
@@ -432,19 +434,19 @@ export function CSVUploadInterface({
 
             {/* Error Display */}
             {validationResult.errors.length > 0 && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <h4 className="font-medium text-red-900 mb-2">
+              <div className="mb-6 p-4 border rounded-lg">
+                <h4 className="font-medium text-destructive mb-2">
                   ⚠️ Data Validation Errors ({validationResult.errors.length})
                 </h4>
                 <div className="max-h-40 overflow-y-auto">
                   <div className="space-y-1 text-sm">
                     {validationResult.errors.slice(0, 10).map((error, index) => (
-                      <div key={index} className="text-red-700">
+                      <div key={index} className="text-destructive">
                         Row {error.row}, Column "{error.column}": {error.message}
                       </div>
                     ))}
                     {validationResult.errors.length > 10 && (
-                      <div className="text-red-600 font-medium">
+                      <div className="text-destructive font-medium">
                         ... and {validationResult.errors.length - 10} more errors
                       </div>
                     )}
@@ -455,28 +457,28 @@ export function CSVUploadInterface({
 
             {/* Data Preview Table */}
             <div className="mb-6">
-              <h4 className="font-medium text-gray-900 mb-3">Data Preview (First 5 rows)</h4>
+              <h4 className="font-medium mb-3">Data Preview (First 5 rows)</h4>
               <div className="overflow-x-auto border rounded-lg">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y">
+                  <thead className="bg-muted/50">
                     <tr>
                       {schema.columns.map(column => (
                         <th 
                           key={column.id}
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                          className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
                         >
                           {column.name}
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y">
                     {previewData.rows.slice(0, 5).map((row, index) => (
                       <tr key={index}>
                         {schema.columns.map(column => (
                           <td 
                             key={column.id}
-                            className="px-4 py-3 text-sm text-gray-900 max-w-xs truncate"
+                            className="px-4 py-3 text-sm max-w-xs truncate"
                           >
                             {String(row[column.id] || '-')}
                           </td>
@@ -504,7 +506,7 @@ export function CSVUploadInterface({
                 <Button 
                   onClick={handleImport}
                   disabled={!canImport}
-                  className="bg-green-600 hover:bg-green-700"
+                  
                 >
                   {validationResult.isValid ? 'Import Data' : 'Import Valid Rows Only'}
                 </Button>
@@ -514,23 +516,28 @@ export function CSVUploadInterface({
         </Card>
       )}
 
-      {/* Error Display */}
+      {/*
+        Errors. Was a `Card` with `border-red-200 bg-red-50` and a ⚠️ emoji.
+
+        ⚠️ A destructive `Alert`, not a `Card` — `Card` has **no `variant` prop**, which the
+        typechecker caught when a mechanical find-and-replace tried to give it one. `Alert`
+        is the primitive that actually carries the destructive treatment, and it brings the
+        right ARIA role for a message the user needs to notice.
+      */}
       {errors.length > 0 && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="pt-6">
-            <div className="flex items-center space-x-2 text-red-700">
-              <span className="text-xl">⚠️</span>
-              <div>
-                <h4 className="font-medium">Upload Errors:</h4>
-                <ul className="text-sm mt-1 space-y-1">
-                  {errors.map((error, index) => (
-                    <li key={index}>• {error}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" aria-hidden="true" />
+          <AlertDescription>
+            <p className="font-medium">Upload errors</p>
+            <ul className="mt-1 space-y-1">
+              {/* Keyed on the message: this list is rebuilt on every parse, so an index key
+                  would let React reuse nodes across unrelated errors. */}
+              {errors.map((error) => (
+                <li key={error}>{error}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Skip Option */}

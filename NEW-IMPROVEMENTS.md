@@ -5453,10 +5453,12 @@ cases, so a regression is traceable to one screen.
 | **G-4d** ✅ | **Pages — `PageForm`** | **DONE 1 Aug.** Colours **59 → 0**; `/admin/pages` fully rebuilt (**191 → 0** across 5 files, **zero new installs** for all of G-4). Fixed two real bugs: **"Default (`__main__` page)" detached the page from `__main__` when editing** (POST compensates, PUT does not), and the parent list's `'  '.repeat(depth)` indentation **never rendered** because HTML collapses whitespace. Six radio cards → one `Select`, which also fixed **invisible keyboard focus**. Details below. |
 | **G-5a(i)** ✅ | **Tables list — the page shell** | **DONE 3 Aug.** `app/admin/tables/page.tsx` colours **15 → 0**. `AdminPageHeader` + shared `StatsCard`; removed a local `StatsCard` copy and a hand-rolled loading skeleton. Dropped a "Recent Updates" stat that was **always 5**. |
 | **G-5a(ii)** ✅ | **Tables list — `TablesManager`** | **DONE 3 Aug.** Colours **25 → 0**; the `bg-white` wrapper was the dark-mode problem on this screen. Removed a **duplicate header + second create button**. Added pagination: **1.73 MB → 675 KB**, of which rendered HTML fell ~1.2 MB → 136 KB. |
-| **G-5a(iii)** | **Tables list — server-side pagination** | The residual payload from #22.1. ⚠️ Needs URL-driven filters and a reworked query, because the stats must aggregate over **all** tables while the list is paginated. Client-side pagination would shrink the DOM but **not** the payload, so it does not close this item. |
+| **G-5a(iii)** ⏸️ | **Tables list — server-side pagination** | **DEFERRED 3 Aug, by decision — not forgotten.** The residual **539 KB** RSC payload. Not urgent: admin-only, single user, nothing broken, and #22.1 + G-5a(ii) already took the page **8.19 MB → 675 KB (92%)**. ⚠️ **Revisit trigger is table COUNT, not time** — it scales linearly, so ~2,000 tables would put it back near 1.6 MB. Needs URL-driven filters + a reworked query, keeping stats on a **separate unpaginated** query (they aggregate over all 652 tables / 8,076 rows / 33 domains) and giving the "By domain" tab its own source, since it cannot be derived from one page. |
 | **G-5b** ✅ | **Tables — editor shell + wire up schema & settings** | `app/admin/tables/[id]/page.tsx` (202 / 18) + `TableEditor.tsx` (504 / 31). ⚠️ **`#22.2(c)` is mostly a WIRING job** — see the finding below. |
 | **G-5c** ✅ | **Tables — row editing (`#22.2(b)`)** | The data tab currently renders the **public read-only** `DataTable`. `PUT /api/admin/tables/[id]/data` already accepts `{ data: { rows }, operation: 'replace' \| 'append' }`. |
-| **G-5d** | **Tables — the creation flow** | `new/page.tsx` (109 / 3) + `TableCreationWizard.tsx` (365 / 15) + `TablePreview.tsx` (429 / **53**) + `CSVUploadInterface.tsx` (550 / 44) + `DomainPageSelector.tsx` (378 / 32). ⚠️ `DomainPageSelector` is **also rendered by `SectionsManager`**, so changes here hit G-6's screen too. |
+| **G-5d(i)** ✅ | **Creation flow — shell + wizard chrome** | **DONE 3 Aug.** `new/page.tsx` **3 → 0** + `TableCreationWizard` **15 → 0**. Added a **Cancel** route (the wizard previously had no exit but the back button); `include:` → `select:` on the domains query; three stacked cards → two; hardcoded `bg-green-600` final button and blue/grey step indicators → theme tokens with `aria-current="step"`. |
+| **G-5d(ii)** ✅ | **Creation flow — `tables/DomainPageSelector`** | **DONE 3 Aug.** Colours **31 → 0**. This was the near-invisible text in the user's screenshot. Selection states moved off hardcoded blue to `primary`/`accent`; emoji step headings and a `text-4xl` 🔍 → lucide. **Reordered ahead of the other two** because it is step 1 of the wizard and was the worst-looking thing on it. ⚠️ **NOT shared with `SectionsManager`** — see the correction note below. |
+| **G-5d(iii)** ✅ | **Creation flow — `TablePreview` + `CSVUploadInterface`** | **DONE 3 Aug.** Colours **53 → 0** and **44 → 0**. Fixed the outstanding `toLocaleDateString()` **hydration hazard**. ⚠️ `Card` has no `variant` prop — a mechanical replace tried to give it one and `tsc` caught it; the error block is an `Alert`. **G-5 is now colour-clean.** |
 | **G-6** | **Categories + Section Layout** | |
 | **G-7** | **Rich Text list + editor** | |
 | **G-8** | **Users** | Gains the "Add New Admin" button removed from the nav in G-1. |
@@ -6583,6 +6585,161 @@ a replace round-trip preserves targeting. Hand-building a CSV and replacing is w
 ⚠️ **Not done:** a warning when replacing from a CSV that lacks the column. That is the one
 remaining sharp edge here.
 
+##### ✅ G-5d(iii) DONE — 3 Aug 2026 — and PHASE G-5 IS COMPLETE
+
+`TablePreview` **53 → 0** and `CSVUploadInterface` **44 → 0**. With this, **all 10 files of the
+Tables screen carry 0 hardcoded colours** — the remaining grep hits across the phase are
+comments quoting what was removed.
+
+**Phase G-5 totals: 253 → 0 colours across 3,872 lines, with one new dependency
+(`alert-dialog`, added in G-3b and reused here).**
+
+- ⚠️ **`Card` has no `variant` prop.** A mechanical find-and-replace turned
+  `className="border-red-200 bg-red-50"` into `variant="destructive"` on a `Card`, and **`tsc`
+  caught it** — `Property 'variant' does not exist`. The error block is now a proper
+  destructive `Alert`, which is the primitive that actually carries that treatment *and*
+  brings the right ARIA role for a message the user must notice. Worth recording as the
+  limit of sed-driven colour sweeps: they cannot know which component accepts which prop.
+- ⚠️ **The outstanding hydration hazard is fixed.** `TablePreview`'s date cell formatter used
+  a bare `toLocaleDateString()` — the same class of bug that produced the "1 Issue" badge on
+  `/admin/tables`. Now pinned to `en-GB` + `timeZone: 'UTC'`.
+- Four stat tiles that used `text-blue-600` / `text-green-600` / `text-orange-600` for
+  Sortable / Filterable / Required are now uniform. The colours distinguished categories that
+  are already distinguished by their labels, and none of them themed.
+- `bg-white divide-gray-200` preview tables → `divide-y` on the themed surface; ✅ and ℹ️ status
+  emoji → lucide; `bg-green-600` on the import button → default primary.
+
+###### ⚠️ Hydration sweep — where things stand now
+
+Every **client** component under `src/components/admin/` was re-checked for unpinned
+locale formatting. **One remains:**
+
+- `HtmlEditor.tsx:435` — bare `toLocaleString()` → **G-7** (rich text)
+- *(`RichTextManager.tsx:117` pins the locale but not the time zone — partial; also G-7)*
+
+###### TEST CASES
+
+**A. Every route 200** — `/admin`, `/admin/tables`, `/admin/tables/[id]`, `/admin/tables/new`,
+`/admin/sections`, `/admin/pages`, `/admin/domains`.
+**B. Wizard steps 3–4 copy in the client bundle** — "Upload errors", "CSV Format Requirements",
+"Data Ready for Import", "Empty Table", "Total Columns".
+**C. Colours** — 0 outside comments in all five G-5d files.
+**D. Still to check in a browser**: dark mode on the Upload and Preview steps; a CSV with a
+deliberate validation error, to see the new `Alert`; and the date column rendering in a preview.
+
+##### ✅ Two search affordances added on request — 3 Aug 2026
+
+Both came from the user testing the rebuilt screens and finding the same problem in two
+places: a list long enough that you have to read every entry to find one.
+
+**1. Page search in the wizard's step 2** (`tables/DomainPageSelector`). Selecting a domain
+like "Graphic Designing" lists **26 pages**, with no way to narrow them. Now a search matching
+**title and slug** — either is what you might remember. Details:
+
+- Rendered only when `availablePages.length > 5`; a search box above a two-item list is chrome
+  that cannot help.
+- ⚠️ **The term is cleared when the domain changes.** A leftover term would filter the new
+  domain's list to nothing and read as "this domain has no pages".
+- The list gained `max-h-80 overflow-y-auto`, so a 26-page domain no longer pushes the
+  wizard's Next button far below the fold.
+- A distinct empty state for "search matched nothing" — reachable only when the search filtered
+  everything out, since the surrounding block already requires at least one page.
+
+**2. The `/admin/tables` domain filter became a searchable combobox.** It was a shadcn
+`Select` listing all **33** domains with no filter. Now `Popover` + `Command` — type-to-filter,
+arrow keys, Enter, Escape — the same pattern the Pages screen's picker got in G-4c.
+⚠️ Its searchable `value` includes the **slug** as well as the name, because most domain names
+begin with an emoji ("🖌️ Graphic Designing"), so typing the visible label is often not how you
+would look for one. Each row also shows that domain's table count.
+
+⚠️ **A colour my sweep missed:** `text-orange-600` on the "already has a table" warning, because
+my grep pattern did not include `orange`. Now `text-destructive` with a lucide icon. Worth noting
+that a colour sweep is only as complete as its pattern — the count "31 → 0" was measured with a
+pattern that could not see this one.
+
+⚠️ **Two comments in `TablesManager` went stale** when the `Select` was replaced and were
+rewritten rather than left to mislead: the summary line still claimed the control was a
+`Select`, and the `ALL_DOMAINS` note justified the sentinel by a Radix `SelectItem` constraint
+that no longer applies. (The sentinel is still needed — `''` would be indistinguishable from
+"nothing selected" in the comparisons.)
+
+##### ✅ "By domain" tab removed + a mislabelled stat fixed — 3 Aug 2026
+
+The user asked whether the "By domain" tab was still needed, since it "makes you scroll a lot".
+It was not. **Three tabs became two.**
+
+It rendered one card per domain, each listing every table beneath it — sensible before this
+screen had a domain filter, redundant afterwards:
+
+| | "By domain" tab | Filter on "All tables" |
+| --- | --- | --- |
+| See one domain's tables | ✅ | ✅ |
+| Paginated | ❌ **all 652 links** | ✅ 24 at a time |
+| Searchable by table name | ❌ | ✅ |
+| Per-domain count | ✅ | ✅ (added to each filter row) |
+
+⚠️ **It was the only unpaginated list left on the screen**, which is why the page still
+scrolled forever and which partly undid the pagination from G-5a(ii). Its one unique offering —
+several domains side by side — was judged not worth that. `DomainCard` was deleted with it;
+`domainsWithTables` is kept, because the domain filter still needs it.
+
+###### ⚠️ A stat that contradicted the list beside it: 33 vs 31
+
+Spotted while assessing the tab. The tile read **"Domains holding tables: 33"** while the tab
+beside it read **"By domain (31)"**. Both numbers were correct and measured different things:
+
+```js
+totalDomains      = domains.filter(d => d.pages.length > 0)          // 33  (pages already
+                                                                     //      filtered to
+                                                                     //      contentType 'table')
+domainsWithTables = domains.filter(d => d.pages.some(p => p.table))  // 31
+```
+
+So **two domains have a table-type page with no table created on it yet.** The tile's *label*
+described the 31 — it was counting domains holding table-**pages**, not tables. Fixed by making
+the number match the label, which also makes it agree with the domain filter's own list.
+Verified: the tile now renders **31**.
+
+⚠️ Worth noting the general shape: two numbers derived from the same query by slightly
+different predicates, displayed side by side under near-identical labels. Neither was "a bug"
+in isolation — the defect only existed in the pair.
+
+###### Two more stale comments corrected
+
+Removing the tab left the file's header comment claiming "Three views… a flat list, grouped by
+domain, and recent activity", and left `Globe` imported with zero remaining uses. Both fixed.
+That is now **three separate occasions** in this screen where a rewrite left a comment
+describing the previous behaviour — worth a habit of grepping the file's own prose after
+removing a feature, not just its code.
+
+##### ⚠️ CORRECTION — `DomainPageSelector` is NOT one shared component. There are TWO.
+
+When planning G-5d I wrote that `DomainPageSelector` was "also rendered by `SectionsManager`,
+so changes here hit G-6's screen too". **Wrong.** There are two separate files:
+
+| File | Lines | Colours | Props |
+| ---- | ----- | ------- | ----- |
+| `admin/tables/DomainPageSelector.tsx` | 378 | 31 | `onSelection(domain, page)` |
+| `admin/sections/DomainPageSelector.tsx` | 210 | 33 | `onDomainChange`, `onPageChange` |
+
+Different sizes, different prop contracts, **436 differing lines** ignoring whitespace. They
+are two independent implementations that happen to share a name and a purpose.
+
+⚠️ **The error was the same shape as the `isHidden` mistake earlier this session:** a grep
+matched the *name* in two directory trees and I concluded it was the *same file*, without
+checking the imports. `SectionsManager` imports `'./DomainPageSelector'` — its own local one.
+**Matching a symbol name is not establishing identity.**
+
+Two consequences, both good to know:
+
+- **G-5d(ii) is simpler than planned** — rebuilding the tables one cannot break the Sections
+  screen, and no second caller needs checking.
+- ⚠️ **But it is a genuine duplication finding for G-6.** Two components solving "pick a domain,
+  then pick one of its pages", maintained separately — the same class of problem as #22.4, where
+  four copies of parent-chain traversal were consolidated into `src/lib/page-path.ts`. Whether
+  they should merge is a G-6 decision: their prop shapes differ, and the Sections one filters
+  for *sectionable* pages while the tables one filters for `table`/`narrative`.
+
 ##### ✅ G-5a(i) DONE — 3 Aug 2026 (tables list — page shell)
 
 **`app/admin/tables/page.tsx`: 15 colours → 0.** Never touched by an earlier phase, so it
@@ -6675,6 +6832,35 @@ An effect would flash that empty state for one frame before fixing itself.
 **E. Still to check in a browser**: dark mode; the list/grid toggle; that searching resets to
 page 1; that a search matching nothing shows "No tables found" *without* offering
 "Create a table"; and an export failure showing inline rather than as an alert.
+
+###### ⚠️ HYDRATION MISMATCH — found from a screenshot, fixed, confirmed gone
+
+The user's screenshot showed a red **"1 Issue"** badge (the Next dev overlay) on
+`/admin/tables`, which they identified as a hydration error. Three causes, **all in
+`TablesManager`** — a client component that is server-rendered first, so every string it
+formats is produced **twice**, once by Node and once by the browser:
+
+| What | Was | Why it mismatched |
+| ---- | --- | ----------------- |
+| "Updated …" | `toLocaleDateString()` | Node resolved **en-US** → `8/3/2026`; the browser is **en-IN** → `3/8/2026`. ⚠️ Not merely a mismatch — **day and month swap**, so one of the two renders a *wrong date*. |
+| Activity timestamp | `toLocaleString()` | Same, plus time zone. |
+| Row count | `toLocaleString()` | Easy to miss: thousands separators are locale-specific too — `1,198` / `1.198` / `1 198`. |
+
+All three now pin **locale and time zone** (`en-GB`, `timeZone: 'UTC'` — UTC because Prisma
+returns UTC), via `formatDate()` / `formatCount()` helpers with the reasoning written at each.
+**Confirmed by the user: the badge is gone**, and dates render as `Updated 3 Aug 2026`.
+
+⚠️ **Why `StatsCard` and the page shell were safe** despite calling `toLocaleString()`: they
+are **server** components, so they render once. This hazard exists in client components only —
+which is exactly why it is easy to introduce without noticing.
+
+⚠️ **Two instances remain, both outside this screen**, and both should be fixed when their
+phase comes round:
+
+- `TablePreview.tsx:417` — bare `toLocaleDateString()` → **G-5d**
+- `HtmlEditor.tsx:435` — bare `toLocaleString()` → **G-7**
+- *(`RichTextManager.tsx:117` pins the locale but **not** the time zone — partial: a timestamp
+  near midnight UTC would still render a different day on the two sides.)*
 
 ##### Component map
 
