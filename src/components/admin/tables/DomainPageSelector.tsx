@@ -209,7 +209,7 @@ export function DomainPageSelector({
           </div>
 
           {/* Domain Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filteredDomains.map(domain => {
               const tablePagesCount = domain.pages.filter(p => p.contentType === 'table').length;
               const availablePagesCount = domain.pages.filter(p => 
