@@ -1,4 +1,5 @@
 'use client';
+import { FolderOpen } from 'lucide-react';
 
 /**
  * Category Card Component
@@ -44,10 +45,10 @@ export function CategoryCard({
 }: CategoryCardProps) {
   return (
     <div className={`
-      relative bg-white border rounded-lg p-4 transition-all duration-200
+      relative bg-card border rounded-lg p-4 transition-all duration-200
       ${category.isActive 
-        ? 'border-gray-200 hover:border-blue-300 hover:shadow-md' 
-        : 'border-gray-200 bg-gray-50 opacity-75'
+        ? 'hover:border-muted-foreground/40 hover:shadow-md' 
+        : 'bg-muted/50 opacity-75'
       }
     `}>
       
@@ -58,7 +59,7 @@ export function CategoryCard({
 
       {/* Drag Handle (Future Feature) */}
       <div className="absolute left-2 top-2 opacity-30 hover:opacity-60 cursor-grab">
-        <span className="text-gray-400 text-sm">⋮⋮</span>
+        <span className="text-muted-foreground text-sm" aria-hidden="true">&#8942;&#8942;</span>
       </div>
 
       {/* Category Content */}
@@ -68,27 +69,27 @@ export function CategoryCard({
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center">
             {/* Category Icon */}
-            <div className="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+            <div className="shrink-0 w-10 h-10 bg-muted rounded-lg flex items-center justify-center mr-3">
               {category.icon ? (
                 <span className="text-lg">{category.icon}</span>
               ) : (
-                <span className="text-gray-400">📁</span>
+                <FolderOpen className="text-muted-foreground size-4" aria-hidden="true" />
               )}
             </div>
             
             {/* Category Info */}
             <div>
-              <h4 className={`font-medium ${category.isActive ? 'text-gray-900' : 'text-gray-600'}`}>
+              <h4 className={`font-medium ${category.isActive ? '' : 'text-muted-foreground'}`}>
                 {category.name}
               </h4>
-              <p className="text-xs text-gray-500 mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 /{category.slug}
               </p>
             </div>
           </div>
 
           {/* Position Indicator */}
-          <div className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+          <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
             #{position}
           </div>
         </div>
@@ -104,14 +105,14 @@ export function CategoryCard({
         {/* Description (if available) */}
         {category.description && (
           <div className="mb-4">
-            <p className="text-sm text-gray-600 line-clamp-2">
+            <p className="text-sm text-muted-foreground line-clamp-2">
               {category.description}
             </p>
           </div>
         )}
 
         {/* Management Actions */}
-        <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+        <div className="flex items-center justify-between pt-3 border-t">
           
           {/* Reorder Actions */}
           <div className="flex items-center space-x-1">
@@ -119,7 +120,7 @@ export function CategoryCard({
             {position > 1 && onMove && (
               <button
                 onClick={() => onMove('up')}
-                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
                 title="Move up"
               >
                 ↑
@@ -130,7 +131,7 @@ export function CategoryCard({
             {onMove && (
               <button
                 onClick={() => onMove('down')}
-                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
                 title="Move down"
               >
                 ↓
@@ -144,7 +145,7 @@ export function CategoryCard({
             {/* Edit Button */}
             <button
               onClick={onEdit}
-              className="px-3 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+              className="px-3 py-1 text-xs font-medium hover:bg-muted rounded transition-colors"
               title="Edit category"
             >
               Edit
@@ -153,7 +154,7 @@ export function CategoryCard({
             {/* Delete Button */}
             <button
               onClick={onDelete}
-              className="px-3 py-1 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+              className="px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 rounded transition-colors"
               title="Delete category"
             >
               Delete
@@ -161,7 +162,7 @@ export function CategoryCard({
 
             {/* More Actions Dropdown (Future) */}
             <button
-              className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+              className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
               title="More actions"
             >
               ⋯
@@ -186,16 +187,16 @@ type StatusBadgeProps = {
 function StatusBadge({ isActive }: StatusBadgeProps) {
   if (isActive) {
     return (
-      <div className="flex items-center text-xs text-green-600">
-        <span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span>
+      <div className="flex items-center text-xs text-muted-foreground">
+        <span className="w-2 h-2 bg-primary rounded-full mr-1"></span>
         Active
       </div>
     );
   }
 
   return (
-    <div className="flex items-center text-xs text-gray-500">
-      <span className="w-2 h-2 bg-gray-400 rounded-full mr-1"></span>
+    <div className="flex items-center text-xs text-muted-foreground">
+      <span className="w-2 h-2 bg-muted-foreground rounded-full mr-1"></span>
       Inactive
     </div>
   );
@@ -213,7 +214,7 @@ type DomainStatsProps = {
 function DomainStats({ totalDomains, publishedDomains }: DomainStatsProps) {
   if (totalDomains === 0) {
     return (
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-muted-foreground">
         <span className="inline-flex items-center">
           <span className="mr-1">📊</span>
           No domains assigned
@@ -228,14 +229,14 @@ function DomainStats({ totalDomains, publishedDomains }: DomainStatsProps) {
     <div className="flex items-center space-x-3 text-xs">
       
       {/* Total Domains */}
-      <div className="flex items-center text-gray-600">
+      <div className="flex items-center text-muted-foreground">
         <span className="mr-1">🌐</span>
         <span>{totalDomains} domain{totalDomains !== 1 ? 's' : ''}</span>
       </div>
 
       {/* Published Status */}
       {publishedDomains > 0 && (
-        <div className="flex items-center text-green-600">
+        <div className="flex items-center text-muted-foreground">
           <span className="mr-1">✅</span>
           <span>{publishedDomains} published</span>
         </div>
@@ -243,7 +244,7 @@ function DomainStats({ totalDomains, publishedDomains }: DomainStatsProps) {
 
       {/* Unpublished Warning */}
       {unpublishedDomains > 0 && (
-        <div className="flex items-center text-orange-600">
+        <div className="flex items-center text-muted-foreground">
           <span className="mr-1">⚠️</span>
           <span>{unpublishedDomains} draft</span>
         </div>

@@ -1,12 +1,21 @@
 import { prisma } from '@/lib/prisma';
 import { CategoryList } from '@/components/admin/categories/CategoryList';
+import { ChevronDown, Lightbulb } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
 import { CategoryForm } from '@/components/admin/categories/CategoryForm';
-import { Roboto } from 'next/font/google';
-
-const roboto = Roboto({
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
-});
 
 /**
  * ⚠️ DO NOT REMOVE — finding #20. This page calls `prisma.domainCategory.findMany` during
@@ -43,75 +52,103 @@ export default async function CategoriesManagePage() {
   // Fetch all categories ordered by column and position for display
   const categories = await fetchCategoriesForAdmin();
   
+  const activeCount = categories.filter(c => c.isActive).length;
+
   return (
-    <div className="space-y-8">
-      
-      {/* Page Introduction */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-100">
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">
-          📂 Manage Domain Categories
-        </h2>
-        <p className="text-gray-600">
-          Organize your content domains into a 3-column layout. 
-          Categories help users navigate your content effectively.
-        </p>
-      </div>
+    <>
+      {/*
+        ⚠️ REBUILT IN G-6a. The `Roboto` import is gone — this was one of the **last two**
+        `next/font/google` importers in the admin, downloading a second webfont to style four
+        headings against the app-wide Geist.
 
-      {/* Category Creation Form */}
-      <div className="bg-white rounded-3xl border border-gray-300 p-6">
+        The `from-blue-50 to-indigo-50` gradient intro banner is gone too (fourth time this
+        phase, after G-2, G-3a and G-4b): it described the screen you were already on and was
+        hardcoded light.
 
-        {/* Category Creation Form Section Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h3 className={`text-xl font-semibold text-gray-900 ${roboto.className}`}>
-              Create New Category
-            </h3>
-            <p className={`text-md text-gray-600 mt-1 ${roboto.className}`}>
-              Add a new category to organize your domains
-            </p>
-          </div>
-          
-          {/* Category Stats */}
-          <div className="flex items-center space-x-4 text-sm text-gray-600">
-            <span>📊 {categories.length} total categories</span>
-            <span>✅ {categories.filter(c => c.isActive).length} active</span>
-          </div>
-        </div>
-        
-        {/* Category Form Component */}
-        <CategoryForm />
-      </div>
+        The two `bg-white rounded-3xl border-gray-300` panels are now `Card`s.
+      */}
+      <AdminPageHeader
+        title="Categories"
+        description={`${categories.length} categories across 3 homepage columns · ${activeCount} active.`}
+      />
 
-      {/* Main Categories Management Interface */}
-      <div className="bg-white rounded-3xl border border-gray-300 p-6">
-        <div className="mb-6">
-          <h3 className={`text-xl font-semibold text-gray-900 ${roboto.className}`}>
-            Category Layout Preview
-          </h3>
-          <p className={`text-md text-gray-600 mt-1 ${roboto.className}`}>
-            Drag categories to reorder within columns or move between columns
-          </p>
-        </div>
-        
-        {/* 3-Column Category Display */}
-        <CategoryList categories={categories} />
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Create a category</CardTitle>
+          <CardDescription>
+            Categories group your domains into the three columns of the public homepage.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CategoryForm />
+        </CardContent>
+      </Card>
 
-      {/* Category Management Tips */}
-      <div className="bg-blue-50 rounded-lg p-6 border border-blue-100">
-        <h4 className="font-semibold text-blue-900 mb-3">
-          💡 Category Management Tips
-        </h4>
-        <ul className="text-sm text-black space-y-2">
-          <li>• <strong>Column Balance:</strong> Keep categories evenly distributed across the 3 columns</li>
-          <li>• <strong>Clear Names:</strong> Use descriptive names that users will easily understand</li>
-          <li>• <strong>Icons:</strong> Choose relevant emoji icons to make categories visually distinct</li>
-          <li>• <strong>Order Matters:</strong> Put most important categories at the top of each column</li>
-          <li>• <strong>Slugs:</strong> Keep URL slugs short, lowercase, and SEO-friendly</li>
-        </ul>
-      </div>
-      
-    </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Column layout</CardTitle>
+          <CardDescription>
+            {/*
+              ⚠️ THIS SUBTITLE USED TO PROMISE DRAG-AND-DROP: "Drag categories to reorder
+              within columns or move between columns". **There is no drag-and-drop anywhere in
+              these components** — grepped for `draggable`, `onDragStart`, `onDrop` and every
+              dnd library: nothing. `CategoryList`'s own header comment even says
+              "drag-and-drop in future".
+
+              So the label was instructing you to do something impossible. Reordering is done
+              by editing a category's column and order fields, and that is what it now says.
+            */}
+            How your categories appear on the homepage. To move one, edit it and change its
+            column or order.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CategoryList categories={categories} />
+        </CardContent>
+      </Card>
+
+      {/* Tips, collapsed by default — the same treatment as the Domains and Pages screens. */}
+      <Collapsible defaultOpen={false}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="text-muted-foreground">
+            <Lightbulb className="size-4" aria-hidden="true" />
+            Category tips
+            <ChevronDown
+              className="size-4 transition-transform [[data-state=open]_&]:rotate-180"
+              aria-hidden="true"
+            />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Card className="mt-2">
+            <CardContent>
+              <ul className="text-muted-foreground space-y-2 text-sm">
+                <li>
+                  <strong className="text-foreground">Column balance:</strong> keep categories
+                  evenly distributed across the three columns.
+                </li>
+                <li>
+                  <strong className="text-foreground">Clear names:</strong> descriptive names
+                  users will recognise at a glance.
+                </li>
+                <li>
+                  <strong className="text-foreground">Icons:</strong> a relevant emoji makes a
+                  category visually distinct.
+                </li>
+                <li>
+                  <strong className="text-foreground">Order:</strong> most important categories
+                  at the top of each column.
+                </li>
+                <li>
+                  <strong className="text-foreground">Slugs:</strong> short and lowercase — they
+                  become part of the public URL and are awkward to change later.
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
+    </>
   );
 }
 

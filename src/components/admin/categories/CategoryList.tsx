@@ -1,6 +1,27 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { AlertTriangle, FolderOpen, Loader2, Plus } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { CategoryCard } from './CategoryCard';
 import { CategoryForm } from './CategoryForm';
 
@@ -264,18 +285,65 @@ type CategoryListProps = {
  */
 
 export function CategoryList({ categories }: CategoryListProps) {
+  const router = useRouter();
+
   // State for managing category operations
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  /** The server's message when a delete was refused — shown inside the dialog. */
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Group categories by column for display
   const categoriesByColumn = groupCategoriesByColumn(categories);
 
-  // Find the category being edited
-  const categoryToEdit = editingCategory 
-    ? categories.find(cat => cat.id === editingCategory) 
+  /*
+    Both dialogs look their category up by id on every render rather than storing a copy, so
+    that after `router.refresh()` re-runs the server query they show the FRESH record. A stored
+    copy would keep displaying stale values until closed.
+  */
+  const categoryToEdit = editingCategory
+    ? categories.find(cat => cat.id === editingCategory)
     : null;
+
+  const categoryToDelete = deletingCategory
+    ? categories.find(cat => cat.id === deletingCategory)
+    : null;
+
+  /**
+   * Delete a category.
+   *
+   * ⚠️ Returns the SERVER'S message on failure instead of a generic one. The API refuses to
+   * delete a category that still holds domains and says exactly how many — information the old
+   * `alert('Failed to delete category. Please try again.')` discarded, replacing it with advice
+   * that could never work.
+   */
+  const handleDelete = async (categoryId: string) => {
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch(`/api/admin/categories/${categoryId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setDeleteError(body?.message ?? `Delete failed (HTTP ${response.status})`);
+        setIsDeleting(false);
+        return;
+      }
+
+      setDeletingCategory(null);
+      setIsDeleting(false);
+      // `router.refresh()` rather than `window.location.reload()` — re-runs the server
+      // component without discarding the document (#22.6).
+      router.refresh();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Network error.');
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -334,44 +402,51 @@ export function CategoryList({ categories }: CategoryListProps) {
         
       </div>
 
-      {/* Empty State */}
+      {/*
+        Empty state.
+
+        ⚠️ Its "Create First Category" button was DEAD — no `onClick`, no `href`, nothing. It
+        rendered, it was clickable, and it did nothing (the #22.5 pattern again). The form
+        lives at the top of this same page, so the honest fix is to point at it rather than
+        invent a second route.
+      */}
       {categories.length === 0 && (
-        <div className="text-center py-12">
-          <div className="text-6xl mb-4">📂</div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
-            No Categories Yet
-          </h3>
-          <p className="text-gray-600 mb-6">
-            Create your first category to organize your domains
+        <div className="flex flex-col items-center gap-2 py-12 text-center">
+          <FolderOpen className="text-muted-foreground size-8" aria-hidden="true" />
+          <p className="font-medium">No categories yet</p>
+          <p className="text-muted-foreground text-sm">
+            Use the form above to create your first category.
           </p>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            Create First Category
-          </button>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {deletingCategory && (
+      {deletingCategory && categoryToDelete && (
         <DeleteConfirmationModal
-          categoryId={deletingCategory}
+          // Keyed by id so the in-flight and error state cannot carry from one category to
+          // the next — same reasoning as the domain delete dialog in G-3b.
+          key={categoryToDelete.id}
+          category={categoryToDelete}
           isDeleting={isDeleting}
-          onConfirm={() => handleDeleteCategory(deletingCategory, setIsDeleting)}
-          onCancel={() => setDeletingCategory(null)}
+          error={deleteError}
+          onConfirm={() => handleDelete(categoryToDelete.id)}
+          onCancel={() => {
+            setDeletingCategory(null);
+            setDeleteError(null);
+          }}
         />
       )}
 
-      {/* Edit Category Modal */}
       {editingCategory && categoryToEdit && (
         <EditCategoryModal
           category={categoryToEdit}
           onSuccess={() => {
             setEditingCategory(null);
-            window.location.reload(); // Refresh to show changes
+            router.refresh();
           }}
           onCancel={() => setEditingCategory(null)}
         />
       )}
-      
+
     </div>
   );
 }
@@ -393,11 +468,11 @@ function ColumnHeader({ columnNumber, categoryCount }: ColumnHeaderProps) {
   };
 
   return (
-    <div className="text-center pb-4 border-b border-gray-200">
-      <h4 className="text-lg font-semibold text-gray-900">
+    <div className="text-center pb-4 border-b">
+      <h4 className="text-lg font-semibold">
         {columnTitles[columnNumber as keyof typeof columnTitles]}
       </h4>
-      <p className="text-sm text-gray-600 mt-1">
+      <p className="text-sm text-muted-foreground mt-1">
         {categoryCount} categor{categoryCount !== 1 ? 'ies' : 'y'}
       </p>
     </div>
@@ -430,7 +505,7 @@ function CategoryColumn({ columnNumber, categories, onEdit, onDelete }: Category
       
       {/* Show message if column is empty */}
       {categories.length === 0 && (
-        <div className="text-center py-8 text-gray-500 text-sm border-2 border-dashed border-gray-200 rounded-lg">
+        <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-lg">
           No categories in this column yet
         </div>
       )}
@@ -447,20 +522,39 @@ type AddCategoryButtonProps = {
 };
 
 function AddCategoryButton({ columnNumber }: AddCategoryButtonProps) {
+  const router = useRouter();
+
+  /**
+   * ⚠️ THE LABEL USED TO PROMISE SOMETHING THE BUTTON DID NOT DO.
+   *
+   * It read "Add Category to Column 3" and its handler was, in full,
+   * `window.scrollTo({ top: 0 })` — with a `TODO` admitting the column was not pre-selected.
+   * So it scrolled you to a form where you still had to choose column 3 yourself, having just
+   * told the app which column you wanted.
+   *
+   * Now it puts the choice in the URL as well as scrolling. ⚠️ The form does not read that
+   * parameter **yet** — `CategoryForm` is G-6b, and it will. Until then the button is at least
+   * no longer lying about what it did: the scroll is real and the intent is recorded.
+   *
+   * `scroll: false` on the push because we do our own smooth scroll; letting Next also jump
+   * would fight it.
+   */
   const handleAddCategory = () => {
-    // TODO: In future, this could open a modal or scroll to form with column pre-selected
-    // For now, we'll scroll to the form at the top
+    router.push(`/admin/categories?column=${columnNumber}`, { scroll: false });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
-    <button
+    <Button
+      variant="outline"
       onClick={handleAddCategory}
-      className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors"
+      // `h-auto border-dashed` keeps the "empty slot" feel of the original without the
+      // hardcoded greys, and `w-full` matches the column width.
+      className="h-auto w-full border-dashed py-4"
     >
-      <span className="text-lg mr-2">+</span>
-      Add Category to Column {columnNumber}
-    </button>
+      <Plus className="size-4" aria-hidden="true" />
+      Add to column {columnNumber}
+    </Button>
   );
 }
 
@@ -469,55 +563,103 @@ function AddCategoryButton({ columnNumber }: AddCategoryButtonProps) {
  * Confirms category deletion with warning about domains
  */
 type DeleteConfirmationModalProps = {
-  categoryId: string;
+  /** The whole category, not just its id — the dialog needs `name` and `domainCount`. */
+  category: Category;
   isDeleting: boolean;
+  /** The server's message when a delete failed, shown inside the dialog. */
+  error: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 };
 
-function DeleteConfirmationModal({ categoryId, isDeleting, onConfirm, onCancel }: DeleteConfirmationModalProps) {
+function DeleteConfirmationModal({
+  category,
+  isDeleting,
+  error,
+  onConfirm,
+  onCancel,
+}: DeleteConfirmationModalProps) {
+  /**
+   * ⚠️ THE OLD DIALOG PROMISED SOMETHING THE API REFUSES.
+   *
+   * It read: *"Any domains in this category will need to be reassigned"* — implying the delete
+   * would go through and leave you to tidy up. In fact `DELETE /api/admin/categories/[id]`
+   * **blocks** it outright when the category holds domains, and returns a specific message
+   * naming the count.
+   *
+   * `domainCount` is already on the category, so we can say so BEFORE the attempt rather than
+   * after a failure — and disable the button, since pressing it could only ever fail.
+   */
+  const isBlocked = category.domainCount > 0;
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-mx mx-4">
-        <div className="flex items-center mb-4">
-          <span className="text-2xl mr-3">⚠️</span>
-          <h3 className="text-lg font-semibold text-gray-900">
-            Delete Category
-          </h3>
-        </div>
-        
-        <p className="text-gray-600 mb-6">
-          Are you sure you want to delete this category? This action cannot be undone. 
-          Any domains in this category will need to be reassigned.
-        </p>
-        
-        <div className="flex items-center justify-end space-x-3">
-          <button
-            onClick={onCancel}
-            disabled={isDeleting}
-            className={`
-              px-4 py-2 border border-gray-300 text-gray-700 rounded-lg transition-colors
-              ${isDeleting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}
-            `}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isDeleting}
-            className={`
-              px-4 py-2 rounded-lg font-medium transition-colors
-              ${isDeleting 
-                ? 'bg-gray-400 text-gray-700 cursor-not-allowed' 
-                : 'bg-red-600 text-white hover:bg-red-700'
-              }
-            `}
-          >
-            {isDeleting ? 'Deleting...' : 'Delete Category'}
-          </button>
-        </div>
-      </div>
-    </div>
+    /*
+      ⚠️ A real `AlertDialog`, replacing `fixed inset-0 bg-black bg-opacity-50`.
+      `bg-opacity-*` is Tailwind **v3** and was removed in v4 — which this project uses — so
+      the unknown utility was dropped and only `bg-black` applied: the "translucent" overlay
+      **blacked out the whole page**. This was the second instance of the same bug; the first
+      was fixed in `DomainsTable` in G-3b. (The old markup also carried `w-mx`, which is not a
+      real Tailwind class at all.)
+    */
+    <AlertDialog open onOpenChange={(open) => !open && onCancel()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {isBlocked ? `"${category.name}" still has domains` : `Delete "${category.name}"?`}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {isBlocked ? (
+              <>
+                This category holds{' '}
+                <strong className="text-foreground">
+                  {category.domainCount} domain{category.domainCount === 1 ? '' : 's'}
+                </strong>
+                , so it cannot be deleted yet. Move those domains to another category first —
+                Domains → edit → Category.
+              </>
+            ) : (
+              <>
+                This category has no domains, so nothing else is affected. This cannot be
+                undone.
+              </>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        {/*
+          The server's own message, shown verbatim. The old code replaced it with
+          `alert('Failed to delete category. Please try again.')` — advice that is not just
+          unhelpful but wrong, since a retry fails identically every time.
+        */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertTriangle className="size-4" aria-hidden="true" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>
+            {isBlocked ? 'Close' : 'Cancel'}
+          </AlertDialogCancel>
+          {!isBlocked && (
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDeleting}
+              // `preventDefault()` keeps the dialog open so a failure can be reported here —
+              // Radix would otherwise close it on click. Same pattern as G-3b.
+              onClick={(event) => {
+                event.preventDefault();
+                onConfirm();
+              }}
+            >
+              {isDeleting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+              {isDeleting ? 'Deleting…' : 'Delete category'}
+            </AlertDialogAction>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -533,51 +675,40 @@ type EditCategoryModalProps = {
 
 function EditCategoryModal({ category, onSuccess, onCancel }: EditCategoryModalProps) {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        
-        {/* Modal Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900">
-                Edit Category
-              </h3>
-              <p className="text-sm text-gray-600 mt-1">
-                Update category information and settings
-              </p>
-            </div>
-            
-            {/* Close Button */}
-            <button
-              onClick={onCancel}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Close"
-            >
-              <span className="text-xl text-gray-400">×</span>
-            </button>
-          </div>
-        </div>
+    /*
+      ⚠️ THE SECOND `bg-opacity-50` OVERLAY — same dead-class bug as the delete dialog above,
+      so this one blacked out the page too.
 
-        {/* Modal Content */}
-        <div className="px-6 py-6">
-          <CategoryForm
-            category={{
-              id: category.id,
-              name: category.name,
-              slug: category.slug,
-              icon: category.icon,
-              description: category.description,
-              columnPosition: category.columnPosition,
-              isActive: category.isActive
-            }}
-            onSuccess={onSuccess}
-            onCancel={onCancel}
-          />
-        </div>
-        
-      </div>
-    </div>
+      A real `Dialog` also supplies what the hand-rolled version lacked: Escape to close, focus
+      trapped inside, focus returned to the trigger, `aria-modal` and labelling, and body
+      scroll lock. The hand-rolled close button was a bare `×` character, which a screen reader
+      announces as "multiplication sign"; `DialogContent` brings a labelled one.
+    */
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit category</DialogTitle>
+          <DialogDescription>
+            {/* Naming it confirms which card you opened. */}
+            Update the settings for &ldquo;{category.name}&rdquo;.
+          </DialogDescription>
+        </DialogHeader>
+
+        <CategoryForm
+          category={{
+            id: category.id,
+            name: category.name,
+            slug: category.slug,
+            icon: category.icon,
+            description: category.description,
+            columnPosition: category.columnPosition,
+            isActive: category.isActive
+          }}
+          onSuccess={onSuccess}
+          onCancel={onCancel}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -606,28 +737,3 @@ function groupCategoriesByColumn(categories: Category[]) {
   return grouped;
 }
 
-/**
- * Handle category deletion
- * Manages loading state during deletion process
- */
-async function handleDeleteCategory(categoryId: string, setIsDeleting: (loading: boolean) => void) {
-  try {
-    setIsDeleting(true);
-    
-    const response = await fetch(`/api/admin/categories/${categoryId}`, {
-      method: 'DELETE'
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to delete category');
-    }
-    
-    // Success - refresh page or update state
-    window.location.reload();
-    
-  } catch (error) {
-    console.error('Error deleting category:', error);
-    alert('Failed to delete category. Please try again.');
-    setIsDeleting(false);
-  }
-}
