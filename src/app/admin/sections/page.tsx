@@ -1,7 +1,12 @@
 // src/app/admin/sections/page.tsx
 
 import { Suspense } from 'react';
+import { CircleCheck, FileText, LayoutPanelTop } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
+import { StatsCard } from '@/components/admin/dashboard/StatsCard';
 import { SectionsManager } from '@/components/admin/sections/SectionsManager';
 
 /**
@@ -103,95 +108,74 @@ export default async function SectionsManagementPage() {
   const { domains, stats } = await getSectionablePages();
 
   return (
-    <div className="space-y-6">
-      
-      {/* Page Header */}
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-          🎯 Section Layout Management
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Configure how child pages are organized into 3-column sections on section-based pages.
-        </p>
-      </div>
+    <>
+      {/*
+        ⚠️ REBUILT IN G-6c. Another shell no earlier phase had touched: a hand-rolled
+        `text-3xl text-gray-900` title over a `border-gray-200` rule, and `bg-white` stat
+        cards — light-only, straight onto #21's dark theme.
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        The local `StatsCard` in this file was the **fourth** copy in the codebase (after the
+        dashboard's, `tables/[id]`'s and `tables/`'s), each drawing its own white panel and
+        taking an emoji string as its icon. All four are now the shared component.
+      */}
+      <AdminPageHeader
+        title="Section layout"
+        description={`Organise child pages into 3-column sections. ${stats.configuredPages} of ${stats.totalSectionablePages} eligible pages are configured.`}
+      />
+
+      {/*
+        ⚠️ Four tiles became three. "Total Domains" counted every domain in the system, which
+        says nothing about section layout — the number you actually want is how many pages can
+        have sections and how many you have done. "Configured" now carries the ratio in its
+        description instead of needing a tile of its own alongside the total.
+      */}
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatsCard
-          title="Total Domains"
-          value={stats.totalDomains}
-          icon="🌐"
-          description="Domains in system"
-        />
-        <StatsCard
-          title="Section-Based Pages"
+          title="Eligible pages"
           value={stats.totalSectionablePages}
-          icon="📋"
-          description="Pages that can have sections"
+          icon={LayoutPanelTop}
+          description="Section-based pages"
         />
         <StatsCard
-          title="Configured Pages"
+          title="Configured"
           value={stats.configuredPages}
-          icon="✅"
-          description="Pages with sections setup"
+          icon={CircleCheck}
+          description={`${stats.totalSectionablePages - stats.configuredPages} still unconfigured`}
         />
         <StatsCard
-          title="Total Child Pages"
+          title="Child pages"
           value={stats.totalChildPages}
-          icon="📄"
-          description="Pages available for organization"
+          icon={FileText}
+          description="Available to organise"
         />
       </div>
 
-      {/* Main Sections Management Interface */}
       <Suspense fallback={<SectionsManagerSkeleton />}>
         <SectionsManager domains={domains} />
       </Suspense>
-
-    </div>
+    </>
   );
 }
 
-/**
- * Statistics Card Component
- * Shows key metrics about the sections system
- */
-type StatsCardProps = {
-  title: string;
-  value: number;
-  icon: string;
-  description: string;
-};
-
-function StatsCard({ title, value, icon, description }: StatsCardProps) {
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-center">
-        <div className="text-2xl mr-3">{icon}</div>
-        <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          <p className="text-xs text-gray-500">{description}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Loading skeleton for the sections manager
  */
 function SectionsManagerSkeleton() {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
-      <div className="animate-pulse">
-        <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="h-12 bg-gray-200 rounded"></div>
-          <div className="h-12 bg-gray-200 rounded"></div>
-        </div>
-        <div className="h-64 bg-gray-200 rounded mt-6"></div>
+    /*
+      shadcn `Skeleton`, replacing hand-rolled `bg-gray-200` blocks in an `animate-pulse`
+      wrapper — the fourth such skeleton in the admin. It carries `bg-accent` and its own
+      pulse, so it follows the theme instead of making the loading state the brightest thing
+      on a dark page.
+    */
+    <Card className="p-6">
+      <Skeleton className="mb-4 h-6 w-1/4" />
+      <div className="grid grid-cols-2 gap-4">
+        <Skeleton className="h-12" />
+        <Skeleton className="h-12" />
       </div>
-    </div>
+      <Skeleton className="mt-6 h-64" />
+    </Card>
   );
 }

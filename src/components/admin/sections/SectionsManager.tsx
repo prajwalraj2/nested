@@ -3,6 +3,8 @@
 'use client';
 
 import { useState } from 'react';
+import { LayoutPanelTop } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { DomainPageSelector } from './DomainPageSelector';
 import { SectionEditor } from './SectionEditor';
 
@@ -115,35 +117,27 @@ export function SectionsManager({ domains }: SectionsManagerProps) {
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200">
-      
-      {/* Header */}
-      <div className="border-b border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 flex items-center">
-          🎯 Section Configuration
-        </h2>
-        <p className="text-sm text-gray-600 mt-1">
-          Select a section-based page and configure how its child pages are organized into sections.
-        </p>
-      </div>
+    /*
+      ⚠️ `bg-white rounded-lg border-gray-200` → `Card`. Same white-sheet-on-a-dark-page
+      problem as `TablesManager` (G-5a(ii)) and `CategoryList` (G-6a).
 
-      {/* Main Content */}
-      <div className="p-6">
-        
-        {/* Step 1: Domain and Page Selection */}
-        <div className="mb-8">
-          <DomainPageSelector
-            domains={domains}
-            selectedDomain={selectedDomain}
-            selectedPage={selectedPage}
-            onDomainChange={handleDomainChange}
-            onPageChange={handlePageChange}
-          />
-        </div>
+      ⚠️ The inner "🎯 Section Configuration" heading and its subtitle are gone: the page above
+      now renders `AdminPageHeader` with the same information, so the screen had **two titles
+      stacked**. Exactly the duplication found in `TablesManager` in G-5a(ii) — the third time a
+      shell and its child both claimed the page title.
+    */
+    <Card>
+      <CardContent className="space-y-6">
+        <DomainPageSelector
+          domains={domains}
+          selectedDomain={selectedDomain}
+          selectedPage={selectedPage}
+          onDomainChange={handleDomainChange}
+          onPageChange={handlePageChange}
+        />
 
-        {/* Step 2: Section Configuration Editor */}
-        {selectedPage && (
-          <div className="border-t border-gray-200 pt-8">
+        {selectedPage ? (
+          <div className="border-t pt-6">
             <SectionEditor
               page={selectedPage}
               domain={selectedDomain!}
@@ -152,23 +146,17 @@ export function SectionsManager({ domains }: SectionsManagerProps) {
               saveStatus={saveStatus}
             />
           </div>
-        )}
-
-        {/* Empty State */}
-        {!selectedPage && (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">🎯</div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              Select a Page to Configure
-            </h3>
-            <p className="text-gray-600">
-              Choose a domain and section-based page above to start organizing its child pages into sections.
+        ) : (
+          <div className="flex flex-col items-center gap-2 border-t py-12 text-center">
+            <LayoutPanelTop className="text-muted-foreground size-8" aria-hidden="true" />
+            <p className="font-medium">Select a page to configure</p>
+            <p className="text-muted-foreground max-w-md text-sm">
+              Choose a domain and one of its section-based pages above to start organising its
+              child pages into columns.
             </p>
           </div>
         )}
-
-      </div>
-
-    </div>
+      </CardContent>
+    </Card>
   );
 }
