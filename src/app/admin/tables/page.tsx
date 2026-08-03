@@ -3,6 +3,13 @@
 import { Suspense } from 'react';
 import { prisma } from '@/lib/prisma';
 import { TablesManager } from '@/components/admin/tables/TablesManager';
+import Link from 'next/link';
+import { Globe, Plus, Rows3, Table2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
+import { StatsCard } from '@/components/admin/dashboard/StatsCard';
+import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { TableStats } from '@/types/table';
 
 /**
@@ -215,104 +222,99 @@ export default async function TablesManagementPage() {
   const { tables, domains, stats } = await getTablesData();
 
   return (
-    <div className="space-y-6">
-      
-      {/* Page Header */}
-      <div className="border-b border-gray-200 pb-4">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-          📊 Table Management
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Create, manage, and configure dynamic data tables for your domains.
-        </p>
-      </div>
+    <>
+      {/*
+        ⚠️ REBUILT IN G-5a — this shell had never been touched by an earlier phase, so it
+        painted a `text-gray-900` heading and `bg-white` stat cards straight onto the dark
+        theme from #21. Same story as `[id]/page.tsx` in G-5b.
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        `AdminPageHeader` (G-2) replaces a hand-rolled `text-3xl` title and `border-b` rule,
+        and gives the "New table" action a home — previously the only way to create one was a
+        button buried inside `TablesManager`.
+      */}
+      <AdminPageHeader
+        title="Tables"
+        description={`${stats.totalTables} tables holding ${stats.totalRows.toLocaleString()} rows.`}
+        actions={
+          <Button size="sm" asChild>
+            <Link href="/admin/tables/new">
+              <Plus className="size-4" aria-hidden="true" />
+              New table
+            </Link>
+          </Button>
+        }
+      />
+
+      {/*
+        The shared `StatsCard` from G-2, replacing a local copy in this file that drew its own
+        `bg-white` panel and took an emoji string as its icon.
+
+        ⚠️ "Recent Updates" was dropped. It rendered `stats.recentActivity.length`, which is
+        `tablesWithCounts.slice(0, 5).length` — i.e. **always 5** for any project with five or
+        more tables. A metric that cannot change is not a metric. The recent-activity list
+        itself is still shown by `TablesManager`, where the entries are actually useful.
+      */}
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatsCard
-          title="Total Tables"
+          title="Tables"
           value={stats.totalTables}
-          icon="📊"
+          icon={Table2}
           description="Data tables created"
         />
         <StatsCard
-          title="Total Rows"
-          value={stats.totalRows.toLocaleString()}
-          icon="📄"
-          description="Rows across all tables"
+          title="Rows"
+          value={stats.totalRows}
+          icon={Rows3}
+          description="Across all tables"
         />
         <StatsCard
-          title="Active Domains"
+          title="Domains"
           value={stats.totalDomains}
-          icon="🌐"
-          description="Domains with tables"
-        />
-        <StatsCard
-          title="Recent Updates"
-          value={stats.recentActivity.length}
-          icon="🔄"
-          description="Tables updated recently"
+          icon={Globe}
+          description="Domains holding tables"
         />
       </div>
 
-      {/* Main Tables Management Interface */}
       <Suspense fallback={<TablesManagerSkeleton />}>
-        <TablesManager 
-          tables={tables} 
-          domains={domains} 
+        <TablesManager
+          tables={tables}
+          domains={domains}
           stats={stats}
         />
       </Suspense>
-
-    </div>
+    </>
   );
 }
 
-/**
- * Statistics Card Component
- * Shows key metrics about the table system
- */
-type StatsCardProps = {
-  title: string;
-  value: string | number;
-  icon: string;
-  description: string;
-};
-
-function StatsCard({ title, value, icon, description }: StatsCardProps) {
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-center">
-        <div className="text-2xl mr-3">{icon}</div>
-        <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          <p className="text-xs text-gray-500">{description}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Loading skeleton for the tables manager
  */
 function TablesManagerSkeleton() {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
-      <div className="animate-pulse">
-        <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-          <div className="h-12 bg-gray-200 rounded"></div>
-          <div className="h-12 bg-gray-200 rounded"></div>
-          <div className="h-12 bg-gray-200 rounded"></div>
-        </div>
-        <div className="space-y-3">
-          {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="h-16 bg-gray-200 rounded"></div>
-          ))}
-        </div>
+    /*
+      shadcn's `Skeleton` replaces hand-rolled `bg-gray-200` blocks inside an
+      `animate-pulse` wrapper. It carries `bg-accent` and its own pulse, so each bar follows
+      the theme instead of staying pale grey on a dark page — the previous version made the
+      loading state the brightest thing on screen in dark mode.
+    */
+    <Card className="p-6">
+      <Skeleton className="mb-4 h-6 w-1/4" />
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Skeleton className="h-12" />
+        <Skeleton className="h-12" />
+        <Skeleton className="h-12" />
       </div>
-    </div>
+      <div className="space-y-3">
+        {/*
+          Keys are the numbers themselves rather than the array index. Both are stable for a
+          fixed-length placeholder list, but `key={i}` on a mapped literal invites the habit
+          of index keys in lists that DO reorder.
+        */}
+        {[1, 2, 3, 4, 5].map((row) => (
+          <Skeleton key={row} className="h-16" />
+        ))}
+      </div>
+    </Card>
   );
 }

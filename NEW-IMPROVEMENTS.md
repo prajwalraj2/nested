@@ -5451,7 +5451,12 @@ cases, so a regression is traceable to one screen.
 | **G-4b** ✅ | **Pages — shell + `PagesManager` chrome** | **DONE 1 Aug.** Colours **12 + 26 → 0**; no new installs. Removed a **`Roboto` import that was never referenced**. `confirm()`/`alert()` → an `AlertDialog` that **states the descendant count** the API actually deletes (#22.6). Gradient banner gone; the "Understanding Domain Types" panel is now a closed `Collapsible` with its content kept verbatim. Details below. |
 | **G-4c** ✅ | **Pages — `PageTree` + `DomainSelector`** | **DONE 1 Aug.** Colours **51 + 43 → 0**, zero new installs. The tree printed **150 redundant labels** per 50-page domain and dropped a **Parent column that repeated one constant string 49 times**; rows went from three lines to one. Fixed a **keyboard trap** — `opacity-0` hover-only actions stay in the tab order, so a 50-page tree had 200 invisible tab stops. `DomainSelector` became a searchable `Popover`+`Command`. Details below. |
 | **G-4d** ✅ | **Pages — `PageForm`** | **DONE 1 Aug.** Colours **59 → 0**; `/admin/pages` fully rebuilt (**191 → 0** across 5 files, **zero new installs** for all of G-4). Fixed two real bugs: **"Default (`__main__` page)" detached the page from `__main__` when editing** (POST compensates, PUT does not), and the parent list's `'  '.repeat(depth)` indentation **never rendered** because HTML collapses whitespace. Six radio cards → one `Select`, which also fixed **invisible keyboard focus**. Details below. |
-| **G-5** | **Tables list + editor** | Biggest. **`#22.2(b)` row editing and `#22.2(c)` schema editing land here**, plus tables **pagination** (the residual 1.73 MB from #22.1). |
+| **G-5a(i)** ✅ | **Tables list — the page shell** | **DONE 3 Aug.** `app/admin/tables/page.tsx` colours **15 → 0**. `AdminPageHeader` + shared `StatsCard`; removed a local `StatsCard` copy and a hand-rolled loading skeleton. Dropped a "Recent Updates" stat that was **always 5**. |
+| **G-5a(ii)** | **Tables list — `TablesManager`** | 524 lines / 25 colours. The actual list UI (search, domain filter, list/grid toggle, `TableCard`, `DomainCard`, `ActivityItem`) — and where the dark-mode problem on this screen lives (`bg-white` at line 121). |
+| **G-5a(iii)** | **Tables list — server-side pagination** | The residual payload from #22.1. ⚠️ Needs URL-driven filters and a reworked query, because the stats must aggregate over **all** tables while the list is paginated. Client-side pagination would shrink the DOM but **not** the payload, so it does not close this item. |
+| **G-5b** ✅ | **Tables — editor shell + wire up schema & settings** | `app/admin/tables/[id]/page.tsx` (202 / 18) + `TableEditor.tsx` (504 / 31). ⚠️ **`#22.2(c)` is mostly a WIRING job** — see the finding below. |
+| **G-5c** ✅ | **Tables — row editing (`#22.2(b)`)** | The data tab currently renders the **public read-only** `DataTable`. `PUT /api/admin/tables/[id]/data` already accepts `{ data: { rows }, operation: 'replace' \| 'append' }`. |
+| **G-5d** | **Tables — the creation flow** | `new/page.tsx` (109 / 3) + `TableCreationWizard.tsx` (365 / 15) + `TablePreview.tsx` (429 / **53**) + `CSVUploadInterface.tsx` (550 / 44) + `DomainPageSelector.tsx` (378 / 32). ⚠️ `DomainPageSelector` is **also rendered by `SectionsManager`**, so changes here hit G-6's screen too. |
 | **G-6** | **Categories + Section Layout** | |
 | **G-7** | **Rich Text list + editor** | |
 | **G-8** | **Users** | Gains the "Add New Admin" button removed from the nav in G-1. |
@@ -6201,6 +6206,436 @@ app-wide) plus `admin/categories/page.tsx` and `CategoryForm.tsx`, both of which
 2. Open the parent dropdown on **App Development** (116 pages) — entries should be visibly
    indented by depth.
 3. The page-count badge should now match the tree's count.
+
+#### Phase G-5 — Tables: findings before the rebuild (audited 1 Aug 2026)
+
+**10 files, 3,872 lines, 253 hardcoded colours** — more than double the Pages screen, and the
+largest remaining area of the admin.
+
+The three **route** files (`page.tsx`, `new/page.tsx`, `[id]/page.tsx`) have **zero** shadcn
+imports. The seven components are hybrids — partly modernised by #22.1/#22.2/#22.5, but still
+carrying 217 of the 253 colours between them.
+
+##### ⚠️⚠️ THREE OF THE EDITOR'S FOUR TABS DO NOTHING
+
+`TableEditor` presents **Data · Schema · Import · Settings**. Only one of them works.
+
+| Tab | What it actually does |
+| --- | --------------------- |
+| **Data** | Renders `DataTable` — the **public, read-only** table component. There is no way to edit a cell, add a row or delete one. This is `#22.2(b)`. |
+| **Schema** | A **read-only list** of columns with their type and flags. Nothing is editable. |
+| **Import** | ✅ Works — CSV replace/append, delivered in `#22.2(a)`. |
+| **Settings** | A literal placeholder: `<h3>Settings Editor Coming Soon</h3>`. |
+
+##### ⚠️ AND THE MISSING PIECES LARGELY ALREADY EXIST
+
+This is the same shape as the publish button in G-3b — **built, working, and never wired up**:
+
+- **`TableSchemaEditor.tsx` is 493 lines of fully-built schema editing** — add/remove/reorder
+  columns, set type, required, sortable, filterable. It is rendered **only by
+  `TableCreationWizard`**. The edit screen never imports it.
+- **`PUT /api/admin/tables/[id]` already accepts and validates `schema`**
+  (`if (body.schema !== undefined)` → checks `columns` is a non-empty array → writes it), and
+  **already accepts `settings`**. It also invalidates the table cache afterwards (#18).
+- **`PUT /api/admin/tables/[id]/data` already accepts** `{ data: { rows }, operation }` with
+  `replace` and `append` — the endpoint row editing would post to.
+
+So `#22.2(c)` (schema) and the Settings tab are **wiring, not construction**. `#22.2(b)` (rows)
+needs a real editing UI, but not a new endpoint.
+
+##### ⚠️⚠️ G-5b(i) DONE — 1 Aug 2026: the schema editor corrupted data, and had to be fixed first
+
+The caveat above ("does anything reconcile existing rows with a changed schema?") was checked
+before wiring, and the answer was worse than expected. **Two reproduced data-corruption bugs.**
+
+**Rows are keyed by column ID, not name.** `TableRow = { id: string; [columnId: string]: unknown }`
+— verified against a real table: **4 of 4 row keys matched column ids, 0 matched names**. So
+*renaming* a column is safe. Everything else was not.
+
+###### Bug 1 — a new column resurrects a deleted column's data
+
+`TableSchemaEditor:79` minted ids from the array **length**:
+
+```js
+newColumn.id = `col_${currentSchema.columns.length + 1}`;
+```
+
+`removeColumn` correctly leaves the other ids alone, and deliberately does not touch the rows
+— so the removed column's values stay in every row. The next add then reuses the freed number.
+Reproduced exactly:
+
+```
+start        : col_1, col_2, col_3, col_4
+remove col_4 : col_1, col_2, col_3      <- every row still holds col_4 = "secret note"
+add a column : col_1, col_2, col_3, col_4
+-> the "new, empty" column IS col_4, so it renders the DELETED column's data in all 11 rows
+```
+
+###### Bug 2 — removing from the middle produces duplicate ids
+
+```
+remove col_2 then add -> col_1, col_3, col_4, col_4   | duplicate ids? YES
+```
+
+###### Bug 3 — templates silently remap every column onto existing data
+
+`applyTemplate` → `createTableSchema` → `generateColumnId(index)` re-ids **every** column as
+`col_1 … col_N` (table-utils.ts:164-169). Apply the "Courses" template to a 4-column tools
+table and `"Figma"` starts rendering under **"Course Name"**, `"figma.com"` under
+**"Instructor"** — the values are unchanged, the meanings are not.
+
+###### Why none of this has bitten yet
+
+**`TableSchemaEditor` is only reachable from the creation wizard, where no rows exist.**
+Wiring it into the table editor — which is exactly what `#22.2(c)` asks for — is what would
+have turned all three into live corruption of real content. Hence: fixed **before** the
+wiring, in its own commit, one file.
+
+###### The fix (user's call: non-destructive)
+
+Offered three options; the user chose **"leave orphaned data, just stop it resurfacing"** over
+pruning row keys on save. Nothing is ever deleted, so a mistaken column removal stays
+recoverable by re-adding a column with that id. The cost is that dead keys remain in the JSON,
+adding to the payload #22.1 was trimming.
+
+- `nextColumnId(columns, reserved)` — module-level and **pure**, so it needs no `useCallback`
+  and cannot go stale in a closure. It counts up from 1 and skips anything in use, where "in
+  use" spans the live columns **and every key present in the existing rows**
+  (`reservedColumnIds`). Verified: `remove col_4 → add` now yields **`col_5`**, and
+  `remove col_2 → add` yields `col_1, col_3, col_4, col_5` with **no duplicates**. Gap reuse
+  still works on a table with no rows.
+- `showTemplates` — defaults to `true` so the creation wizard is unchanged; the table editor
+  will pass `false`.
+
+⚠️ Both new props are **optional with safe defaults**, so `TableCreationWizard` needed no
+change at all and its behaviour is byte-identical.
+
+##### ✅ G-5b(ii) DONE — 1 Aug 2026: `#22.2(c)` — schema editing is wired up
+
+**Both halves were already finished; nothing joined them.** The same shape as the publish
+button in G-3b.
+
+- The Schema tab rendered a **static list** of columns — name, type, flags, nothing editable.
+  Once a table was created its structure was frozen. Directly part of the **#20** complaint.
+- `TableSchemaEditor` — 493 working lines — was reachable **only** from the creation wizard.
+- `PUT /api/admin/tables/[id]` **already** accepted and validated `schema` *and* `settings`,
+  and already invalidated the table cache from #18.
+
+The Schema tab now renders the real editor, with the two guards from G-5b(i):
+`reservedColumnIds` (every key present in every row) and `showTemplates={false}`.
+
+###### ⚠️ Four tabs became three
+
+The **Settings tab was removed, not left empty**. It held a raw `JSON.stringify(table.settings)`
+dump plus a dashed box reading *"Settings Editor Coming Soon"* — while the settings it promised
+(pagination, sorting, filtering) are all edited by `TableSchemaEditor`, in a "⚙️ Table Settings"
+card it renders itself.
+
+⚠️ Splitting that component across two tabs would mean **mounting it twice with two independent
+drafts** that could disagree about what to save — it owns schema and settings in a single piece
+of state. So the Schema tab holds both and its label says so. The dead `TabsContent` was deleted
+too, not just its trigger.
+
+###### Design notes
+
+- **Drafts are held in the caller.** `TableSchemaEditor` fires `onUpdate` on every keystroke and
+  has no Save of its own — in the wizard, the next step commits it. Here nothing else would, so
+  the save lives with the caller that owns the API call. `null` drafts mean "untouched", which
+  is what disables the Save button.
+- **Schema and settings go in ONE request**, each falling back to the stored value, so saving
+  after changing only one of them does not blank the other.
+- **"Discard changes" calls `router.refresh()`**, not just a state reset — that re-mounts the
+  editor from the stored schema, so discarding genuinely restores rather than leaving the editor
+  showing edits it no longer intends to save.
+- **A removal warning** lists the columns a save would drop and states plainly that their values
+  **stay in storage and are not deleted** — because "removed" normally implies "gone", and the
+  chosen policy is non-destructive.
+- ⚠️ The 400 body uses **`error`**, not `message` (`{"error":"Schema must have at least one
+  column"}`), unlike the domains/pages APIs. The handler reads `body?.message ?? body?.error`
+  so either shape surfaces.
+
+###### ⚠️ TEST CASES — verified against real data
+
+**A. Round-trip on a live table** (11 rows, 4 columns): renamed column 1 via `PUT` → read back
+`"Name (G5B TEST)"` → **rows still 11** → restored to `"Name"` → verified. Dev data unchanged.
+
+**B. API guard** — `PUT` with `{"columns": []}` → **400**,
+`{"error":"Schema must have at least one column"}`.
+
+**C. Tabs** — the rendered tablist is `grid-cols-3` with Data View / Schema &amp; Settings /
+Import/Export. "Settings Editor Coming Soon" and "⚙️ Settings" are gone from the page; the only
+remaining occurrences in source are comments quoting them. *(A `grid-cols-4` still on the page
+belongs to an unrelated stats grid in `[id]/page.tsx`.)*
+
+**D. Regression** — 8 admin routes 200, including `/admin/tables/[id]` and `/admin/tables/new`.
+
+**E. Still to check in a browser**: add a column, remove one, save, and confirm the Data tab
+reflects it; that "Discard changes" restores; and that the public table page updates (the PUT
+invalidates the #18 cache).
+
+###### ⚠️ PROCESS FAILURE — I broke the user's dev server, having just documented not to
+
+G-4d recorded the rule: `next build` and `next dev` share `.next`, so **check :3000 before
+building**. I then wrote the check and the build **in the same shell command**, so the check
+could not gate anything — it printed `:3000 -> 200` and the build ran regardless, killing the
+dev server. Recovered with `rm -rf .next` and a clean rebuild.
+
+**The rule is not "check first", it is "check in a SEPARATE command and read the result before
+building".** A guard that runs in the same breath as the thing it guards is not a guard.
+
+##### ✅ G-5b(iii) DONE — 1 Aug 2026: dark mode on the table editor
+
+Reported by the user with screenshots: *"in the dark — doesn't look that good."* Correct, and
+partly self-inflicted — **wiring `TableSchemaEditor` into the editor in G-5b(ii) put its
+light-only styling onto a dark card for the first time.** Until then it was only reachable from
+the creation wizard, which nobody had looked at in dark mode either.
+
+Two sources, both listed in the G-5 plan as G-5b scope and left unfinished:
+
+**1. `app/admin/tables/[id]/page.tsx` (18 colours) — never touched by any earlier phase.**
+It painted `bg-white` stat cards and `text-gray-900` headings straight onto the dark theme.
+Rebuilt on `AdminPageHeader` (G-2) + the shared `StatsCard`, replacing a hand-rolled `text-3xl`
+title, a `border-b` rule, a link styled as a button, a **second hand-maintained breadcrumb**
+sitting directly under the real one from `admin-nav.ts` (G-1), and a **local `StatsCard` copy**
+that drew its own white panel and took an emoji string as its icon.
+
+**2. `TableSchemaEditor` (17 colours).** The worst was `text-gray-900` on the
+"Define Your Table Structure" heading — **near-invisible on a dark card**. Also a
+`border-blue-200 bg-blue-50` summary panel and two raw `<select>`s carrying
+`border-gray-300 focus:ring-blue-500`. All converted to semantic tokens
+(`text-muted-foreground`, `bg-muted/50`, `border-input`, `focus:ring-ring`).
+
+**3. `TableEditor` passed `className="bg-white"` to `DataTable`** — forcing a white panel
+inside a themed card, so the rows sat in a glaring white block. Removed; the DataTable brings
+its own surface, and overriding it here could only ever hardcode one of the two themes.
+
+⚠️ **`StatsCard.value` was widened from `number` to `number | string`** so the "Last updated"
+date can use the shared component. `toLocaleString()` is now called **only for numbers** —
+it groups thousands (1198 → "1,198"), which is the point; on a string it is a no-op that would
+quietly imply formatting was happening.
+
+###### ⚠️ TEST CASES
+
+**A. Zero light-only classes on the rendered editor page** — `bg-white`, `text-gray-900`,
+`text-gray-600`, `text-gray-500`, `border-gray-200`, `border-gray-300`, `bg-blue-50`,
+`bg-gray-50`: **all absent**. (Before this step, `bg-white` was still present once.)
+
+**B. New shell renders** — "Schema, data and settings for …", "View live table",
+"Schema version", "Bumped on structure changes".
+
+**C. Regression** — `/admin`, `/admin/tables`, `/admin/tables/[id]`, `/admin/tables/new`,
+`/admin/pages`, `/admin/domains` all 200.
+
+**D. Still to check in a browser**: the screen in *both* themes — the point of the fix is that
+it now follows the theme rather than being restyled for dark.
+
+⚠️ **Still light-only, and deliberately out of scope here** (they belong to G-5a and G-5d):
+`TablesManager.tsx`, `app/admin/tables/page.tsx`, `CSVUploadInterface.tsx` and
+`TablePreview.tsx` all still carry `bg-white` / `divide-gray-200`.
+
+##### ✅ G-5c DONE — 1 Aug 2026: `#22.2(b)` — table rows are editable
+
+**The answer to "am I able to edit rows?" was no.** The Data tab rendered `DataTable` — the
+component the **public site** uses. It has no inputs, no `onCellChange`, no edit affordance of
+any kind, because it was never meant to have one. The only three write paths on the whole
+screen were: PUT schema/settings (new in G-5b), PUT data (CSV import), and DELETE the table.
+
+So correcting a single typo meant **Export CSV → edit the file → Import with "replace"**. That
+round-trip is the "Manage data doesn't work" complaint from **#20**, and it is what
+`TableRowsEditor.tsx` (new) removes.
+
+###### Design decisions, and why
+
+- **A dialog rather than edit-in-place.** Columns are typed — `link`, `rating`, `currency`,
+  `boolean`, `date`, `description` — and a contenteditable cell would flatten all of them to
+  free text, which is how bad data gets in. Each column now gets the input its type deserves
+  (`number` → numeric field with the right mobile keyboard, `boolean` → checkbox, `description`
+  → textarea, `link`/`image` → url). Inline editing for plain `text` columns is a sensible
+  later addition; typed columns should keep the dialog regardless.
+- **Edits are staged, then saved explicitly.** `PUT /api/admin/tables/[id]/data` replaces the
+  **whole** rows array — there is no per-row endpoint. Saving on blur would rewrite every row
+  on each edit, and a failure mid-edit would leave the stored table in a state nobody chose.
+- ⚠️ **`operation: 'replace'`, never `'append'`.** The editor returns the COMPLETE array with
+  edits applied — it is not a delta — so `append` would duplicate every existing row.
+- **`onSave` returns the error rather than setting state**, so a failed request keeps the
+  user's unsaved edits on screen. Losing them to a failed save would be worse than the failure.
+- **The delete-row dialog names the first column's value** ("CodeWithHarry"), because rows have
+  no title of their own and `row_1754…` identifies nothing.
+- **The admin grid renders values plainly** — a rating shows "4.5", not five stars. This view
+  exists to find the row you want to change; the public `DataTable` remains the presentation.
+  Links render as text so scanning for a row cannot navigate you away by accident.
+
+###### ⚠️ The spread order in `RowDialog` is load-bearing
+
+```js
+onSubmit({ ...(row ?? { id: generateRowId() }), ...values })
+```
+
+Starting from the **existing row** preserves keys the form never shows: `targetCountries`
+(per-row geo filtering, #15.3) and any orphaned values left by a removed column, which the
+non-destructive policy from G-5b(i) says to keep. Building the row from `values` alone would
+silently drop both — and `targetCountries` controls who sees the row on the public site.
+
+###### ⚠️ TEST CASES — verified against real data
+
+Run against the **user's own dev server**, read-only first, because `:3000` was up and
+building would have killed it again (see the process failure above — the rule held this time).
+
+**A. The grid renders** — "Filter rows", "Add row", "Save rows", "Row actions" all present on
+`/admin/tables/[id]`.
+
+**B. Round-trip on a live 15-row table** — `PUT` an edited `col_1` → read back
+`"G5C ROUND TRIP"` → **row count still 15**, confirming `replace` did not duplicate → restored
+to `"CodeWithHarry"` → verified. Dev data unchanged.
+
+**C. ⚠️ The hidden field survived.** Row 0 carries `targetCountries: "IN"` — a **non-default**
+value — and it was still `"IN"` after the edit and after the restore. That is the check that
+proves the spread order above; had it been wrong, this row would have silently become visible
+worldwide.
+
+**D. Still to check in a browser**: add a row, delete a row, the `required` validation, and
+that the public table page reflects a saved edit (the PUT calls `invalidatePages()`, #18).
+
+##### ✅ G-5c follow-up — the `targetCountries` system column (2 Aug 2026)
+
+###### ⚠️ A CLAIM OF MINE THAT WAS WRONG — recorded so it is not repeated
+
+I asserted that the public site was **rendering a "Target Countries" column** on ~21 tables,
+reasoning that `isHidden` is never read and `DataTable` maps `schema.columns` unfiltered. The
+user checked several live table pages across different domains and found no such column.
+
+**They were right.** The column *is* stripped — by explicit id comparison, on the public read
+path:
+
+```js
+getPublicSchema(schema)  // table-utils.ts:599 — filters col.id !== TARGET_COUNTRIES_COLUMN_ID
+getPublicRows(rows)      // table-utils.ts:612 — destructures the key off every row
+```
+
+both called by `TableService.getPublicTable`. Verified end-to-end afterwards: the public API
+returns `Channel Name | Channel Link | Speaking Language | Description` with **no**
+`targetCountries` key on any row.
+
+**The error was methodological, not factual-detail:** I grepped for one candidate mechanism
+(`isHidden`) plus filters inside `DataTable.tsx`, found none, and concluded *nothing* filtered
+it. Absence of the mechanism I happened to look for is not absence of a mechanism. The claim
+was about the user's live public site, which raises the bar — **trace the render path from the
+page down before asserting anything about production.**
+
+⚠️ Consequence for future refactors, now written into the code: **do not "tidy"
+`getPublicSchema`/`getPublicRows` into an `isHidden` check.** Those two id comparisons are the
+only thing keeping the column off the public site, and the flag they would read is unset on the
+older tables.
+
+###### Two real fixes that did come out of it
+
+The user deleted the Target Countries column from a table via the newly-wired schema editor and
+reported that the public table was unchanged — correct, because filtering reads
+`row.targetCountries`, not the schema. But it left a genuine trap, confirmed on their table:
+
+```
+schema : Channel Name | Channel Link | Speaking Language | Description   (column gone)
+rows   : 13, of which 1 still carries targetCountries: "IN"
+```
+
+That row stayed hidden from most of the world with **no UI anywhere to un-hide it** — invisible
+state, no control, and nothing on screen explaining why the row never appears publicly.
+
+**Fix 1 — `PUT /api/admin/tables/[id]` now calls `ensureTargetCountriesColumn`,** which `POST`
+has always done. The asymmetry was harmless while the schema editor lived only in the creation
+wizard; G-5b wiring it into the table editor is what exposed it. Saving an affected table's
+schema now **heals it automatically** — verified by PUTing the user's damaged schema back
+unchanged: the column returned with `isSystem`/`isHidden`/`defaultValue` intact, all 13 rows
+preserved, and the one `"IN"` row still `"IN"`.
+
+**Fix 2 — the schema editor no longer offers "Delete Column" on it.** Matched on the **id**, not
+the `isSystem` flag, because that flag is absent from the 4-in-25 older schemas that predate it.
+
+###### Reference — how `targetCountries` behaves (asked, so recorded)
+
+**Creation flow** (*Select Page → Define Schema → Upload Data → Preview*, POST only at the end):
+do **not** add the column by hand. It is appended server-side on POST. Name the CSV header
+`Target Countries` and the values are captured **regardless of mapping**, because
+`transformCsvToTableData` scans the raw headers itself for `targetcountries` (case-insensitive,
+whitespace stripped) outside the mapping loop.
+⚠️ It will therefore show as **unmapped** in the mapping step — cosmetic, not an error. Adding a
+column to "fix" it would create a duplicate alongside the system one.
+
+**CSV header matching** — `toLowerCase()` + all whitespace removed, compared to
+`targetcountries`. So `targetCountries`, `Target Countries`, `TARGET COUNTRIES` all work;
+`Target_Countries`, `Target-Countries`, `Countries` do **not**.
+
+**Values** — `ALL` (or blank) = everyone; otherwise comma-separated codes from
+`IN, US, GB, AU, CA`. ⚠️ Matching is exact, so a typo (`INDIA`, `IND`) matches no country and
+hides the row from **everyone**, silently.
+
+**Re-import into an existing table:**
+
+| CSV has the column? | Operation | Result |
+| ------------------- | --------- | ------ |
+| Yes | either | CSV values win (it auto-maps *and* the header scan catches it — same source, no conflict) |
+| No | **append** | Existing rows keep their targeting; new rows get `ALL`. Safe. |
+| No | **replace** | ⚠️ **Every row resets to `ALL`** — geo-targeted rows go worldwide, silently |
+
+**Practical rule: Export CSV → edit that file → re-import.** The export contains the column, so
+a replace round-trip preserves targeting. Hand-building a CSV and replacing is what loses it.
+
+⚠️ **Not done:** a warning when replacing from a CSV that lacks the column. That is the one
+remaining sharp edge here.
+
+##### ✅ G-5a(i) DONE — 3 Aug 2026 (tables list — page shell)
+
+**`app/admin/tables/page.tsx`: 15 colours → 0.** Never touched by an earlier phase, so it
+painted a `text-gray-900` heading and `bg-white` stat cards onto the dark theme — the same
+story as `[id]/page.tsx` in G-5b.
+
+- `AdminPageHeader` (G-2) replaces a hand-rolled `text-3xl` title and `border-b` rule, and
+  gives **"New table" a home in the header** — previously the only way to create one was a
+  button buried inside `TablesManager`.
+- The **third** local `StatsCard` copy in this codebase is gone (after the dashboard's and
+  `[id]/page.tsx`'s), replaced by the shared component.
+- The loading skeleton was hand-rolled `bg-gray-200` blocks in an `animate-pulse` wrapper →
+  shadcn `Skeleton`, which carries `bg-accent` and its own pulse. ⚠️ In dark mode the old
+  skeleton made the **loading state the brightest thing on screen**.
+
+⚠️ **A stat was dropped, not restyled.** "Recent Updates" rendered
+`stats.recentActivity.length`, and `recentActivity` is `tablesWithCounts.slice(0, 5)` — so the
+number was **always 5** for any project with five or more tables. A metric that cannot change
+is not a metric. The recent-activity *list* is still rendered by `TablesManager`, where the
+entries carry real information.
+
+###### ⚠️ The payload is NOT addressed by this step
+
+Measured after the rebuild: **2.48 MB** for `/admin/tables`. ⚠️ That figure is from the **dev
+server**, which adds substantial overhead, so it is **not** comparable to the 1.73 MB recorded
+from a production build in #22.1 — it is not evidence of a regression. What it does confirm is
+that the page still ships every table's metadata at once. Closing that is **G-5a(iii)**, and it
+needs server-side pagination, not a client-side slice.
+
+###### TEST CASES
+
+**A. New shell renders** — "N tables holding N rows", "New table" action, and the three stat
+tiles (Tables / Rows / Domains).
+**B. Old shell gone** — "Table Management", "Recent Updates", "Tables updated recently": all
+absent.
+**C. Colours** — 0 outside comments.
+**D. ⚠️ Verified against the user's own dev server, read-only**, because `:3000` was up —
+checked in a separate command first, per the rule from G-4d/G-5b.
+**E. Still to check in a browser**: dark mode on the header and stat tiles. ⚠️ The list itself
+will still look wrong until **G-5a(ii)** — `TablesManager` carries `bg-white` at line 121.
+
+##### Component map
+
+```
+/admin/tables        → TablesManager
+/admin/tables/[id]   → TableEditor → DataTable (public, read-only) + CSVUploadInterface
+/admin/tables/new    → TableCreationWizard → DomainPageSelector + TableSchemaEditor
+                                           + TablePreview + CSVUploadInterface
+```
+
+⚠️ **`DomainPageSelector` is shared with `SectionsManager`**, so G-5d's changes will land on
+the Section Layout screen too — which is G-6. Worth doing them in that knowledge rather than
+discovering it afterwards.
 
 ##### Other findings
 

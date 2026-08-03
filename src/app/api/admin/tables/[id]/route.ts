@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 // Needed because deleting a table can reset Page.contentType — see the call site.
 import { invalidatePages } from '@/lib/cache-invalidation';
+// Same helper POST has always used — see the note in the PUT handler for why PUT needs it too.
+import { ensureTargetCountriesColumn } from '@/lib/table-utils';
 import type { UpdateTableRequest } from '@/types/table';
 
 /**
@@ -134,7 +136,26 @@ export async function PUT(
           { status: 400 }
         );
       }
-      updateData.schema = body.schema;
+      /**
+       * ⚠️ RE-ADD THE SYSTEM `targetCountries` COLUMN IF THE INCOMING SCHEMA LOST IT.
+       * ======================================================================
+       * `POST /api/admin/tables` has always done this; `PUT` did not. That asymmetry did
+       * not matter while the schema editor was reachable only from the creation wizard, but
+       * G-5b wired it into the table editor — so an admin can now save a schema with the
+       * column removed, and nothing put it back.
+       *
+       * The consequence is a trap rather than an outage: geo-filtering keeps working, because
+       * `isRowVisibleToCountry` reads `row.targetCountries` and the row data survives. But the
+       * column vanishes from the admin UI, so a row that is hidden from most of the world
+       * becomes **impossible to un-hide** — invisible state with no control to change it, and
+       * nothing on screen explaining why the row never appears publicly.
+       *
+       * Re-adding here means saving the schema of an affected table heals it automatically.
+       *
+       * ⚠️ This is safe for the public site: `getPublicSchema()` / `getPublicRows()` strip the
+       * column and the row key by id before anything is served (table-utils.ts:599/612).
+       */
+      updateData.schema = ensureTargetCountriesColumn(body.schema);
     }
 
     if (body.data !== undefined) {

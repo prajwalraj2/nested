@@ -3,6 +3,10 @@
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { TableEditor } from '@/components/admin/tables/TableEditor';
+import { Columns3, ExternalLink, RefreshCw, Rows3, Tag } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
+import { StatsCard } from '@/components/admin/dashboard/StatsCard';
 // Finding #22.4 — a page's public URL needs its parent chain walked, not two slugs joined.
 import { buildPageUrl, toPageMap } from '@/lib/page-path';
 
@@ -93,79 +97,74 @@ export default async function TableEditPage({ params }: PageProps) {
   return (
     <div className="space-y-6">
       
-      {/* Page Header */}
-      <div className="border-b border-gray-200 pb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-              📊 {table.name}
-            </h1>
-            <p className="text-gray-600 mt-2">
-              Manage table schema, data, and settings for "{table.page.title}" page.
-            </p>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            {/*
-              Uses the server-resolved `publicUrl` (parent chain walked), and renders a
-              DISABLED button when the page has no reachable public URL instead of linking
-              somewhere broken — which the old two-slug version did for 110 of 668 tables.
-            */}
-            {table.publicUrl ? (
-              <a
-                href={table.publicUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                👁️ View Live Table
-              </a>
-            ) : (
-              <span
-                title="This page has no reachable public URL"
-                className="inline-flex items-center px-3 py-2 border border-gray-200 text-sm leading-4 font-medium rounded-md text-gray-400 bg-gray-50 cursor-not-allowed"
-              >
-                👁️ View Live Table
-              </span>
-            )}
-          </div>
-        </div>
-        
-        {/* Breadcrumb */}
-        <div className="flex items-center space-x-2 text-sm text-gray-500 mt-3">
-          <span>🌐 {table.page.domain.name}</span>
-          <span>/</span>
-          <span>📄 {table.page.title}</span>
-          <span>/</span>
-          <span className="text-gray-900 font-medium">📊 {table.name}</span>
-        </div>
-      </div>
+      {/*
+        ⚠️ REBUILT IN G-5b — this shell was never touched by an earlier phase, so it still
+        painted `bg-white` cards and `text-gray-900` headings straight onto the dark theme
+        from #21. It is the reason this screen looked wrong in dark mode.
 
-      {/* Table Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        `AdminPageHeader` (G-2) replaces a hand-rolled `text-3xl` title, a `border-b` rule
+        and a bespoke link-styled-as-a-button. The emoji breadcrumb below it is gone too:
+        the shell already renders a real breadcrumb from `admin-nav.ts` (G-1), so this was a
+        second, hand-maintained one directly beneath it.
+      */}
+      <AdminPageHeader
+        title={table.name}
+        description={`Schema, data and settings for the "${table.page.title}" page.`}
+        actions={
+          /*
+            The public URL is resolved on the server by walking the parent chain. When a page
+            has no reachable public URL the button is DISABLED rather than linking somewhere
+            broken — which the old two-slug version did for 110 of 668 tables.
+
+            `asChild` keeps it a real anchor so middle-click and "open in new tab" work;
+            the disabled case is a `Button` with no href, since a disabled anchor is not a
+            thing HTML supports.
+          */
+          table.publicUrl ? (
+            <Button variant="outline" size="sm" asChild>
+              <a href={table.publicUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="size-4" aria-hidden="true" />
+                View live table
+              </a>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled title="This page has no reachable public URL">
+              <ExternalLink className="size-4" aria-hidden="true" />
+              View live table
+            </Button>
+          )
+        }
+      />
+
+      {/*
+        Stats now use the shared `StatsCard` from G-2 rather than a local copy that drew its
+        own `bg-white` panel and took an emoji string as its icon. Same four numbers, one
+        component, and it themes.
+      */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatsCard
-          title="Total Rows"
+          title="Rows"
           value={(table.data as any)?.rows?.length || 0}
-          icon="📄"
-          description="Data rows in table"
+          icon={Rows3}
+          description="Data rows in this table"
         />
         <StatsCard
           title="Columns"
           value={(table.schema as any)?.columns?.length || 0}
-          icon="📋"
-          description="Table columns defined"
+          icon={Columns3}
+          description="Columns defined"
         />
         <StatsCard
-          title="Last Updated"
+          title="Last updated"
           value={table.updatedAt.toLocaleDateString()}
-          icon="🔄"
-          description="Last modification date"
+          icon={RefreshCw}
+          description="Last modification"
         />
         <StatsCard
-          title="Schema Version"
+          title="Schema version"
           value={(table.schema as any)?.version || 1}
-          icon="🏷️"
-          description="Current schema version"
+          icon={Tag}
+          description="Bumped on structure changes"
         />
       </div>
 
@@ -176,27 +175,3 @@ export default async function TableEditPage({ params }: PageProps) {
   );
 }
 
-/**
- * Statistics Card Component
- */
-type StatsCardProps = {
-  title: string;
-  value: string | number;
-  icon: string;
-  description: string;
-};
-
-function StatsCard({ title, value, icon, description }: StatsCardProps) {
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-center">
-        <div className="text-2xl mr-3">{icon}</div>
-        <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          <p className="text-xs text-gray-500">{description}</p>
-        </div>
-      </div>
-    </div>
-  );
-}

@@ -23,11 +23,13 @@ import {
   TableSettings, 
   ColumnType 
 } from '@/types/table';
-import { 
-  createDefaultColumn, 
-  createTableSchema, 
+import {
+  createDefaultColumn,
+  createTableSchema,
   DEFAULT_TABLE_SETTINGS,
-  COLUMN_TYPE_OPTIONS 
+  COLUMN_TYPE_OPTIONS,
+  // The system geo-targeting column's id — used to make it non-deletable below.
+  TARGET_COUNTRIES_COLUMN_ID
 } from '@/lib/table-utils';
 
 /**
@@ -51,12 +53,34 @@ type TableSchemaEditorProps = {
   schema?: TableSchema;
   settings?: TableSettings;
   onUpdate: (schema: TableSchema, settings: TableSettings) => void;
+  /**
+   * ⚠️ Column ids that must NEVER be handed to a new column, even though no current column
+   * uses them — pass every key present in the table's existing rows.
+   *
+   * Rows are keyed by column **id** (`TableRow = { id: string; [columnId: string]: unknown }`),
+   * and deleting a column deliberately leaves its values in the row JSON. Without this list a
+   * newly added column can be given an id that rows still carry, and it would render the
+   * deleted column's data. See `nextColumnId` below.
+   *
+   * Optional because the creation wizard has no rows yet; the table editor must pass it.
+   */
+  reservedColumnIds?: string[];
+  /**
+   * ⚠️ Whether the "Quick Start Templates" buttons are offered.
+   *
+   * Applying a template REPLACES the whole schema and re-ids every column from scratch,
+   * which is correct while creating a table and destructive once rows exist. Defaults to
+   * `true` for the creation wizard; the table editor must pass `false`.
+   */
+  showTemplates?: boolean;
 };
 
-export function TableSchemaEditor({ 
-  schema, 
-  settings, 
-  onUpdate 
+export function TableSchemaEditor({
+  schema,
+  settings,
+  onUpdate,
+  reservedColumnIds = [],
+  showTemplates = true,
 }: TableSchemaEditorProps) {
   
   // Initialize with existing data or defaults
@@ -76,17 +100,19 @@ export function TableSchemaEditor({
   // Column management
   const addColumn = useCallback(() => {
     const newColumn = createDefaultColumn(`Column ${currentSchema.columns.length + 1}`, 'text');
-    newColumn.id = `col_${currentSchema.columns.length + 1}`;
-    
+    // The id is computed by the module-level helper below rather than from the array
+    // length — see its comment for the corruption that caused.
+    newColumn.id = nextColumnId(currentSchema.columns, reservedColumnIds);
+
     const updatedSchema = {
       ...currentSchema,
       columns: [...currentSchema.columns, newColumn],
       updatedAt: new Date().toISOString(),
     };
-    
+
     setCurrentSchema(updatedSchema);
     onUpdate(updatedSchema, currentSettings);
-  }, [currentSchema, currentSettings, onUpdate]);
+  }, [currentSchema, currentSettings, onUpdate, reservedColumnIds]);
 
   const removeColumn = useCallback((columnId: string) => {
     if (currentSchema.columns.length <= 1) return; // Keep at least one column
@@ -171,15 +197,29 @@ export function TableSchemaEditor({
       
       {/* Step Description */}
       <div className="text-center">
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+        <h3 className="text-xl font-semibold mb-2">
           Define Your Table Structure
         </h3>
-        <p className="text-gray-600">
+        <p className="text-muted-foreground">
           Configure columns, data types, and table settings for your data table.
         </p>
       </div>
 
-      {/* Quick Templates */}
+      {/*
+        ⚠️ TEMPLATES ARE HIDDEN WHEN EDITING A TABLE THAT ALREADY HAS DATA.
+        ==========================================================================
+        `applyTemplate` calls `createTableSchema`, which re-ids EVERY column from scratch as
+        `col_1 … col_N` (`generateColumnId(index)` in table-utils.ts:164-169). Rows are keyed
+        by column id, so on a table with existing rows that silently remaps old values onto
+        new columns with entirely different meanings — apply the "Courses" template to a
+        4-column tools table and "Figma" starts rendering under "Course Name",
+        "figma.com" under "Instructor".
+
+        Harmless in the creation wizard, where there are no rows yet and replacing the whole
+        schema is the point. Destructive in the table editor, so that caller passes
+        `showTemplates={false}`.
+      */}
+      {showTemplates && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
@@ -197,7 +237,7 @@ export function TableSchemaEditor({
               <div className="text-lg">📚</div>
               <div>
                 <div className="font-medium">Course Table</div>
-                <div className="text-xs text-gray-500">Name, Instructor, Platform, Rating, Price</div>
+                <div className="text-xs text-muted-foreground">Name, Instructor, Platform, Rating, Price</div>
               </div>
             </Button>
             
@@ -209,7 +249,7 @@ export function TableSchemaEditor({
               <div className="text-lg">🛠️</div>
               <div>
                 <div className="font-medium">Tools Table</div>
-                <div className="text-xs text-gray-500">Name, Category, Description, Pricing</div>
+                <div className="text-xs text-muted-foreground">Name, Category, Description, Pricing</div>
               </div>
             </Button>
             
@@ -221,12 +261,13 @@ export function TableSchemaEditor({
               <div className="text-lg">👥</div>
               <div>
                 <div className="font-medium">Contacts Table</div>
-                <div className="text-xs text-gray-500">Name, Email, Phone, Company</div>
+                <div className="text-xs text-muted-foreground">Name, Email, Phone, Company</div>
               </div>
             </Button>
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Column Configuration */}
       <Card>
@@ -245,7 +286,23 @@ export function TableSchemaEditor({
                 key={column.id}
                 column={column}
                 index={index}
-                canDelete={currentSchema.columns.length > 1}
+                /*
+                  ⚠️ THE SYSTEM `targetCountries` COLUMN CANNOT BE DELETED.
+                  ====================================================================
+                  It is tagged `isSystem: true`, but nothing in the codebase ever read that
+                  flag — so until now the editor offered "Delete Column" on it like any
+                  other. Removing it does not break geo-filtering (that reads the row, not
+                  the schema) but it removes the only UI for editing per-row targeting,
+                  leaving rows hidden from most of the world with no control to un-hide them.
+
+                  Matched on the id rather than the flag, because the flag is absent from the
+                  4-in-25 older tables whose schemas predate it — `id` is the same check the
+                  public read path uses (`getPublicSchema`).
+                */
+                canDelete={
+                  currentSchema.columns.length > 1 &&
+                  column.id !== TARGET_COUNTRIES_COLUMN_ID
+                }
                 onUpdate={(updates) => updateColumn(column.id, updates)}
                 onDelete={() => removeColumn(column.id)}
               />
@@ -290,7 +347,7 @@ export function TableSchemaEditor({
                           pagination: { ...currentSettings.pagination, pageSize: parseInt(e.target.value) }
                         })
                       }
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full px-3 py-2 border border-input bg-background rounded-md focus:ring-2 focus:ring-ring focus:border-ring"
                     >
                       <option value={10}>10</option>
                       <option value={25}>25</option>
@@ -352,13 +409,13 @@ export function TableSchemaEditor({
       </Card>
 
       {/* Schema Summary */}
-      <Card className="border-blue-200 bg-blue-50">
+      <Card className="bg-muted/50">
         <CardContent className="pt-6">
           <div className="flex items-center space-x-3">
             <div className="text-2xl">📋</div>
             <div>
-              <h4 className="font-medium text-blue-900">Schema Summary</h4>
-              <p className="text-blue-700 text-sm mt-1">
+              <h4 className="font-medium">Schema Summary</h4>
+              <p className="text-muted-foreground text-sm mt-1">
                 {currentSchema.columns.length} columns configured •
                 Pagination: {currentSettings.pagination.enabled ? 'On' : 'Off'} •
                 Sorting: {currentSettings.sorting.enabled ? 'On' : 'Off'} •
@@ -386,7 +443,7 @@ type ColumnEditorProps = {
 
 function ColumnEditor({ column, index, canDelete, onUpdate, onDelete }: ColumnEditorProps) {
   return (
-    <div className="p-4 border border-gray-200 rounded-lg space-y-4">
+    <div className="p-4 border rounded-lg space-y-4">
       
       {/* Column Header */}
       <div className="flex items-center justify-between">
@@ -429,7 +486,7 @@ function ColumnEditor({ column, index, canDelete, onUpdate, onDelete }: ColumnEd
               id={`column-type-${column.id}`}
               value={column.type}
               onChange={(e) => onUpdate({ type: e.target.value as ColumnType })}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="mt-1 block w-full px-3 py-2 border border-input bg-background rounded-md focus:ring-2 focus:ring-ring focus:border-ring"
             >
               {COLUMN_TYPE_OPTIONS.map(option => (
                 <option key={option.value} value={option.value}>
@@ -437,7 +494,7 @@ function ColumnEditor({ column, index, canDelete, onUpdate, onDelete }: ColumnEd
                 </option>
               ))}
             </select>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {COLUMN_TYPE_OPTIONS.find(opt => opt.value === column.type)?.description}
             </p>
           </div>
@@ -490,4 +547,45 @@ function ColumnEditor({ column, index, canDelete, onUpdate, onDelete }: ColumnEd
       </div>
     </div>
   );
+}
+
+/**
+ * The next free column id.
+ *
+ * ⚠️ THIS REPLACES `col_${columns.length + 1}`, WHICH CORRUPTED DATA.
+ * ============================================================================
+ * Rows are keyed by column **id** — `TableRow = { id: string; [columnId: string]: unknown }`
+ * — and verified against a real table: 4 of 4 row keys matched column ids, 0 matched names.
+ * Deriving a new id from the array LENGTH therefore reuses a number as soon as any column is
+ * removed, while the removed column's values are still sitting in every row:
+ *
+ *     start        : col_1, col_2, col_3, col_4
+ *     remove col_4 : col_1, col_2, col_3       <- every row still holds col_4's value
+ *     add a column : col_1, col_2, col_3, col_4
+ *     -> the "new, empty" column IS col_4, so it immediately renders the DELETED
+ *        column's data in all 11 rows.
+ *
+ * Removing from the MIDDLE was worse — it produced duplicate ids outright:
+ *
+ *     remove col_2 then add -> col_1, col_3, col_4, col_4
+ *
+ * It went unnoticed because this editor was only ever reachable from the creation wizard,
+ * where no rows exist yet. Wiring it into the table editor (#22.2c) is exactly what would
+ * have turned it into live data corruption — which is why it is fixed before that wiring.
+ *
+ * ⚠️ `reserved` must carry every key present in the existing rows, not just the live column
+ * ids, so a new column can never land on an id some row still holds. Orphaned values are
+ * left untouched in the JSON — they become unreachable rather than resurfacing, which keeps
+ * a mistaken removal recoverable by re-adding a column with that id.
+ *
+ * Module-level and pure, so it needs no `useCallback` and cannot go stale in a closure.
+ */
+function nextColumnId(columns: TableColumn[], reserved: string[]): string {
+  const used = new Set<string>([...columns.map((col) => col.id), ...reserved]);
+
+  // Counts from 1 rather than `length + 1`, so a genuinely free gap left by an earlier
+  // deletion is reused. The loop is what makes "genuinely" true.
+  let n = 1;
+  while (used.has(`col_${n}`)) n += 1;
+  return `col_${n}`;
 }
