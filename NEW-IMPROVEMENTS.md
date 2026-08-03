@@ -5452,7 +5452,7 @@ cases, so a regression is traceable to one screen.
 | **G-4c** ✅ | **Pages — `PageTree` + `DomainSelector`** | **DONE 1 Aug.** Colours **51 + 43 → 0**, zero new installs. The tree printed **150 redundant labels** per 50-page domain and dropped a **Parent column that repeated one constant string 49 times**; rows went from three lines to one. Fixed a **keyboard trap** — `opacity-0` hover-only actions stay in the tab order, so a 50-page tree had 200 invisible tab stops. `DomainSelector` became a searchable `Popover`+`Command`. Details below. |
 | **G-4d** ✅ | **Pages — `PageForm`** | **DONE 1 Aug.** Colours **59 → 0**; `/admin/pages` fully rebuilt (**191 → 0** across 5 files, **zero new installs** for all of G-4). Fixed two real bugs: **"Default (`__main__` page)" detached the page from `__main__` when editing** (POST compensates, PUT does not), and the parent list's `'  '.repeat(depth)` indentation **never rendered** because HTML collapses whitespace. Six radio cards → one `Select`, which also fixed **invisible keyboard focus**. Details below. |
 | **G-5a(i)** ✅ | **Tables list — the page shell** | **DONE 3 Aug.** `app/admin/tables/page.tsx` colours **15 → 0**. `AdminPageHeader` + shared `StatsCard`; removed a local `StatsCard` copy and a hand-rolled loading skeleton. Dropped a "Recent Updates" stat that was **always 5**. |
-| **G-5a(ii)** | **Tables list — `TablesManager`** | 524 lines / 25 colours. The actual list UI (search, domain filter, list/grid toggle, `TableCard`, `DomainCard`, `ActivityItem`) — and where the dark-mode problem on this screen lives (`bg-white` at line 121). |
+| **G-5a(ii)** ✅ | **Tables list — `TablesManager`** | **DONE 3 Aug.** Colours **25 → 0**; the `bg-white` wrapper was the dark-mode problem on this screen. Removed a **duplicate header + second create button**. Added pagination: **1.73 MB → 675 KB**, of which rendered HTML fell ~1.2 MB → 136 KB. |
 | **G-5a(iii)** | **Tables list — server-side pagination** | The residual payload from #22.1. ⚠️ Needs URL-driven filters and a reworked query, because the stats must aggregate over **all** tables while the list is paginated. Client-side pagination would shrink the DOM but **not** the payload, so it does not close this item. |
 | **G-5b** ✅ | **Tables — editor shell + wire up schema & settings** | `app/admin/tables/[id]/page.tsx` (202 / 18) + `TableEditor.tsx` (504 / 31). ⚠️ **`#22.2(c)` is mostly a WIRING job** — see the finding below. |
 | **G-5c** ✅ | **Tables — row editing (`#22.2(b)`)** | The data tab currently renders the **public read-only** `DataTable`. `PUT /api/admin/tables/[id]/data` already accepts `{ data: { rows }, operation: 'replace' \| 'append' }`. |
@@ -6623,6 +6623,58 @@ absent.
 checked in a separate command first, per the rule from G-4d/G-5b.
 **E. Still to check in a browser**: dark mode on the header and stat tiles. ⚠️ The list itself
 will still look wrong until **G-5a(ii)** — `TablesManager` carries `bg-white` at line 121.
+
+##### ✅ G-5a(ii) DONE — 3 Aug 2026 (`TablesManager`)
+
+**25 colours → 0.** `/admin/tables` now themes correctly end to end.
+
+- ⚠️ **`bg-white rounded-lg border border-gray-200` on the outer wrapper** was the single line
+  responsible for this screen still glaring in dark mode after G-5a(i) — a white sheet under a
+  themed page.
+- ⚠️ **A DUPLICATE HEADER.** This component rendered its own "Tables Dashboard" heading,
+  subtitle *and* a "➕ Create Table" button. G-5a(i) added `AdminPageHeader` with a "New table"
+  action above it, so the screen had **two titles and two create buttons stacked**. Caught only
+  because the rebuild put them side by side — worth remembering when a page shell and its
+  child are rebuilt in separate steps.
+- A native `<select>` with `border-gray-300 focus:ring-blue-500` → shadcn `Select`, with
+  explicit `SelectValue` children so the label survives pre-hydration (the G-3c trap).
+- **The view toggle was a dropdown** labelled "📄 View" that had to be opened to flip a binary,
+  and showed its state only through an icon nobody reads as state. Two `aria-pressed` buttons.
+- ⚠️ **`key={index}` on the activity list** → keyed on timestamp + table name.
+- **`alert()` on a failed export** → an inline message on the card that failed (#22.6).
+- `DomainCard` made the whole row a link instead of a floated `text-blue-600` "Edit" anchor,
+  and stopped filtering the same array twice (once for the count, once for the list).
+
+###### ⚠️ Pagination — effect measured, not assumed
+
+All 652 tables rendered at once, each with its own dropdown menu. Now 24 per page. Measured on
+a **production** build of `/admin/tables`, total **1.73 MB → 675 KB**:
+
+| Part | Before | After |
+| ---- | ------ | ----- |
+| Rendered HTML | ~1.2 MB | **136 KB** (24 cards exist in the DOM, not 652) |
+| RSC flight data | 539 KB | **539 KB — unchanged** |
+
+⚠️ **This corrects a claim I made when planning the step.** I said client-side pagination
+"would shrink the DOM but **not** the payload". Measured, the total transfer fell by about a
+megabyte — so it *is* a real payload win. What is untouched is the **data** portion: search and
+filtering run in the browser, so the whole list still has to be sent. Those 539 KB are exactly
+what **G-5a(iii)** would remove by moving filtering and pagination into the query.
+
+⚠️ Page number is **clamped on render**, not corrected in an effect: search down to 3 results
+while on page 20 and a raw slice returns empty — a list that looks broken rather than filtered.
+An effect would flash that empty state for one frame before fixing itself.
+
+###### TEST CASES
+
+**A. Zero light-only classes on the rendered page** — `bg-white`, `text-gray-900/600/500`,
+`border-gray-200/300`, `hover:bg-gray-50`: all absent.
+**B. Duplicate chrome gone** — "Tables Dashboard" and "Create Table" both absent.
+**C. New controls present** — the three tabs with counts, "All domains", the search field.
+**D. Pagination active** — **24** `Actions for …` menus rendered, not 652.
+**E. Still to check in a browser**: dark mode; the list/grid toggle; that searching resets to
+page 1; that a search matching nothing shows "No tables found" *without* offering
+"Create a table"; and an export failure showing inline rather than as an alert.
 
 ##### Component map
 
