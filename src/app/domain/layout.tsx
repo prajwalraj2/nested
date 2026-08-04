@@ -5,6 +5,7 @@ import BreadcrumbDemo from "@/components/bread/bread"
 import { Separator } from "@/components/ui/separator"
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PageContextProvider } from "@/contexts/PageContextProvider";
+import { ClarityAnalytics } from "@/components/analytics/ClarityAnalytics";
 
 export default function DomainLayout({ children }: { children: ReactNode }) {
   return (
@@ -14,6 +15,35 @@ export default function DomainLayout({ children }: { children: ReactNode }) {
     // (header, sidebar, breadcrumb) from a SINGLE API call
     // ============================================
     <PageContextProvider>
+      {/*
+        Microsoft Clarity.
+        ======================================================================
+        ⚠️ MOUNTED HERE, NOT IN THE ROOT LAYOUT — and it is the ONLY collector of the four
+        that is. GA4, Vercel Web Analytics and Vercel Speed Insights all sit in
+        `src/app/layout.tsx`. The divergence is deliberate, so that nobody "tidies it up"
+        by moving this line up to join them.
+
+        WHY CLARITY IS DIFFERENT: it records the SCREEN, not just events. Mounted at the
+        root it would capture the admin panel — content being authored, tables being
+        edited, and the `/login` form. Clarity masks input values by default, but the
+        right answer is not to send it at all: there is no analytical value in watching
+        recordings of the one person who runs the site, and it is a privacy surface the
+        other three simply do not have.
+
+        WHAT THIS MOUNT POINT COSTS: the unknown-URL 404s from `src/app/not-found.tsx`
+        (e.g. `/foo`) are outside this layout, so Clarity does not see them. Acceptable —
+        `src/app/domain/not-found.tsx` IS inside it, and that is the 404 that matters here,
+        since renaming a slug 404s every page beneath it. GA covers both regardless.
+
+        ⚠️ PRODUCTION ONLY, for the same reason as GA and NOT for the same reason as the
+        Vercel pair. Clarity has ONE project with no environment filter, so a `npm run dev`
+        session or a PR preview would land in the same recordings list as real visitors.
+        Vercel separates environments server-side, which is why those two need no gate;
+        Clarity does not, so it gets one. `VERCEL_ENV` is undefined under plain
+        `npm run dev`, so localhost is excluded for free.
+      */}
+      {process.env.VERCEL_ENV === 'production' && <ClarityAnalytics />}
+
       <div className="flex flex-col min-h-screen">
         {/* Main content area with sidebar */}
         <div className="flex-1">
