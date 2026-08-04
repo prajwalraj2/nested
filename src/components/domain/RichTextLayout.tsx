@@ -1,5 +1,7 @@
 // components/domain/RichTextLayout.tsx
 
+import { PageHeading } from './PageHeading';
+
 type Domain = {
   id: string;
   name: string;
@@ -34,8 +36,7 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
-        <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-        <div className="border-b border-border mb-10 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+        <PageHeading title={page.title} spacing="loose" />
 
         {/*
           ⚠️ THIS CARD STAYS LIGHT IN DARK MODE, DELIBERATELY. DO NOT "FIX" IT TO A TOKEN.
