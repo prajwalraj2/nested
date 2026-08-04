@@ -113,7 +113,7 @@ export default function EditUserPage({ params }: PageParams) {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-6 max-w-2xl">
+      <div className="mx-auto w-full max-w-2xl">
         <Card>
           <CardContent className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin mr-2" />
@@ -126,7 +126,7 @@ export default function EditUserPage({ params }: PageParams) {
 
   if (error && !user) {
     return (
-      <div className="container mx-auto py-6 max-w-2xl">
+      <div className="mx-auto w-full max-w-2xl">
         <Link href="/admin/users">
           <Button variant="ghost" className="mb-4">
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -136,7 +136,7 @@ export default function EditUserPage({ params }: PageParams) {
         
         <Card>
           <CardHeader>
-            <CardTitle className="text-red-600">Error</CardTitle>
+            <CardTitle className="text-destructive">Error</CardTitle>
           </CardHeader>
           <CardContent>
             <p>{error}</p>
@@ -152,7 +152,7 @@ export default function EditUserPage({ params }: PageParams) {
   }
 
   return (
-    <div className="container mx-auto py-6 max-w-2xl">
+    <div className="mx-auto w-full max-w-2xl">
       {/* Header with back button */}
       <div className="mb-6">
         <Link href="/admin/users">
@@ -162,16 +162,16 @@ export default function EditUserPage({ params }: PageParams) {
           </Button>
         </Link>
         
-        <h1 className="text-2xl font-bold text-gray-900">Edit User</h1>
-        <p className="text-gray-600 mt-1">
+        <h1 className="text-2xl font-bold">Edit User</h1>
+        <p className="text-muted-foreground mt-1">
           Update user information and permissions
         </p>
       </div>
 
       {/* Error Alert */}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-800">{error}</p>
+        <div className="mb-6 rounded-lg border p-4">
+          <p className="text-destructive">{error}</p>
         </div>
       )}
 
