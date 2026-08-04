@@ -39,8 +39,17 @@ export function DataTableViewOptions<TData>({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          size="sm"
-          className="ml-auto hidden h-8 lg:flex bg-background border-border text-foreground hover:bg-accent"
+          // `size="default"` (36px), not `size="sm"` (32px). The search Input beside this
+          // uses `ui/input.tsx`'s default `h-9`, and 36px is this app's control height
+          // everywhere else — `ui/button.tsx`'s own default, ThemeToggle, and the Share
+          // button directly above this toolbar.
+          //
+          // The `h-8` removed from the className below was redundant anyway: `size="sm"`
+          // already sets `h-8`. It came from shadcn's data-table example, which puts `h-8`
+          // on the Input too — that example is consistent at 32px, but only its buttons were
+          // copied here. 32px was never a decision for this project.
+          size="default"
+          className="ml-auto hidden lg:flex bg-background border-border text-foreground hover:bg-accent"
         >
           <Settings2 /> View
         </Button>
