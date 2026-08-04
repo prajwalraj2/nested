@@ -4,6 +4,7 @@ import AppSidebar from "@/components/sidebar/app-sidebar"
 import BreadcrumbDemo from "@/components/bread/bread"
 import { Separator } from "@/components/ui/separator"
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ShareButton } from "@/components/domain/ShareButton";
 import { PageContextProvider } from "@/contexts/PageContextProvider";
 import { ClarityAnalytics } from "@/components/analytics/ClarityAnalytics";
 
@@ -125,7 +126,19 @@ export default function DomainLayout({ children }: { children: ReactNode }) {
                   and does not remount the provider or reset the sidebar's open/closed
                   state.
                 */}
-                <div className="ml-auto">
+                {/*
+                  `gap-2` so Share and the theme toggle do not touch. Both are 36px
+                  squares with matching borders, so they read as one control group rather
+                  than two unrelated buttons.
+
+                  ⚠️ Share is mounted HERE, once, rather than beside each page's <h1>.
+                  Five layout components render their own heading (`SectionBasedLayout`,
+                  `TableLayout`, `RichTextLayout`, `NarrativeLayout`,
+                  `SubcategorySelector`) — putting it there would be five copies to keep
+                  in step. See the block comment at the top of ShareButton.tsx.
+                */}
+                <div className="ml-auto flex items-center gap-2">
+                  {/* <ShareButton /> */}
                   <ThemeToggle />
                 </div>
               </div>

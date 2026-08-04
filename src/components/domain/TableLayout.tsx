@@ -5,6 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { DataTable } from '@/components/table/DataTable';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeading } from './PageHeading';
 // Synchronous, validated cookie reader — NOT the useUserCountry() hook. Same reasoning
 // as buildPageContextUrl in src/hooks/usePageContext.ts: the hook returns
 // DEFAULT_COUNTRY on first render and corrects itself in an effect, so a fetch built
@@ -110,8 +111,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
           {/* Header */}
-          <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-          <div className="border-b border-border mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+          <PageHeading title={page.title} />
 
           {/* Table skeleton */}
           <div className="rounded-lg border border-border overflow-hidden">
@@ -176,8 +176,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-          <div className="border-b border-border mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+          <PageHeading title={page.title} />
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -197,8 +196,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-          <div className="border-b border-border mb-6 mt-1" style={{ borderBottomWidth: '1px' }}></div>
+          <PageHeading title={page.title} />
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -218,8 +216,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
-        <h1 className="text-3xl font-bold text-foreground">{page.title}</h1>
-        <div className="border-b border-border mt-1 mb-15" style={{ borderBottomWidth: '1px' }}></div>
+        <PageHeading title={page.title} />
 
         {/* Professional DataTable from DataTable.tsx */}
         <DataTable
