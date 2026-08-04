@@ -233,8 +233,8 @@ export default function UserManager() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-          <p className="text-gray-600 mt-1">Manage admin users and their permissions</p>
+          <h1 className="text-2xl font-bold">User Management</h1>
+          <p className="text-muted-foreground mt-1">Manage admin users and their permissions</p>
         </div>
         
         <div className="flex space-x-3">
@@ -296,7 +296,7 @@ export default function UserManager() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-            <Users className="h-4 w-4 text-green-600" />
+            <Users className="text-muted-foreground h-4 w-4" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{users.filter(u => u.isActive).length}</div>
@@ -306,7 +306,7 @@ export default function UserManager() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Admin Users</CardTitle>
-            <Users className="h-4 w-4 text-blue-600" />
+            <Users className="text-muted-foreground h-4 w-4" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{users.filter(u => u.isAdmin).length}</div>

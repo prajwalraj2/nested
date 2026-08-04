@@ -122,7 +122,7 @@ export default function UserForm({
           <div className="space-y-2">
             <Label htmlFor="email">Email Address</Label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 id="email"
                 type="email"
@@ -133,7 +133,7 @@ export default function UserForm({
               />
             </div>
             {form.formState.errors.email && (
-              <p className="text-sm text-red-500">{form.formState.errors.email.message}</p>
+              <p className="text-destructive text-sm">{form.formState.errors.email.message}</p>
             )}
           </div>
 
@@ -141,7 +141,7 @@ export default function UserForm({
           <div className="space-y-2">
             <Label htmlFor="name">Full Name</Label>
             <div className="relative">
-              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 id="name"
                 type="text"
@@ -152,17 +152,17 @@ export default function UserForm({
               />
             </div>
             {form.formState.errors.name && (
-              <p className="text-sm text-red-500">{form.formState.errors.name.message}</p>
+              <p className="text-destructive text-sm">{form.formState.errors.name.message}</p>
             )}
           </div>
 
           {/* Password Field */}
           <div className="space-y-2">
             <Label htmlFor="password">
-              Password {isEditMode && <span className="text-gray-500">(leave blank to keep current)</span>}
+              Password {isEditMode && <span className="text-muted-foreground font-normal">(leave blank to keep current)</span>}
             </Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 id="password"
                 type={showPassword ? 'text' : 'password'}
@@ -187,7 +187,7 @@ export default function UserForm({
               </Button>
             </div>
             {form.formState.errors.password && (
-              <p className="text-sm text-red-500">{form.formState.errors.password.message}</p>
+              <p className="text-destructive text-sm">{form.formState.errors.password.message}</p>
             )}
           </div>
 
@@ -197,7 +197,7 @@ export default function UserForm({
               Confirm Password
             </Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 id="confirmPassword"
                 type={showConfirmPassword ? 'text' : 'password'}
@@ -222,7 +222,7 @@ export default function UserForm({
               </Button>
             </div>
             {form.formState.errors.confirmPassword && (
-              <p className="text-sm text-red-500">{form.formState.errors.confirmPassword.message}</p>
+              <p className="text-destructive text-sm">{form.formState.errors.confirmPassword.message}</p>
             )}
           </div>
 
@@ -238,7 +238,7 @@ export default function UserForm({
               Admin privileges
             </Label>
           </div>
-          <p className="text-xs text-gray-500 ml-6">
+          <p className="text-muted-foreground ml-6 text-xs">
             Admin users can access the admin panel and manage other users
           </p>
 

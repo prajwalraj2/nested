@@ -49,7 +49,7 @@ export default function NewUserPage() {
   }
 
   return (
-    <div className="container mx-auto py-6 max-w-2xl">
+    <div className="mx-auto w-full max-w-2xl">
       {/* Header with back button */}
       <div className="mb-6">
         <Link href="/admin/users">
@@ -59,16 +59,16 @@ export default function NewUserPage() {
           </Button>
         </Link>
         
-        <h1 className="text-2xl font-bold text-gray-900">Create New Admin User</h1>
-        <p className="text-gray-600 mt-1">
+        <h1 className="text-2xl font-bold">Create New Admin User</h1>
+        <p className="text-muted-foreground mt-1">
           Add a new administrator to manage the system
         </p>
       </div>
 
       {/* Error Alert */}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-800">{error}</p>
+        <div className="mb-6 rounded-lg border p-4">
+          <p className="text-destructive">{error}</p>
         </div>
       )}
 

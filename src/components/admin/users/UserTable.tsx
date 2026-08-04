@@ -28,7 +28,6 @@ import {
   Mail,
   Calendar
 } from 'lucide-react'
-import { format } from 'date-fns'
 
 interface User {
   id: string
@@ -68,21 +67,65 @@ export default function UserTable({
   currentUserId
 }: UserTableProps) {
   
+  /**
+   * Dates are formatted with an explicit locale AND time zone.
+   *
+   * ⚠️ THIS IS PRE-EMPTIVE, NOT A BUG FIX — a correction to my own earlier claim.
+   * ==========================================================================
+   * I first wrote this up as the cause of a hydration-mismatch badge the user saw on
+   * `/admin/users`, reasoning from the pattern that bit `TablesManager`: a client component
+   * formatting dates renders them twice, and `date-fns`'s `format()` — while immune to the
+   * *locale* problem, since its pattern is fixed — renders in the runtime's **local time
+   * zone**, so server (UTC) and browser (IST) would disagree by 5:30 on every timestamp.
+   *
+   * **That reasoning does not apply here.** `UserManager` fetches the user list in a
+   * `useEffect`, so these rows **never exist in the server-rendered HTML** — there is no first
+   * render for the second one to disagree with. Verified: no formatted date appears in the
+   * server HTML for this page at all. So this was never the badge's cause, and the badge's
+   * actual cause is still unknown.
+   *
+   * The pinning is kept anyway, because it is correct on its own terms: it makes the output
+   * deterministic, and it removes a **latent** hazard — the moment this list is server-rendered
+   * (which is the natural fix for its client-side fetch) the mismatch would appear for real.
+   *
+   * ⚠️ The generalisable lesson stands even though the diagnosis did not: my earlier sweep
+   * grepped for `toLocaleDateString` / `toLocaleString` and `date-fns` never appears in that
+   * grep. **The hazard is "formatting a date in a component that renders on both sides", not
+   * "calling a particular API".**
+   *
+   * `Intl` rather than `date-fns-tz`, which is not installed — not worth a dependency when
+   * `Intl.DateTimeFormat` takes `timeZone` directly. `en-US` keeps the existing
+   * "Jul 26, 2026" look; a month *name* is unambiguous in any locale.
+   */
   const formatDate = (date: string | Date | null) => {
     if (!date) return 'Never'
-    return format(new Date(date), 'MMM dd, yyyy')
+    return new Date(date).toLocaleDateString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric',
+      timeZone: 'UTC',
+    })
   }
 
   const formatDateTime = (date: string | Date | null) => {
     if (!date) return 'Never'
-    return format(new Date(date), 'MMM dd, yyyy HH:mm')
+
+    return new Date(date).toLocaleString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'UTC',
+    })
   }
 
   return (
     <div className="space-y-4">
       {/* Search Bar */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
         <Input
           placeholder="Search users by name or email..."
           value={searchTerm}
@@ -109,14 +152,14 @@ export default function UserTable({
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8">
                   <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-current"></div>
                     <span className="ml-2">Loading users...</span>
                   </div>
                 </TableCell>
               </TableRow>
             ) : users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   {searchTerm ? 'No users found matching your search.' : 'No users found.'}
                 </TableCell>
               </TableRow>
@@ -127,7 +170,7 @@ export default function UserTable({
                   <TableCell>
                     <div className="flex flex-col">
                       <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                        <div className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-full text-sm font-medium">
                           {user.name?.charAt(0)?.toUpperCase() || user.email.charAt(0).toUpperCase()}
                         </div>
                         <div>
@@ -139,7 +182,7 @@ export default function UserTable({
                               </Badge>
                             )}
                           </p>
-                          <p className="text-xs text-gray-500 flex items-center">
+                          <p className="text-muted-foreground flex items-center text-xs">
                             <Mail className="w-3 h-3 mr-1" />
                             {user.email}
                           </p>
@@ -165,7 +208,7 @@ export default function UserTable({
 
                   {/* Created Date */}
                   <TableCell>
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="text-muted-foreground flex items-center text-sm">
                       <Calendar className="w-3 h-3 mr-1" />
                       {formatDate(user.createdAt)}
                     </div>
@@ -173,14 +216,14 @@ export default function UserTable({
 
                   {/* Last Login */}
                   <TableCell>
-                    <div className="text-sm text-gray-600">
+                    <div className="text-muted-foreground text-sm">
                       {formatDateTime(user.lastLoginAt)}
                     </div>
                   </TableCell>
 
                   {/* Created By */}
                   <TableCell>
-                    <div className="text-sm text-gray-600">
+                    <div className="text-muted-foreground text-sm">
                       {user.createdByUser?.name || user.createdByUser?.email || 'System'}
                     </div>
                   </TableCell>
@@ -219,7 +262,7 @@ export default function UserTable({
                             
                             <DropdownMenuItem 
                               onClick={() => onDeleteUser(user)}
-                              className="text-red-600"
+                              className="text-destructive"
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Delete User

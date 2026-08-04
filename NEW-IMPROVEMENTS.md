@@ -5464,7 +5464,7 @@ cases, so a regression is traceable to one screen.
 | **G-6c** ✅ | **Section Layout — shell + manager + picker** | **DONE 3 Aug.** Colours **14 + 8 + 33 → 0**. Removed the **fourth** local `StatsCard` copy and the **fourth** hand-rolled skeleton, plus a **duplicate page title** (third occurrence of that pattern). Four stat tiles → three: "Total Domains" counted every domain in the system, which says nothing about section layout. ⚠️ `sections/DomainPageSelector.tsx` had **no imports at all** before this. Details below. |
 | **G-6d** ✅ | **Section Layout — `SectionEditor`** + shadcn pass | **DONE 3 Aug.** Colours **54 → 0**. ⚠️ **On the user's request, both pickers and both remaining native `<select>`s became shadcn** — the domain/page pickers are now searchable `Popover`+`Command` comboboxes with **lucide type icons instead of emoji**, and the "add page to section" control is a `Command` list because it can hold **864 pages**. **Phase G-6 complete: 244 → 0 colours, 0 native selects.** |
 | **G-7** | **Rich Text list + editor** | |
-| **G-8** | **Users** | Gains the "Add New Admin" button removed from the nav in G-1. |
+| **G-8** ✅ | **Users** | **DONE 4 Aug.** Colours **36 → 0** across 6 files. Fixed two spinners using `border-gray-900` (invisible on dark) and ⚠️ **a `container mx-auto py-6` wrapper in 5 places** — the only admin area that double-padded against `AdminLayout`. Already had its "Add New Admin" button. ⚠️ **A hydration diagnosis of mine was wrong here — see the record below.** |
 
 **Components installed as needed, per step** — not up front. Expected later additions: `sonner`
 (toasts, to replace the 8 `alert()` calls), `alert-dialog` (destructive confirms, replacing the
@@ -6587,6 +6587,73 @@ a replace round-trip preserves targeting. Hand-building a CSV and replacing is w
 
 ⚠️ **Not done:** a warning when replacing from a CSV that lacks the column. That is the one
 remaining sharp edge here.
+
+##### ✅ G-8 DONE — 4 Aug 2026 (Users)
+
+**36 colours → 0** across 6 files (2 route files, `UserManager`, `UserTable`, `UserForm`, plus
+the edit route). The lowest count of any screen in Phase G — this one was already largely on
+shadcn primitives.
+
+The user's report was narrow: *"everything looks good, only a few text colours here and there
+are not looking that good."* From the screenshot, the specifics were:
+
+- **`text-gray-900` on the "User Management" title** — the dark navy-on-dark that was nearly
+  unreadable, plus `text-gray-600` on the subtitle and the Created / Last Login / Created By
+  columns.
+- Stat-card icons `text-green-600` / `text-blue-600`, the avatar circle `bg-blue-500`, error
+  panels `bg-red-50` / `text-red-800`.
+- ⚠️ **Two loading spinners built from `border-b-2 border-gray-900`** — a near-black arc on a
+  near-black background, i.e. an invisible spinner. Now `border-current`.
+
+###### ⚠️ A real layout bug: the only double-padded screen in the admin
+
+`/admin/users` and its two sub-routes wrapped themselves in `container mx-auto py-6`
+(**5 occurrences across 3 files**). `AdminLayout` already supplies `p-4 md:p-6`, so this screen
+was padded twice and re-centred at a different width — visibly inset relative to every other
+admin page. Grepped `src/app/admin/` to confirm: **no other page does this.** Removed.
+
+###### ⚠️ A HYDRATION DIAGNOSIS OF MINE WAS WRONG — recorded in full
+
+The screenshot also showed the red **"1 Issue"** dev-overlay badge. I saw formatted dates in a
+client component and concluded it was the same mismatch that bit `TablesManager`: `date-fns`'s
+`format()` has a fixed pattern (so it is immune to the *locale* problem) but renders in the
+runtime's **local time zone** — server UTC vs the user's IST, a 5:30 difference on every
+timestamp. I wrote that up as the cause, in a code comment, as established fact.
+
+**Then I checked the mechanism and it does not hold.** `UserManager` fetches the user list in a
+`useEffect`, so **those rows never exist in the server-rendered HTML**. Verified directly: no
+formatted date appears anywhere in this page's server HTML. With no first render, there is
+nothing for a second render to disagree with. **This was never the badge's cause, and the cause
+remains unknown.** The code comment has been corrected to say so.
+
+The UTC pinning was kept, but described honestly as **pre-emptive, not a fix**: it makes the
+output deterministic and removes a latent hazard that would become real the moment this list is
+server-rendered — which is the natural fix for its client-side fetch.
+
+⚠️ **The generalisable lesson survives even though the diagnosis did not.** After the
+`TablesManager` fix I swept every admin client component for `toLocaleDateString` /
+`toLocaleString` and declared only the rich-text ones outstanding. **`date-fns` never appears in
+that grep.** The hazard is *"formatting a date in a component that renders on both sides"*, not
+*"calling a particular API"* — so the sweep was scoped to a symptom rather than the cause.
+
+⚠️ **Second time this session I asserted a mechanism before verifying it** (the first was the
+`isHidden` / public-leak claim). Both times the giveaway was the same: I reasoned from a
+plausible pattern to a conclusion about observed behaviour, without tracing whether the pattern
+actually applied to *this* code path. **Trace the path before naming a cause.**
+
+###### TEST CASES
+
+**A. Rendered page is clean** — `text-gray-900/600/500/400`, `bg-blue-500`, `text-blue-600`,
+`text-green-600`, `bg-red-50`, `text-red-800`: all absent. "User Management" and "Add New
+Admin" both present.
+**B. Padding** — `container mx-auto` absent from the rendered page and from all of
+`src/app/admin/`.
+**C. Regression** — all 9 admin routes 200.
+⚠️ **An earlier verification run reported all-clear from a file that was never written** — the
+fetch had failed (`000`) and the greps ran against a missing path, printing "gone" for
+everything. Re-run guarded on `[ -s file ]` and on a non-zero byte count. **A grep against a
+nonexistent file is not evidence of absence.**
+**D. Open**: the "1 Issue" badge's real cause — awaiting the overlay text from the user.
 
 ##### ✅ G-6d DONE — 3 Aug 2026 — and PHASE G-6 IS COMPLETE
 
