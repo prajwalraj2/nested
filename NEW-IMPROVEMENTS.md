@@ -5461,8 +5461,8 @@ cases, so a regression is traceable to one screen.
 | **G-5d(iii)** ✅ | **Creation flow — `TablePreview` + `CSVUploadInterface`** | **DONE 3 Aug.** Colours **53 → 0** and **44 → 0**. Fixed the outstanding `toLocaleDateString()` **hydration hazard**. ⚠️ `Card` has no `variant` prop — a mechanical replace tried to give it one and `tsc` caught it; the error block is an `Alert`. **G-5 is now colour-clean.** |
 | **G-6a** ✅ | **Categories — shell + list** | **DONE 3 Aug.** Colours **16 + 34 + 38 → 0**. Fixed **both solid-black modal overlays** (`bg-opacity-50` × 2), a **dead "Create First Category" button**, a subtitle **promising drag-and-drop that does not exist**, and three "Add to Column N" buttons that **ignored the column**. The delete dialog now states the domain count and surfaces the API's real refusal message instead of "Please try again". Both `window.location.reload()` calls → `router.refresh()`. Details below. |
 | **G-6b** ✅ | **Categories — `CategoryForm`** | **DONE 3 Aug.** Colours **47 → 0**, so `/admin/categories` is entirely colour-clean. ⚠️ **Retired the LAST `Roboto` import in the app.** Removed `alert()` + `window.location.reload()` (#22.6), and **completed the `?column=N` wiring G-6a promised** — verified `?column=3` pre-selects 3 and `?column=99` clamps to 1. |
-| **G-6c** | **Section Layout — shell + manager + picker** | `admin/sections/page.tsx` (197 / 14) + `SectionsManager.tsx` (174 / 8) + `sections/DomainPageSelector.tsx` (210 / 33). ⚠️ This is the **second** `DomainPageSelector` — see the correction note above; it is a separate file from the tables one. |
-| **G-6d** | **Section Layout — `SectionEditor`** | 504 lines / **54 colours** — the largest single file left in Phase G outside Rich Text. |
+| **G-6c** ✅ | **Section Layout — shell + manager + picker** | **DONE 3 Aug.** Colours **14 + 8 + 33 → 0**. Removed the **fourth** local `StatsCard` copy and the **fourth** hand-rolled skeleton, plus a **duplicate page title** (third occurrence of that pattern). Four stat tiles → three: "Total Domains" counted every domain in the system, which says nothing about section layout. ⚠️ `sections/DomainPageSelector.tsx` had **no imports at all** before this. Details below. |
+| **G-6d** ✅ | **Section Layout — `SectionEditor`** + shadcn pass | **DONE 3 Aug.** Colours **54 → 0**. ⚠️ **On the user's request, both pickers and both remaining native `<select>`s became shadcn** — the domain/page pickers are now searchable `Popover`+`Command` comboboxes with **lucide type icons instead of emoji**, and the "add page to section" control is a `Command` list because it can hold **864 pages**. **Phase G-6 complete: 244 → 0 colours, 0 native selects.** |
 | **G-7** | **Rich Text list + editor** | |
 | **G-8** | **Users** | Gains the "Add New Admin" button removed from the nav in G-1. |
 
@@ -6587,6 +6587,106 @@ a replace round-trip preserves targeting. Hand-building a CSV and replacing is w
 
 ⚠️ **Not done:** a warning when replacing from a CSV that lacks the column. That is the one
 remaining sharp edge here.
+
+##### ✅ G-6d DONE — 3 Aug 2026 — and PHASE G-6 IS COMPLETE
+
+`SectionEditor` **54 → 0**. **Phase G-6 total: 8 files, 2,502 lines, 244 colours → 0, and zero
+native `<select>`s left on either screen.**
+
+###### ⚠️ THE USER'S CORRECTION: a colour sweep is not a rebuild
+
+After G-6c the user asked, reasonably: *"Why don't I see shadcn components here — like dropdown
+and all? It should also have search."*
+
+**They were right, and the gap was mine.** G-6c converted this screen's colours and stopped
+there, leaving two native `<select>`s in the picker and two more in the editor. The result
+*themed* correctly and was still awkward to use — **31 domains in an unsearchable list**, every
+option prefixed with an emoji. The searchable-combobox pattern already existed (Pages in G-4c,
+Tables in G-5a(ii)); this screen simply had not been given it.
+
+**The lesson worth keeping: "colours → 0" is a measurable proxy, not the goal.** A file can
+score zero and still be a hand-rolled control that ignores the design system. `sections/DomainPageSelector`
+having **no imports at all** was the signal I noticed but did not act on.
+
+###### What changed
+
+- **Domain picker** → `Popover` + `Command`. Searches **name, slug and page type**, because most
+  domain names start with an emoji and matching the visible label alone is close to useless.
+  Each row shows how many section-based pages that domain has.
+- **Page picker** → the same, plus a badge showing **whether the page is already configured
+  (`N sections`) or not (`unconfigured`) — visible before you pick it.** Previously you had to
+  select a page to find that out.
+- ⚠️ **The "add page to section" control became a `Command` list, not a `Select`.** It draws from
+  the unassigned child pages, and this screen reports **864 child pages** — picking one out of an
+  unsearchable dropdown of that length is not workable.
+  It also had a subtler flaw: its `value` was never set, so it relied on the browser resetting
+  to the placeholder `<option value="">` after each pick.
+- **"Add section" column chooser** → shadcn `Select`. ⚠️ Radix needs a **string** `value`, so the
+  number is stringified in and parsed out; the state stays a number because the section model
+  expects one.
+- ⚠️ **Two emoji-string icon helpers replaced with lucide components:** `getDomainIcon()`
+  (🎯 / 📁) and `getPageIcon()` (📊 📝 📂 📋 📄 🎨). Both now use **the same icons as the Domains
+  table and `PageTree`**, so a "table" page or a "direct" domain looks identical everywhere in
+  the admin. `tsc` caught two `getPageIcon` call sites I had missed when removing it.
+
+###### TEST CASES
+
+**A. No native selects** — 0 across all 4 files; the 4 grep hits are comments quoting what was
+removed.
+**B. Colours** — 0 across all 4 files (2 comment hits).
+**C. Rendered** — `/admin/sections` returns 200 with **2 `role="combobox"` triggers**, and
+"unconfigured" / "Choose a domain first" present. `Search pages` is Portal-mounted so it
+correctly does not appear until opened.
+**D. Regression** — `/admin`, `/admin/categories`, `/admin/domains`, `/admin/pages`,
+`/admin/tables`, `/admin/sections` all 200. ⚠️ Verified against the **user's own dev server**,
+because `:3000` was up — checked in a separate command first, per the G-5b rule.
+**E. Still to check in a browser**: dark mode; searching the domain and page pickers; adding a
+section; adding a page to a section via the new searchable list; and the type icons rendering.
+
+##### ✅ G-6c DONE — 3 Aug 2026 (Section Layout — shell, manager, picker)
+
+**Colours: page 14 → 0, `SectionsManager` 8 → 0, `sections/DomainPageSelector` 33 → 0.**
+
+###### Patterns now seen four times each
+
+- **The fourth local `StatsCard` copy** — after the dashboard's, `tables/[id]`'s and
+  `tables/`'s. Each drew its own `bg-white` panel and took an emoji string as its icon. All four
+  are now the shared component.
+- **The fourth hand-rolled `bg-gray-200` + `animate-pulse` skeleton** → shadcn `Skeleton`.
+- ⚠️ **The third duplicate page title.** `SectionsManager` rendered its own
+  "🎯 Section Configuration" heading and subtitle directly beneath the page's own title — the
+  same duplication found in `TablesManager` (G-5a(ii)) and created accidentally in G-5a(i).
+  **This is now a predictable consequence of rebuilding a shell and its child separately**, and
+  worth checking for by default rather than discovering each time.
+
+###### ⚠️ A stat that measured the wrong thing
+
+Four tiles became three. **"Total Domains" counted every domain in the system** — a number that
+tells you nothing about section layout and never changes as you work. The two that matter are
+how many pages *can* have sections and how many you have configured; "Configured" now carries
+the remainder in its own description rather than needing a fourth tile to compare against.
+
+###### ⚠️ `sections/DomainPageSelector.tsx` had NO imports
+
+Not "few" — **zero**. Adding the first one broke my usual `0,/^import /` insertion, which found
+nothing to anchor to and silently did nothing, and `tsc` caught the missing symbol. Worth noting
+because a file with no imports is a hint in itself: it was pure hand-rolled markup with two
+native `<select>`s, using nothing from the design system at all.
+
+###### TEST CASES
+
+**A. Rendered page is clean** — `bg-white`, `text-gray-900/700/600`, `border-gray-300/200`,
+`bg-blue-50`, `bg-green-50`, `bg-yellow-50`: all absent.
+**B. Duplicate chrome gone** — "Section Layout Management", "Section Configuration" and
+"Total Domains" all absent.
+**C. New shell present** — "Section layout", the configured-ratio description, the three tiles,
+and the "Select a page to configure" empty state.
+**D. Still to check in a browser**: dark mode; picking a domain then a page and confirming the
+editor appears below.
+
+⚠️ **Deferred by the user (3 Aug):** *"there are some more improvements on this page"* for
+**Categories** — noted and not yet specified. `/admin/categories` is colour-clean and its known
+defects are fixed, but the user has further UX changes in mind for a later pass.
 
 ##### ✅ G-6b DONE — 3 Aug 2026 (`CategoryForm`) — and `/admin/categories` is complete
 
