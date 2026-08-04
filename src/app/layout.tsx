@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 // Single source of truth for the brand name and canonical origin — shared with the
 // per-page generateMetadata functions and (later) sitemap.ts, so they can't drift.
-import { SITE_NAME, SITE_URL, TITLE_SEPARATOR, buildOpenGraph, buildTwitter } from "@/lib/seo";
+import { SITE_NAME, SITE_URL, TITLE_SEPARATOR, GA_MEASUREMENT_ID, buildOpenGraph, buildTwitter } from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -195,6 +196,46 @@ export default function RootLayout({
           component (see the note in src/components/ThemeProvider.tsx).
         */}
         <ThemeProvider>{children}</ThemeProvider>
+
+        {/*
+          Google Analytics 4.
+          ====================================================================
+          Via `@next/third-parties/google` rather than the copy-paste `<script>` snippet
+          the GA setup wizard offers. That snippet is written for hand-authored static
+          HTML; this component loads the same tag with Next's own script strategy, so it
+          does not block the first paint and does not fight the framework.
+
+          ⚠️ MOUNTED IN THE ROOT LAYOUT ON PURPOSE, which means the admin panel is tracked
+          too. That is a real trade-off and it was taken deliberately:
+
+            + it captures BOTH 404 routes (`app/not-found.tsx` and
+              `app/domain/not-found.tsx`). For this site that is not a nice-to-have —
+              renaming a domain or page slug 404s every page beneath it and there is NO
+              redirect table, so GA's Pages report is the only place a botched rename
+              becomes visible. Mounting under `domain/layout.tsx` instead would track the
+              public site but lose the unknown-URL 404s entirely.
+            - admin sessions count as traffic. Acceptable: the audience is one person, and
+              GA's internal-traffic filter can exclude it later if the noise ever matters.
+
+          ⚠️ PRODUCTION ONLY — and this gate is the important line, not the ID.
+
+          `VERCEL_ENV` is set automatically by Vercel: 'production' on atno.io, 'preview'
+          on every branch/PR deployment, 'development' under `vercel dev`. It is
+          UNDEFINED under a plain `npm run dev`, so localhost is excluded for free.
+
+          Without this, every dev session and every PR preview — which serve a full copy
+          of the site — would pump traffic into the live property. The result is not merely
+          noisy: it is unfixable, because GA cannot retroactively delete events, so a few
+          weeks of polluted data stays polluted forever.
+
+          This mirrors `src/app/robots.ts` exactly, which gates on the same variable for
+          the same class of reason (don't let previews leak into production). Keeping the
+          two checks identical is deliberate — if one ever needs changing, the other
+          almost certainly does too.
+        */}
+        {process.env.VERCEL_ENV === "production" && (
+          <GoogleAnalytics gaId={GA_MEASUREMENT_ID} />
+        )}
       </body>
     </html>
   );

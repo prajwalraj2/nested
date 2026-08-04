@@ -45,6 +45,31 @@ export const TITLE_SEPARATOR = ' · '
 export const SITE_URL = 'https://atno.io'
 
 /**
+ * Google Analytics 4 Measurement ID.
+ * ============================================================================
+ *
+ * ⚠️ WHY THIS IS HARDCODED AND NOT AN ENV VAR — it is a deliberate choice, not laziness.
+ *
+ * A Measurement ID is **public by definition**. It is emitted into the page source of
+ * every request as `gtag/js?id=G-…`, so anyone can read it with View Source. There is no
+ * secret here to protect, which removes the usual reason to reach for an env var.
+ *
+ * What an env var WOULD add is a silent failure mode. `.gitignore` excludes `.env*`, so
+ * a `NEXT_PUBLIC_GA_ID` would have to be added to Vercel's environment variables by hand
+ * — and if that step were ever missed or lost (new project, restored deployment), the tag
+ * would simply not render. Nothing would error; analytics would just quietly stop, and
+ * the only symptom is a flat graph nobody looks at for a month.
+ *
+ * Hardcoding it here means the value ships with the code that uses it and cannot drift
+ * from the deployment. That is the same reasoning as `SITE_URL` above, and this file is
+ * already the single source of truth for site-wide constants.
+ *
+ * ⚠️ This constant does NOT decide whether the tag is loaded — see the production gate in
+ * `src/app/layout.tsx`. Do not add a second environment check here.
+ */
+export const GA_MEASUREMENT_ID = 'G-3L4QL402YK'
+
+/**
  * The share image used in link previews — WhatsApp, LinkedIn, Teams, Slack, X,
  * Discord, iMessage.
  * ============================================================================
