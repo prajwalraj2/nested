@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 // Single source of truth for the brand name and canonical origin — shared with the
@@ -236,6 +238,42 @@ export default function RootLayout({
         {process.env.VERCEL_ENV === "production" && (
           <GoogleAnalytics gaId={GA_MEASUREMENT_ID} />
         )}
+
+        {/*
+          Vercel Web Analytics + Speed Insights.
+          ====================================================================
+          Imported from `/next` rather than `/react`. Both packages ship several entry
+          points; the `/next` one hooks Next's router so a client-side navigation is
+          recorded as a new page. With `/react` the SPA route changes this app makes on
+          every `<Link>` click would go unrecorded, exactly as they would in GA without
+          its "page changes based on browser history events" setting.
+
+          ⚠️ WHY THESE TWO ARE **NOT** WRAPPED IN THE PRODUCTION GATE ABOVE — the
+          difference from GA is real, not an oversight.
+
+          Vercel separates environments SERVER-SIDE. Events carry the deployment they came
+          from, and the dashboard filters production / preview / development itself (the
+          "All environments" dropdown). Preview traffic therefore cannot contaminate the
+          production numbers, so there is nothing for a gate to protect.
+
+          GA4 has no equivalent: one property, one bucket, and events cannot be deleted
+          retroactively — which is why that one is gated and these are not. Wrapping these
+          in the same condition would only cost the ability to check a preview deployment
+          before merging it.
+
+          WHY BOTH LIVE HERE RATHER THAN JUST ON THE PUBLIC PAGES
+          Same reasoning as the GA mount above (see the note on 404 coverage). For Speed
+          Insights specifically there is an extra reason: the admin panel is the heaviest
+          part of the app — `/admin/tables` still carries a ~539 KB RSC payload after
+          G-5a(ii) took it down from 8.19 MB — and it is the one screen whose real-world
+          cost is worth watching as the catalogue grows (G-5a(iii) is deferred on exactly
+          that trigger).
+
+          ⚠️ HOBBY PLAN: both meter separately against monthly caps. Check Usage in the
+          Vercel dashboard before assuming headroom.
+        */}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
