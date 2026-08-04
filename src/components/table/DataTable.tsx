@@ -214,8 +214,24 @@ export function DataTable({
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0 sm:space-x-2">
         
-        {/* Search Input + Badge Filters */}
-        <div className="flex flex-1 space-x-2">
+        {/*
+          Search Input + Badge Filters
+
+          ⚠️ `items-center` IS DELIBERATE — without it this row was TOP-aligned, not centred.
+          A flex container defaults to `align-items: stretch`, but stretch does not apply to
+          items with a definite height (the spec falls back to `flex-start`), and every child
+          here has one. So the 32px buttons hung from the top edge of the 36px Input and their
+          bottoms sat 4px high.
+
+          The heights are all 36px now, so this changes nothing today. It is here so that a
+          future control with a different height degrades to "vertically centred" rather than
+          silently reintroducing the bug.
+
+          `gap-2` rather than `space-x-2`: `space-x-*` works by adding left margin to
+          siblings, which breaks on wrap — and this row wraps on a wide table with several
+          faceted filters.
+        */}
+        <div className="flex flex-1 items-center gap-2">
           <Input
             placeholder="Search all columns..."
             value={globalFilter ?? ""}
@@ -237,7 +253,11 @@ export function DataTable({
           {(columnFilters.length > 0 || globalFilter) && (
             <Button
               variant="ghost"
-              size="sm"
+              // 36px, matching the Input and the two other toolbar buttons. Was `size="sm"`
+              // (32px) — invisible in most screenshots because this button only renders once
+              // a filter is active, which is exactly why the misalignment survived here
+              // after being fixed on the filter and View buttons.
+              size="default"
               onClick={() => {
                 table.resetColumnFilters();
                 setGlobalFilter('');
