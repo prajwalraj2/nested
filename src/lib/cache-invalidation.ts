@@ -1,5 +1,37 @@
-import { revalidateTag } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { CACHE_TAGS } from './cache'
+
+/**
+ * Drop the cached `/sitemap.xml`.
+ * ============================================================================
+ *
+ * ⚠️ `revalidateTag` CANNOT REACH THE SITEMAP, and this is easy to miss.
+ *
+ * Every note in this file is about the Data Cache — `unstable_cache` entries, addressed by
+ * tag. `src/app/sitemap.ts` is not one of them: it queries `prisma` **directly**, so there is
+ * no tag on it and `revalidateTag(DOMAINS)` is a no-op for it. What governs it instead is
+ * `export const revalidate = 3600` at the top of that file, which makes `/sitemap.xml` a
+ * statically generated route regenerated at most **once an hour** — and the first request
+ * after expiry serves the STALE copy while regenerating behind it, so the real lag is longer
+ * than an hour.
+ *
+ * ⚠️ THIS IS INVISIBLE IN LOCAL DEVELOPMENT. `next dev` does not apply the static cache, so
+ * the sitemap regenerates on every request and appears to work perfectly. The gap only shows
+ * up on the deployed site — which is how it was found: a domain was set to Draft on
+ * production, correctly vanished from `/domain` and correctly 404'd, and was still listed in
+ * `/sitemap.xml` along with all 70 of its child pages.
+ *
+ * It was harmless until now only because no domain had ever been unpublished. With
+ * DRAFT/UPCOMING (#24) that is a routine action, and a sitemap advertising URLs that 404 is
+ * exactly the soft-404 problem `sitemap.ts` already goes out of its way to avoid for
+ * geo-restricted pages.
+ *
+ * The hourly `revalidate` stays as a backstop; this just means an admin action takes effect
+ * immediately instead of eventually.
+ */
+function invalidateSitemap(): void {
+  revalidatePath('/sitemap.xml')
+}
 
 /**
  * Cache invalidation for admin mutations.
@@ -110,6 +142,9 @@ export function invalidateDomains(): void {
   revalidateTag(CACHE_TAGS.DOMAINS)
   revalidateTag(CACHE_TAGS.PAGES)
   revalidateTag(CACHE_TAGS.NAVIGATION)
+  // A domain's slug and its STATUS both decide whether it belongs in the sitemap, and the
+  // sitemap is not tag-addressable — see `invalidateSitemap` above.
+  invalidateSitemap()
 }
 
 /**
@@ -129,6 +164,17 @@ export function invalidatePages(): void {
   revalidateTag(CACHE_TAGS.DOMAINS)
   revalidateTag(CACHE_TAGS.NAVIGATION)
   revalidateTag(CACHE_TAGS.TABLES)
+  /*
+    Pages are sitemap entries in their own right — every URL below a domain root comes from
+    this table — so creating, renaming or deleting one changes the document. Its geo targeting
+    matters too: `sitemap.ts` lists only `targetCountries: ["ALL"]` pages, so narrowing a page
+    to one country must remove it from the sitemap.
+
+    Table and rich-text writes reach here as well, which is right: `pageLastModified()` takes
+    the newest of the page and its content rows, so editing a table changes that page's
+    `<lastmod>`.
+  */
+  invalidateSitemap()
 }
 
 /**
