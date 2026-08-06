@@ -92,6 +92,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return { title: 'Not Found', robots: { index: false, follow: false } };
   }
 
+  /*
+    Not published → 404, so the metadata must say so too. Mirrors the identical guard in the
+    page component below; see the long note there for why this gate did not exist before.
+
+    ⚠️ Both places need it. `generateMetadata` and the component run independently, so a
+    component-only guard would emit a real title and canonical URL for a page that then 404s —
+    telling a crawler the page is genuine while serving it a 404.
+  */
+  if (domain.status !== 'PUBLISHED') {
+    return { title: 'Not Found', robots: { index: false, follow: false } };
+  }
+
   // Titles in the DB carry emoji ('🖌️ Graphic Designing'). Keep them in the UI,
   // strip them here — see the reasoning in src/lib/seo.ts.
   const domainName = stripEmoji(domain.name);
@@ -254,6 +266,34 @@ export default async function DomainPage({ params }: Props) {
 
   // Check if domain is visible to user's country
   if (!isContentVisibleToUser(domain.targetCountries, userCountry)) {
+    return notFound();
+  }
+
+  /**
+   * ⚠️ THIS GATE DID NOT EXIST. It is a real fix, not a refactor of the status change.
+   * ==========================================================================
+   *
+   * Until now this route checked exactly two things — does the domain exist, and is it
+   * targeted at the visitor's country. It never looked at publication at all, and
+   * `DomainService.exists()`, the one function that would have, is called by nothing.
+   *
+   * So publication controlled **listing, not access**: a domain absent from `/domain` was
+   * still fully readable by anyone who knew its slug.
+   *
+   * Confirmed by experiment rather than by reading, since a code path alone could not
+   * distinguish "gated" from "happened to fail". Two throwaway domains, identical but for
+   * publication, both with no pages: **both returned 404** — the 404 came from having no
+   * pages, not from the status. The unpublished one's full record (id, name, slug) also
+   * appeared in the RSC flight payload of that 404 response.
+   *
+   * Nothing was exposed in practice, because all 37 domains were published. But DRAFT and
+   * UPCOMING domains are the first records that will ever depend on this, and adding the gate
+   * while nothing is unpublished means it can be verified to change nothing today.
+   *
+   * ⚠️ `!== 'PUBLISHED'` rather than listing the two hidden states. A future `ARCHIVED` then
+   * defaults to hidden, which is the safe direction to be wrong in.
+   */
+  if (domain.status !== 'PUBLISHED') {
     return notFound();
   }
 

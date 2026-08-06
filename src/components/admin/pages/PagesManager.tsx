@@ -1,5 +1,6 @@
 'use client';
 
+import type { DomainStatus } from '@/generated/prisma';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Globe, Loader2, Network, Plus, Target, X } from 'lucide-react';
@@ -43,7 +44,7 @@ type Domain = {
   name: string;
   slug: string;
   pageType: string;
-  isPublished: boolean;
+  status: DomainStatus;
   category: {
     id: string;
     name: string;

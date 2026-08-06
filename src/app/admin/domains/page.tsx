@@ -1,5 +1,6 @@
 import { Globe, CheckCircle2, Filter, Lightbulb, ChevronDown } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { STATUS_BY_URL_PARAM } from '@/lib/domain-status';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -102,7 +103,16 @@ export default async function DomainsManagePage({ searchParams }: DomainsPagePro
           title="Published"
           value={stats.publishedDomains}
           icon={CheckCircle2}
-          description={`${stats.draftDomains} still draft`}
+          /*
+            ⚠️ Mentions upcoming only when there ARE any. With three states the old
+            "N still draft" no longer accounts for every non-published domain, and a permanent
+            "0 upcoming" would be noise on a site that may never use the state.
+          */
+          description={
+            stats.upcomingDomains > 0
+              ? `${stats.draftDomains} draft · ${stats.upcomingDomains} upcoming`
+              : `${stats.draftDomains} still draft`
+          }
         />
         <StatsCard
           title="Showing"
@@ -221,11 +231,13 @@ async function fetchDomainsWithFilters(searchParams: SearchParams) {
       whereConditions.categoryId = searchParams.category;
     }
     
-    // Status filter
-    if (searchParams.status === 'published') {
-      whereConditions.isPublished = true;
-    } else if (searchParams.status === 'draft') {
-      whereConditions.isPublished = false;
+    /*
+      Status filter — the URL keeps its lowercase vocabulary (`?status=published`) and maps to
+      the enum through the shared table, so this page and `GET /api/admin/domains` cannot
+      interpret the same query string differently.
+    */
+    if (searchParams.status && STATUS_BY_URL_PARAM[searchParams.status]) {
+      whereConditions.status = STATUS_BY_URL_PARAM[searchParams.status];
     }
     
     // Page type filter
@@ -276,10 +288,17 @@ async function fetchDomainsWithFilters(searchParams: SearchParams) {
     });
 
     // Calculate statistics
+    /*
+      ⚠️ `draftDomains` used to be `!d.isPublished` — "everything that is not live". With three
+      states that would silently count UPCOMING domains as drafts, so the stat would say
+      "3 drafts" when one of them is deliberately advertised on the homepage. Each status is
+      now counted for what it is.
+    */
     const stats = {
       totalDomains: domains.length,
-      publishedDomains: domains.filter(d => d.isPublished).length,
-      draftDomains: domains.filter(d => !d.isPublished).length,
+      publishedDomains: domains.filter(d => d.status === 'PUBLISHED').length,
+      draftDomains: domains.filter(d => d.status === 'DRAFT').length,
+      upcomingDomains: domains.filter(d => d.status === 'UPCOMING').length,
       categoriesUsed: new Set(domains.map(d => d.categoryId)).size
     };
 
@@ -289,6 +308,7 @@ async function fetchDomainsWithFilters(searchParams: SearchParams) {
       name: domain.name,
       slug: domain.slug,
       pageType: domain.pageType,
+      status: domain.status,
       isPublished: domain.isPublished,
       orderInCategory: domain.orderInCategory,
       targetCountries: domain.targetCountries,
@@ -315,6 +335,9 @@ async function fetchDomainsWithFilters(searchParams: SearchParams) {
         totalDomains: 0,
         publishedDomains: 0,
         draftDomains: 0,
+        // Must mirror the success-path shape exactly, or the two branches give the returned
+        // `stats` a union type and every field the fallback omits becomes unreadable.
+        upcomingDomains: 0,
         categoriesUsed: 0
       }
     };

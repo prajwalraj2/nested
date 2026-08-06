@@ -1,5 +1,7 @@
 'use client';
 
+import type { DomainStatus } from '@/generated/prisma';
+import { DOMAIN_STATUS_LABELS } from '@/lib/domain-status';
 import { useState } from 'react';
 import { Check, ChevronsUpDown, Globe, Network, Target } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -46,7 +48,7 @@ type Domain = {
   name: string;
   slug: string;
   pageType: string;
-  isPublished: boolean;
+  status: DomainStatus;
   category: {
     id: string;
     name: string;
@@ -168,10 +170,17 @@ export function DomainSelector({ domains, selectedDomain, onDomainChange }: Doma
                     {domain.pageType === 'direct' ? 'Direct' : 'Hierarchical'}
                   </Badge>
 
-                  {/* Draft is the exception worth flagging; "Live" on 35 of 37 rows is noise. */}
-                  {!domain.isPublished && (
+                  {/*
+                    Anything not live is the exception worth flagging; "Live" on 35 of 37 rows
+                    is noise.
+
+                    ⚠️ The badge now NAMES the state rather than always saying "Draft". With
+                    three statuses, `!isPublished` was true for upcoming domains too, so an
+                    upcoming domain would have been mislabelled as a draft.
+                  */}
+                  {domain.status !== 'PUBLISHED' && (
                     <Badge variant="secondary" className="shrink-0 font-normal">
-                      Draft
+                      {DOMAIN_STATUS_LABELS[domain.status]}
                     </Badge>
                   )}
                 </CommandItem>

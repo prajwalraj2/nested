@@ -3,6 +3,12 @@ import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 import { invalidateDomains } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
+import {
+  DOMAIN_STATUSES,
+  DOMAIN_STATUS_LABELS,
+  isDomainStatus,
+  resolveStatus,
+} from '@/lib/domain-status';
 
 /**
  * Individual Domain API Routes
@@ -75,6 +81,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       name: domain.name,
       slug: domain.slug,
       pageType: domain.pageType,
+      status: domain.status,
       isPublished: domain.isPublished,
       orderInCategory: domain.orderInCategory,
       targetCountries: domain.targetCountries,
@@ -224,7 +231,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         pageType,
         categoryId,
         orderInCategory: parseInt(orderInCategory.toString()),
-        isPublished: isPublished ?? existingDomain.isPublished,
+        /*
+          Both columns written, `isPublished` derived — see the twin of this in the POST
+          handler. The fallback is the row's EXISTING status, so a PUT that omits the field
+          entirely leaves the domain where it was rather than silently resetting it to DRAFT
+          and pulling it off the live site.
+        */
+        status: resolveStatus(body, existingDomain.status),
+        isPublished: resolveStatus(body, existingDomain.status) === 'PUBLISHED',
         targetCountries: validTargetCountries
       },
       include: {
@@ -258,6 +272,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         name: updatedDomain.name,
         slug: updatedDomain.slug,
         pageType: updatedDomain.pageType,
+        status: updatedDomain.status,
         isPublished: updatedDomain.isPublished,
         orderInCategory: updatedDomain.orderInCategory,
         targetCountries: updatedDomain.targetCountries,
@@ -399,11 +414,35 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Handle publication status toggle
-    if ('isPublished' in body) {
+    /**
+     * Quick status change from the domains table.
+     *
+     * ⚠️ THIS WAS A BOOLEAN TOGGLE, AND A TOGGLE HAS NO MEANING WITH THREE STATES.
+     *
+     * `DomainsTable` used to send `{ isPublished: !domain.isPublished }` — flip whatever it is
+     * now. There is no way to express "make this UPCOMING" by flipping a boolean, and with
+     * three states "the opposite of published" is ambiguous. It is now a status *set*: the
+     * caller names the state it wants, and the row action is a small menu rather than a toggle.
+     *
+     * The old shape still works. A body carrying only `isPublished` resolves through the same
+     * helper, so an un-updated client keeps publishing and unpublishing exactly as before.
+     */
+    if ('status' in body || 'isPublished' in body) {
+      if ('status' in body && !isDomainStatus(body.status)) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Status must be one of ${DOMAIN_STATUSES.join(', ')}`
+          },
+          { status: 400 }
+        );
+      }
+
+      const nextStatus = resolveStatus(body, existingDomain.status);
+
       const updatedDomain = await prisma.domain.update({
         where: { id },
-        data: { isPublished: body.isPublished },
+        data: { status: nextStatus, isPublished: nextStatus === 'PUBLISHED' },
         include: {
           category: {
             select: {
@@ -423,12 +462,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
       return NextResponse.json({
         success: true,
-        message: `Domain ${body.isPublished ? 'published' : 'unpublished'} successfully`,
+        // Names the state it ended in. The old message said "published"/"unpublished", which
+        // cannot describe a move to UPCOMING.
+        message: `Domain set to ${DOMAIN_STATUS_LABELS[nextStatus]}`,
         domain: {
           id: updatedDomain.id,
           name: updatedDomain.name,
           slug: updatedDomain.slug,
           pageType: updatedDomain.pageType,
+          status: updatedDomain.status,
           isPublished: updatedDomain.isPublished,
           orderInCategory: updatedDomain.orderInCategory,
           category: updatedDomain.category
@@ -541,6 +583,12 @@ function validateDomainData(data: any, excludeId?: string): string | null {
   }
 
   // Validate publication status
+  // See the twin of this check in `api/admin/domains/route.ts`: an unrecognised status must
+  // become a 400 here rather than an opaque Prisma error at query time.
+  if (data.status !== undefined && !isDomainStatus(data.status)) {
+    return `Status must be one of ${DOMAIN_STATUSES.join(', ')}`;
+  }
+
   if (data.isPublished !== undefined && typeof data.isPublished !== 'boolean') {
     return 'Publication status must be a boolean value';
   }

@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-// `useRouter` gives us `router.refresh()` — see the long note on it in `handlePublishToggle`.
+// `useRouter` gives us `router.refresh()` — see the long note on it in `handleStatusChange`.
 // It comes from `next/navigation` (the App Router version), NOT `next/router` (Pages Router,
 // which would throw here).
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
+  Clock,
   ExternalLink,
   Eye,
   EyeOff,
@@ -57,6 +58,28 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { DomainForm } from './DomainForm';
+import type { DomainStatus } from '@/generated/prisma';
+import { DOMAIN_STATUSES, DOMAIN_STATUS_LABELS } from '@/lib/domain-status';
+
+/**
+ * How each status is drawn in the table.
+ *
+ * ⚠️ Deliberately NOT colour-only. The three variants differ in weight and border as well as
+ * hue — solid, outlined, muted — so the distinction survives dark mode and does not depend on
+ * a reader distinguishing two similar colours. Same reasoning as the section badges in G-6c.
+ */
+const STATUS_BADGE_VARIANT: Record<DomainStatus, 'default' | 'secondary' | 'outline'> = {
+  PUBLISHED: 'default',
+  UPCOMING: 'outline',
+  DRAFT: 'secondary',
+};
+
+/** Icon per status in the row menu — `Clock` reads as "later" without needing the label. */
+const STATUS_ICON: Record<DomainStatus, typeof Eye> = {
+  PUBLISHED: Eye,
+  UPCOMING: Clock,
+  DRAFT: EyeOff,
+};
 
 /**
  * Domains table (rebuilt in Phase G-3b).
@@ -65,7 +88,7 @@ import { DomainForm } from './DomainForm';
  * WHAT THIS SCREEN IS FOR
  * -----------------------
  * One row per content domain (35 of them today), with the four actions you actually
- * perform on a domain: edit it, look at it live, publish/unpublish it, delete it.
+ * perform on a domain: edit it, look at it live, change its status, delete it.
  *
  * WHAT THE REBUILD FIXED — four genuine bugs, not just styling
  * -----------------------------------------------------------
@@ -78,7 +101,8 @@ import { DomainForm } from './DomainForm';
  *    the domain. Meanwhile `PATCH /api/admin/domains/[id]` already accepted
  *    `{ isPublished }`, already worked, and already called `invalidateDomains()` to bust
  *    the public cache. The endpoint was fine; the button was never wired to it. It is
- *    wired now (`handlePublishToggle` below).
+ *    wired now — see `handleStatusChange`, which in Phase H replaced the boolean toggle
+ *    with an explicit status set, because a toggle cannot reach a third state.
  *
  * 2. ⚠️ BOTH MODAL BACKDROPS RENDERED SOLID BLACK. They used
  *    `className="fixed inset-0 bg-black bg-opacity-50"`, but `bg-opacity-*` is Tailwind
@@ -120,7 +144,8 @@ type Domain = {
   name: string;
   slug: string;
   pageType: string;
-  isPublished: boolean;
+  /** Lifecycle state — replaces the old `isPublished` boolean. */
+  status: DomainStatus;
   orderInCategory: number;
   targetCountries?: string[];
   createdAt: Date;
@@ -168,12 +193,18 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
   const domainToDelete = deletingId ? domains.find((d) => d.id === deletingId) : null;
 
   /**
-   * Publish or unpublish a domain — the wire-up bug #1 above was missing.
+   * Move a domain to a named status.
    *
-   * Sends the OPPOSITE of the current state (`!domain.isPublished`) rather than a fixed
-   * value, so one menu item serves both directions.
+   * ⚠️ WAS A TOGGLE, AND A TOGGLE CANNOT EXPRESS THREE STATES.
+   *
+   * This sent `{ isPublished: !domain.isPublished }` — "whatever it is now, make it the other
+   * thing". With DRAFT / PUBLISHED / UPCOMING there is no "other thing": the opposite of
+   * published is ambiguous, and there is no sequence of flips that reaches UPCOMING at all.
+   *
+   * It now takes the target status explicitly, and the row menu offers the two states the
+   * domain is not currently in.
    */
-  async function handlePublishToggle(domain: Domain) {
+  async function handleStatusChange(domain: Domain, status: DomainStatus) {
     setPublishingId(domain.id);
     setErrorMessage(null);
 
@@ -181,7 +212,7 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
       const response = await fetch(`/api/admin/domains/${domain.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isPublished: !domain.isPublished }),
+        body: JSON.stringify({ status }),
       });
 
       // `fetch` only rejects on network failure — a 404 or 500 still resolves with
@@ -292,7 +323,7 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
                 isPublishing={publishingId === domain.id}
                 onEdit={() => setEditingId(domain.id)}
                 onDelete={() => setDeletingId(domain.id)}
-                onPublishToggle={() => handlePublishToggle(domain)}
+                onStatusChange={(status) => handleStatusChange(domain, status)}
               />
             ))
           ) : (
@@ -353,7 +384,7 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
                 pageType: domainToEdit.pageType,
                 categoryId: domainToEdit.category?.id || '',
                 orderInCategory: domainToEdit.orderInCategory,
-                isPublished: domainToEdit.isPublished,
+                status: domainToEdit.status,
                 // `['ALL']` is the "visible everywhere" default — see the country
                 // targeting in #8. A domain with no explicit list must not become invisible.
                 targetCountries: domainToEdit.targetCountries || ['ALL'],
@@ -399,10 +430,10 @@ type DomainRowProps = {
   isPublishing: boolean;
   onEdit: () => void;
   onDelete: () => void;
-  onPublishToggle: () => void;
+  onStatusChange: (status: DomainStatus) => void;
 };
 
-function DomainRow({ domain, isPublishing, onEdit, onDelete, onPublishToggle }: DomainRowProps) {
+function DomainRow({ domain, isPublishing, onEdit, onDelete, onStatusChange }: DomainRowProps) {
   const isHierarchical = domain.pageType !== 'direct';
 
   return (
@@ -506,12 +537,15 @@ function DomainRow({ domain, isPublishing, onEdit, onDelete, onPublishToggle }: 
       {/* ── Publication status ── */}
       <TableCell>
         {/*
-          `default` (solid) for Live and `secondary` (muted) for Draft, so published rows
-          carry more visual weight — the state you care about is "is this public yet".
-          Replaces `bg-green-100 text-green-800` / `bg-yellow-100 text-yellow-800`.
+          Three states now, so the two-way ternary became a lookup.
+
+          `default` (solid) for Live, since "is this public yet" is the state you scan for.
+          `outline` for Upcoming — publicly visible, but not the same kind of live as a real
+          page — and `secondary` (muted) for Draft. The three are distinguishable by weight
+          and border, not only by colour, so the distinction survives in both themes.
         */}
-        <Badge variant={domain.isPublished ? 'default' : 'secondary'} className="font-normal">
-          {domain.isPublished ? 'Live' : 'Draft'}
+        <Badge variant={STATUS_BADGE_VARIANT[domain.status]} className="font-normal">
+          {DOMAIN_STATUS_LABELS[domain.status]}
         </Badge>
       </TableCell>
 
@@ -587,14 +621,29 @@ function DomainRow({ domain, isPublishing, onEdit, onDelete, onPublishToggle }: 
               </Link>
             </DropdownMenuItem>
 
-            <DropdownMenuItem onClick={onPublishToggle} disabled={isPublishing}>
-              {domain.isPublished ? (
-                <EyeOff className="size-4" aria-hidden="true" />
-              ) : (
-                <Eye className="size-4" aria-hidden="true" />
-              )}
-              {domain.isPublished ? 'Unpublish' : 'Publish'}
-            </DropdownMenuItem>
+            {/*
+              ⚠️ ONE ITEM BECAME A SHORT LIST — the two statuses this domain is NOT in.
+
+              A single "Publish / Unpublish" item worked when there were two states and one
+              was always the opposite of the other. With three, the menu names each
+              destination outright, so "Set to Upcoming" is reachable and nothing depends on
+              guessing what the opposite of the current state is.
+
+              Filtering out the current status means the menu never offers a no-op.
+            */}
+            {DOMAIN_STATUSES.filter((status) => status !== domain.status).map((status) => {
+              const Icon = STATUS_ICON[status];
+              return (
+                <DropdownMenuItem
+                  key={status}
+                  onClick={() => onStatusChange(status)}
+                  disabled={isPublishing}
+                >
+                  <Icon className="size-4" aria-hidden="true" />
+                  Set to {DOMAIN_STATUS_LABELS[status]}
+                </DropdownMenuItem>
+              );
+            })}
 
             {/* A visual break so Delete is never the item you hit by momentum. */}
             <DropdownMenuSeparator />

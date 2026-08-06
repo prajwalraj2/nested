@@ -5,14 +5,25 @@
  * data structures for the application.
  */
 
-import type { 
-  Domain, 
-  DomainCategory, 
-  Page, 
+import type {
+  Domain,
+  DomainCategory,
+  DomainStatus,
+  Page,
   ContentBlock,
   Table,
   RichTextContent
 } from '@/generated/prisma';
+
+/**
+ * Re-exported so callers can say `import { DomainStatus } from '@/services'` alongside the
+ * types they are already importing, instead of reaching into the generated client directly.
+ *
+ * ⚠️ `DomainWithCategory` and `DomainWithPages` are intersections with Prisma's own `Domain`
+ * type, so they picked up `status` automatically. Only `DomainBasic` — which lists its fields
+ * by hand — needed changing.
+ */
+export type { DomainStatus };
 
 // ============================================
 // Domain Types
@@ -41,6 +52,14 @@ export type DomainBasic = {
   name: string;
   slug: string;
   pageType: string;
+  /**
+   * The lifecycle state — DRAFT / PUBLISHED / UPCOMING. Use this, not `isPublished`.
+   *
+   * Typed as the Prisma enum so a typo is a compile error rather than a query that silently
+   * matches nothing.
+   */
+  status: DomainStatus;
+  /** @deprecated Superseded by `status`; kept in sync for one release. See schema.prisma. */
   isPublished: boolean;
   targetCountries: string[];
   orderInCategory: number;

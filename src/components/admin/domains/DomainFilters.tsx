@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
+import { DOMAIN_STATUS_LABELS, STATUS_BY_URL_PARAM } from '@/lib/domain-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -115,10 +116,28 @@ function toUiValue(paramValue: string | undefined): string {
  * `DomainForm`'s selects deliberately do NOT do this: they only exist inside a dialog, which
  * cannot be reached before JS has loaded, so there is no pre-hydration paint to protect.
  */
-const STATUS_LABELS: Record<string, string> = {
-  published: 'Published',
-  draft: 'Draft',
-};
+/**
+ * The status options, DERIVED from the shared URL-param map rather than written out here.
+ *
+ * ⚠️ THIS LIST WAS HAND-MAINTAINED AND WAS MISSED WHEN `UPCOMING` WAS ADDED (H-1). The API and
+ * the page query both understood `?status=upcoming` immediately, but this dropdown only ever
+ * offered Published and Draft — so the filter silently could not reach a third of the data,
+ * and the active-filter chip below rendered any non-`published` value as "Draft", which would
+ * have labelled an upcoming filter wrongly.
+ *
+ * Deriving it means a fourth status appears here automatically. Labels come from
+ * `DOMAIN_STATUS_LABELS`, the same source the table badges use, so the option you pick and the
+ * badge you then see say the same word.
+ */
+const STATUS_FILTER_OPTIONS = Object.entries(STATUS_BY_URL_PARAM).map(([param, status]) => ({
+  param,
+  label: DOMAIN_STATUS_LABELS[status],
+}));
+
+/** URL param → label, for the trigger and the active-filter chip. */
+const STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  STATUS_FILTER_OPTIONS.map(({ param, label }) => [param, label])
+);
 
 const PAGE_TYPE_LABELS: Record<string, string> = {
   direct: 'Direct',
@@ -283,9 +302,14 @@ export function DomainFilters({ categories, currentFilters }: DomainFiltersProps
             <SelectContent>
               <SelectItem value={NO_FILTER}>All statuses</SelectItem>
               {/* ✅ / 📝 emoji dropped — the words carry the meaning, and the table's own
-                  badges are the place status is read at a glance. */}
-              <SelectItem value="published">Published</SelectItem>
-              <SelectItem value="draft">Draft</SelectItem>
+                  badges are the place status is read at a glance.
+
+                  Mapped rather than listed: see STATUS_FILTER_OPTIONS above for why. */}
+              {STATUS_FILTER_OPTIONS.map(({ param, label }) => (
+                <SelectItem key={param} value={param}>
+                  {label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -363,7 +387,13 @@ export function DomainFilters({ categories, currentFilters }: DomainFiltersProps
 
           {currentFilters.status && (
             <FilterChip
-              label={`Status: ${currentFilters.status === 'published' ? 'Published' : 'Draft'}`}
+              /*
+                ⚠️ Was `status === 'published' ? 'Published' : 'Draft'` — a two-way ternary, so
+                filtering by upcoming produced a chip reading "Status: Draft". The lookup falls
+                back to the raw value rather than to a guess, so an unrecognised param shows
+                itself instead of a wrong label.
+              */
+              label={`Status: ${STATUS_LABELS[currentFilters.status] ?? currentFilters.status}`}
               onRemove={() => updateFilters({ status: '' })}
               disabled={isPending}
             />
