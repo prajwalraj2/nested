@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { Toaster } from "@/components/ui/sonner";
 // Single source of truth for the brand name and canonical origin — shared with the
 // per-page generateMetadata functions and (later) sitemap.ts, so they can't drift.
 import { SITE_NAME, SITE_URL, TITLE_SEPARATOR, GA_MEASUREMENT_ID, buildOpenGraph, buildTwitter } from "@/lib/seo";
@@ -197,7 +198,35 @@ export default function RootLayout({
           `children` stays server-rendered: only the provider itself is a client
           component (see the note in src/components/ThemeProvider.tsx).
         */}
-        <ThemeProvider>{children}</ThemeProvider>
+        {/*
+          ⚠️ `Toaster` sits INSIDE `ThemeProvider`, not beside it.
+
+          `components/ui/sonner.tsx` calls `useTheme()` from next-themes to decide whether to
+          render light or dark. Outside the provider that hook returns the default rather than
+          the user's actual choice, so toasts would render light-on-light for anyone in dark
+          mode — the exact class of bug #21 existed to remove.
+
+          Mounted once at the root so both React trees can raise a toast: the public pages and
+          the admin panel, which lives inside its own `SessionProvider`.
+
+          `position="top-right"` was the user's choice. `sonner` replaces shadcn's deprecated
+          `toast` component, and is the library this document already earmarked for the
+          remaining `alert()` calls (#22.6) — so this is one mechanism, not a second.
+
+          `closeButton` puts an × on every toast so it can be dismissed immediately rather than
+          only by waiting out the timer or swiping. Set HERE rather than per `toast()` call, so
+          every toast in the app behaves the same way — including the ones that will replace
+          the remaining `alert()` calls. A per-call option would guarantee they drift apart.
+
+          ⚠️ Checked in `node_modules/sonner/dist/index.js` rather than assumed: in 2.0.7 the
+          close button carries no `opacity: 0`, so it is visible at rest, not only on hover.
+          Some earlier releases revealed it on hover, which would have been a silent difference
+          from what was asked for.
+        */}
+        <ThemeProvider>
+          {children}
+          <Toaster position="top-right" closeButton />
+        </ThemeProvider>
 
         {/*
           Google Analytics 4.
