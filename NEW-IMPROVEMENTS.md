@@ -5667,6 +5667,69 @@ a published and an unpublished domain, because neither had a page — a 404 that
 Here the same domain, with a page, returns 200 as PUBLISHED and 404 as DRAFT/UPCOMING. **A
 negative result needs a positive control.**
 
+###### ⚠️ FOUND ON PRODUCTION — the sitemap kept listing an unpublished domain
+
+**Not caused by H-1, but exposed by it.** After migrating production and setting
+`gdesign` to Draft there, the user confirmed it vanished from `/domain`, from the sidebar, and
+that its page 404'd — but `/sitemap.xml` still listed it **and all 70 of its child pages**.
+Locally the same change took effect immediately.
+
+**Two facts explain the whole difference:**
+
+1. `src/app/sitemap.ts:40` sets `export const revalidate = 3600`, making `/sitemap.xml` a
+   **statically generated** route regenerated at most once an hour. The build output says so:
+   `○ /sitemap.xml … 1h 1y`. And ISR serves the **stale** copy on the first request after
+   expiry while regenerating behind it, so the real lag exceeds an hour.
+2. ⚠️ **`revalidateTag` could never reach it.** `invalidateDomains()` only fires tags, and
+   `sitemap.ts` queries `prisma` **directly** — it is not an `unstable_cache` entry, so it has
+   no tag. Every call was a no-op for the sitemap.
+
+⚠️ **`next dev` does not apply the static cache**, so the sitemap regenerates on every request
+locally and the gap is completely invisible in development. **This class of bug can only be
+seen on a built site.**
+
+Harmless until now only because no domain had ever been unpublished. With DRAFT/UPCOMING that
+is routine, and a sitemap advertising 404ing URLs is precisely the soft-404 problem
+`sitemap.ts` already avoids for geo-restricted pages (#15.4).
+
+**Fix:** `invalidateSitemap()` — a `revalidatePath('/sitemap.xml')` — added to both
+`invalidateDomains()` and `invalidatePages()`. Pages are sitemap entries in their own right,
+and `pageLastModified()` folds in table/rich-text timestamps, so content writes change the
+document too. The hourly `revalidate` stays as a backstop.
+
+✅ **A separate worry checked and cleared:** the child pages are fetched as a **nested relation
+inside the domain query**, not as a separate query, so filtering the domain on
+`status: 'PUBLISHED'` already excludes all of its pages. H-1's sitemap change was complete; the
+70 URLs were simply part of the same stale document.
+
+⚠️ **Verification could not be done in `next dev`** — there is no static cache there to
+invalidate, so a dev test would pass without proving anything. It needs `next build && next
+start`, which cannot run while a dev server is up (they share `.next`), so the user stopped
+theirs first.
+
+**Verified with an A/B control against a BUILT server** (`next start -p 3005`), because a green
+run alone would only show the test passed, not that the fix caused it:
+
+| Assertion | fix enabled | fix disabled (control) |
+| --- | --- | --- |
+| new PUBLISHED domain appears in the sitemap immediately | **PASS** | **FAIL** |
+| DRAFT domain gone from the sitemap immediately | PASS | PASS *(vacuous)* |
+| back to PUBLISHED → listed again immediately | **PASS** | **FAIL** |
+| UPCOMING domain absent | PASS | PASS *(vacuous)* |
+
+⚠️ **The two removal assertions pass in BOTH runs, and prove nothing on their own.** In the
+control the domain was never in the cached sitemap to begin with, so "absent" was true for the
+wrong reason. Only the two *addition* assertions discriminate. **This is the same trap as the
+§24.2 404 probe, inverted** — a test that asserts absence cannot tell "correctly removed" from
+"never there", and needs a positive case beside it.
+
+Fix restored and rebuilt afterwards; `tsc` clean, build clean, no probe rows left in the
+database.
+
+⚠️ **`TaskStop` orphaned a `next start` on port 3005 as well** — third time this session that
+killing the wrapper left the child listening. It caused an `EADDRINUSE` that aborted one run.
+**Free the port explicitly, do not trust the task stop.**
+
 ###### ⚠️ MISSED ON THE FIRST PASS — the status filter dropdown (found by the user)
 
 Step 12 of the H-1 plan named `DomainFilters.tsx` explicitly, **and I skipped it.** The API and

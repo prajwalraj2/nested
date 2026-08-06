@@ -1,0 +1,38 @@
+﻿fix(#24): invalidate the sitemap on domain and page writes
+
+Found on production during H-1 testing: a domain set to Draft correctly vanished from
+/domain, correctly 404'd, and was still listed in /sitemap.xml along with all 70 of its
+child pages. The same change took effect immediately in local development.
+
+Two pre-existing facts explain it, and neither was caused by the status work:
+sitemap.ts sets \export const revalidate = 3600\, so /sitemap.xml is a statically
+generated route regenerated at most once an hour -- and ISR serves the stale copy on
+the first request after expiry while regenerating behind it, so the real lag is longer
+than an hour.
+
+And revalidateTag could never reach it. invalidateDomains() only fires tags, but
+sitemap.ts queries prisma directly rather than through unstable_cache, so it carries no
+tag at all. Every one of those calls was a silent no-op for the sitemap.
+
+\
+ext dev\ does not apply the static cache, which is why this is invisible locally.
+
+It was harmless only because no domain had ever been unpublished; with DRAFT and
+UPCOMING that is now a routine action, and a sitemap advertising URLs that 404 is the
+soft-404 problem sitemap.ts already avoids for geo-restricted pages.
+
+invalidateSitemap() -- a revalidatePath('/sitemap.xml') -- is now called from both
+invalidateDomains() and invalidatePages(). Pages are sitemap entries in their own
+right, and pageLastModified() folds in table and rich-text timestamps, so content
+writes change the document too. The hourly revalidate stays as a backstop.
+
+Verified A/B against a built server: with the fix, a status change is reflected in the
+sitemap immediately; with it disabled, the same assertions fail. The removal assertions
+pass either way and prove nothing alone -- in the control the domain was never in the
+cached document.
+
+Checked and cleared separately: the child pages are a nested relation inside the domain
+query, so filtering the domain on status already excludes them. H-1's sitemap change
+was complete.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
