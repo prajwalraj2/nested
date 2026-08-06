@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { PAGE_STATUSES, isPageStatus, resolvePageStatus } from '@/lib/page-status';
 // Shared admin guard — replaces the old inline `auth()` check.
 // See src/lib/api-auth.ts for the 401-vs-403 and isActive reasoning.
 import { requireAdmin } from '@/lib/api-auth';
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
         title: true,
         slug: true,
         contentType: true,
+        status: true,
         parentId: true,
         domainId: true,
         targetCountries: true,
@@ -88,6 +90,7 @@ export async function GET(request: NextRequest) {
       title: page.title,
       slug: page.slug,
       contentType: page.contentType,
+      status: page.status,
       parentId: page.parentId,
       domainId: page.domainId,
       targetCountries: page.targetCountries,
@@ -175,6 +178,9 @@ export async function POST(request: NextRequest) {
           data: {
             title: domain.name,
             slug: '__main__',
+            // Explicit, not relying on the column default: this row IS the domain root, and it
+            // must never be created in a state that would 404 it. See page-status.ts.
+            status: 'PUBLISHED',
             contentType: 'section_based',
             domainId,
             parentId: null,
@@ -235,6 +241,12 @@ export async function POST(request: NextRequest) {
         domainId,
         parentId: finalParentId,
         order: (maxOrder?.order || 0) + 1,
+        /*
+          Defaults to PUBLISHED when the body omits it — matching the column default and today's
+          behaviour, where a page is live the moment it is created. See src/lib/page-status.ts
+          for why this default is the opposite of the domain one.
+        */
+        status: resolvePageStatus(body),
         targetCountries: validTargetCountries
       },
       select: {
@@ -242,6 +254,7 @@ export async function POST(request: NextRequest) {
         title: true,
         slug: true,
         contentType: true,
+        status: true,
         parentId: true,
         domainId: true,
         targetCountries: true,
@@ -285,6 +298,15 @@ export async function POST(request: NextRequest) {
  * Validate page data for creation
  */
 function validatePageData(data: any): string | null {
+  /*
+    `status` is optional — omitting it means PUBLISHED, which is what every existing caller
+    effectively did. An UNRECOGNISED value must become a 400 here rather than reaching Prisma,
+    which would fail with an opaque runtime error instead of saying what was wrong.
+  */
+  if (data.status !== undefined && !isPageStatus(data.status)) {
+    return `Status must be one of ${PAGE_STATUSES.join(', ')}`;
+  }
+
   if (!data.title || typeof data.title !== 'string' || !data.title.trim()) {
     return 'Page title is required';
   }

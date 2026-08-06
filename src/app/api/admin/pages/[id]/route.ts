@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { PAGE_STATUSES, isMainPage, isPageStatus, resolvePageStatus } from '@/lib/page-status';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 import { invalidatePages } from '@/lib/cache-invalidation';
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         title: true,
         slug: true,
         contentType: true,
+        status: true,
         createdAt: true
       },
       orderBy: { order: 'asc' }
@@ -102,6 +104,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         title: page.title,
         slug: page.slug,
         contentType: page.contentType,
+        status: page.status,
         parentId: page.parentId,
         domainId: page.domainId,
         targetCountries: page.targetCountries,
@@ -159,6 +162,34 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { success: false, message: 'Page not found' },
         { status: 404 }
+      );
+    }
+
+    /**
+     * ⚠️ A `__main__` PAGE MAY NEVER LEAVE PUBLISHED.
+     *
+     * `__main__` is not a page you navigate to by name — it IS `/domain/<slug>`, the root of
+     * every direct domain. Hiding it would 404 that domain entirely, which is finding #11's
+     * failure mode arrived at deliberately.
+     *
+     * Its visibility is already governed by `Domain.status` one level up, so a status of its
+     * own would be a second switch on the same door. `PageService.getMainPage` therefore does
+     * NOT filter on status, and THIS GUARD is what makes that safe: it keeps the bad state
+     * unreachable through the API, so the unfiltered read can never surface one.
+     *
+     * The DELETE handler below already refuses `__main__` for the same reason.
+     */
+    const nextStatus = resolvePageStatus(body, existingPage.status);
+
+    if (isMainPage(existingPage) && nextStatus !== 'PUBLISHED') {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "The __main__ page is a domain's root and must stay live. To hide this domain, " +
+            "change the DOMAIN's status instead."
+        },
+        { status: 400 }
       );
     }
 
@@ -230,6 +261,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         slug: slug.trim().toLowerCase(),
         contentType,
         parentId: parentId || null,
+        /*
+          Falls back to the row's EXISTING status, not to PUBLISHED. A PUT that only renames a
+          page must not quietly republish a draft — the same reasoning as the domain PUT.
+        */
+        status: nextStatus,
         targetCountries: validTargetCountries
       },
       include: {
@@ -269,6 +305,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         title: updatedPage.title,
         slug: updatedPage.slug,
         contentType: updatedPage.contentType,
+        status: updatedPage.status,
         parentId: updatedPage.parentId,
         domainId: updatedPage.domainId,
         targetCountries: updatedPage.targetCountries,
@@ -428,6 +465,13 @@ async function getAllDescendants(pageId: string, depth = 0): Promise<Array<{id: 
  * Validate page data for updates
  */
 function validatePageUpdateData(data: any): string | null {
+  // Twin of the check in `api/admin/pages/route.ts`: an unrecognised status must become a 400
+  // here rather than an opaque Prisma error at query time. Optional, so a caller that omits it
+  // keeps the page's existing status.
+  if (data.status !== undefined && !isPageStatus(data.status)) {
+    return `Status must be one of ${PAGE_STATUSES.join(', ')}`;
+  }
+
   if (!data.title || typeof data.title !== 'string' || !data.title.trim()) {
     return 'Page title is required';
   }

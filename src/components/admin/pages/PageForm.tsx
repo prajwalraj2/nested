@@ -1,5 +1,7 @@
 'use client';
 
+import type { PageStatus } from '@/generated/prisma';
+import { PAGE_STATUSES, PAGE_STATUS_DESCRIPTIONS, PAGE_STATUS_LABELS, isMainPage } from '@/lib/page-status';
 import type { DomainStatus } from '@/generated/prisma';
 import { useState } from 'react';
 import { AlertTriangle, Globe, Loader2 } from 'lucide-react';
@@ -77,6 +79,8 @@ type Page = {
   parentId: string | null;
   domainId: string;
   targetCountries?: string[];
+  /** Lifecycle state. Optional so a caller with the older shape still compiles. */
+  status?: PageStatus;
   createdAt: Date;
   children: Page[];
   depth: number;
@@ -143,6 +147,13 @@ export function PageForm({
     */
     parentId: editingPage?.parentId || parentId || (isDirect ? (mainPage?.id ?? null) : null),
     targetCountries: editingPage?.targetCountries || [ALL_COUNTRIES],
+    /*
+      ⚠️ Falls back to PUBLISHED, not DRAFT — matching the column default and today's behaviour,
+      where a page is live the moment it is created. A DRAFT fallback would also mean that
+      editing an existing live page and saving without touching this field would take it
+      offline, which is a destructive result from doing nothing.
+    */
+    status: editingPage?.status ?? ('PUBLISHED' as PageStatus),
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -270,6 +281,7 @@ export function PageForm({
         domainId: domain.id,
         parentId: formData.parentId || null,
         targetCountries: formData.targetCountries,
+        status: formData.status,
       };
 
       const url = isEditMode ? `/api/admin/pages/${editingPage.id}` : '/api/admin/pages';
@@ -451,6 +463,57 @@ export function PageForm({
           </p>
         </div>
       </div>
+
+      {/*
+        ── Status ──
+
+        ⚠️ HIDDEN ENTIRELY FOR A `__main__` PAGE, not merely disabled.
+
+        `__main__` is the root of a direct domain — it IS `/domain/<slug>` — so hiding it would
+        404 that whole domain. `PUT /api/admin/pages/[id]` refuses a non-published status on it,
+        and showing a control whose every non-default value the server rejects would be a worse
+        experience than not showing it: you would only learn it was impossible after saving.
+
+        To hide such a domain you change the DOMAIN's status, which is what the note says.
+      */}
+      {editingPage && isMainPage({ slug: formData.slug }) ? (
+        <div className="rounded-lg border p-3">
+          <h4 className="text-sm font-medium">Status</h4>
+          <p className="text-muted-foreground text-xs">
+            This is the domain&apos;s root page, so it is always live. To hide the domain,
+            change the domain&apos;s status instead.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5 rounded-lg border p-3">
+          <Label htmlFor="page-status" className="text-sm font-medium">
+            Status
+          </Label>
+          <Select
+            value={formData.status}
+            onValueChange={(value) => handleChange('status', value)}
+          >
+            {/*
+              `SelectValue` gets explicit children rather than a placeholder — Radix resolves
+              the selected label from mounted content, which does not exist during server
+              rendering, so a bare `<SelectValue />` paints an empty trigger until hydration.
+            */}
+            <SelectTrigger id="page-status" className="w-full">
+              <SelectValue>{PAGE_STATUS_LABELS[formData.status]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_STATUSES.map((status) => (
+                <SelectItem key={status} value={status}>
+                  {PAGE_STATUS_LABELS[status]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-muted-foreground text-xs">
+            {PAGE_STATUS_DESCRIPTIONS[formData.status]}
+          </p>
+        </div>
+      )}
 
       {/* ── Target countries ── */}
       <div className="space-y-3 rounded-lg border p-3">
