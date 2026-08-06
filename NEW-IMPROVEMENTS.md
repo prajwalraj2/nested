@@ -48,7 +48,7 @@ Partially-done findings show which sub-items are complete.
 | ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
 | ~    | 22  | **Admin audit — 22.1/22.3/22.4/22.5 DONE; only 22.2 (write-once table data) open** | 🔴 **Critical** | Functionality      | multi-day |
 | [x]  | 23  | **PRODUCTION OUTAGE: all rich-text admin routes 500 — unpinned Node version**      | 🔴 **Critical** | Deploy / Runtime   | 20 min    |
-| [ ]  | 24  | Domain status (Draft/Published/**Upcoming**) + public "Upcoming Domains" section  | 🔵 Feature      | Schema / UI        | Phase H   |
+| [x]  | 24  | Domain status (Draft/Published/**Upcoming**) + public "Upcoming Domains" section  | 🔵 Feature      | Schema / UI        | Phase H   |
 
 
 **Sub-items:**
@@ -5610,7 +5610,122 @@ testable before anything user-visible lands.
 | Step | Scope | Status |
 | --- | --- | --- |
 | **H-1** ✅ | Schema + migration + admin UI + **the missing access gate** | **DONE 6 Aug.** Migration backfilled **37 → PUBLISHED, 0 DRAFT, 0 UPCOMING**, zero drift against the retained boolean. **25/25 HTTP tests pass.** Record below. |
-| **H-2** | Public "Upcoming Domains" section + `sonner` | |
+| **H-2** ✅ | Public "Upcoming Domains" section + `sonner` | **DONE 6 Aug.** Buttons not links, so there is nothing crawlable and nothing to share. **14/14 tests pass** against a built server. Record below. |
+
+##### ✅ H-2 DONE — 6 Aug 2026 (the public "Upcoming Domains" section)
+
+**One new dependency (`sonner`), one new component, three files touched.**
+
+`<Toaster position="top-right" />` mounted in the root layout **inside** `ThemeProvider` —
+`components/ui/sonner.tsx` calls `useTheme()`, and outside the provider that returns the
+default rather than the user's choice, so toasts would render light-on-light in dark mode.
+
+**`UpcomingDomainList` renders `<button>`, not `<a>`.** An upcoming domain has no page — H-1
+made `[...slug]` 404 anything not `PUBLISHED` — so a link here would point at a 404: crawlable
+as a soft 404, and shareable as a URL that silently changes meaning the day the domain goes
+live. A `<button>` has no href, and unlike a styled `<div onClick>` it is focusable, tab-
+reachable, announced as interactive, and fires on Enter/Space.
+
+Only the list is a Client Component. `domain/page.tsx` is an async Server Component, so it
+cannot hold an `onClick` — but the heading and section wrapper stay server-rendered, keeping
+the client bundle for this feature to one small file.
+
+The section renders **only when at least one domain is upcoming**; a heading over an empty list
+promises content that does not exist. `getUpcoming` takes the **same `userCountry`** as
+`getAll`, so "upcoming" cannot become a way to leak geo-restricted content.
+
+###### TEST CASES — 14/14 passed against `next build && next start`
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1 | Section renders when something is upcoming | heading, subheading and the domain name all present |
+| 2 | Not links | no `href="/domain/test2"`; the section contains a `<button` |
+| 3 | Out of the sitemap | absent |
+| 4 | Detail page still 404s | 404 |
+| 5 | Geo-restricted upcoming domain | shown to `US`, hidden from `IN` |
+| 6 | Nothing upcoming → no section at all | heading and subheading both absent; published grid unaffected |
+| 7 | Set back to UPCOMING | section returns |
+
+Client bundle checked directly: `sonner` is in a shipped chunk and the toast's text is in
+`/domain`'s own chunk, so the wiring ships. ⚠️ **The visual toast on click is NOT verified** —
+that needs a real browser click.
+
+###### Toast close button — and a trap in the vendored shadcn wrapper
+
+Added `closeButton` to `<Toaster>` so every toast can be dismissed immediately rather than only
+by waiting out the timer or swiping. Set on the Toaster, not per `toast()` call, so the toasts
+that will later replace the remaining `alert()` calls (#22.6) behave identically without anyone
+remembering to pass an option.
+
+⚠️ Checked in `node_modules/sonner/dist/index.js` rather than assumed: in **2.0.7 the close
+button carries no `opacity: 0`**, so it is visible at rest. Some earlier releases revealed it
+only on hover, which would have quietly not been what was asked for.
+
+⚠️ **THE OBVIOUS WAY TO MOVE IT WOULD HAVE BROKEN THE TOAST'S THEMING.** sonner puts the × on
+the leading edge, so it sat on the top-**left** corner, half outside the card. The natural fix
+is a `style` prop carrying sonner's three `--toast-close-button-*` variables — but
+`src/components/ui/sonner.tsx` renders
+
+```tsx
+<Sonner … style={{ '--normal-bg': …, '--normal-text': …, '--normal-border': …, '--border-radius': … }} {...props} />
+```
+
+with **the spread LAST**. A `style` passed from `layout.tsx` therefore *replaces* that object
+instead of merging, silently dropping the four variables that map the toast onto the app's theme
+tokens. The toast would have lost its theming in exchange for a moved button. `className` has
+the identical problem — it would drop `"toaster group"`.
+
+Editing the wrapper to merge them would be the tidy fix, but it is vendored shadcn and stays
+untouched. The variables therefore live in `globals.css`, targeted at sonner's own
+`[data-sonner-toaster]` attribute, which cannot clobber anything the component sets. Verified in
+the compiled CSS, and `--normal-bg` confirmed still present in the client bundle.
+
+**Generalisable:** before passing `style` or `className` to a wrapped third-party component,
+check where `{...props}` sits in the spread. Last means override, not merge.
+
+###### Styling revisions after the user saw it (6 Aug)
+
+Three changes on request, all verified in the rendered HTML **and** in the generated CSS:
+
+1. **Fills downwards, five per column** — `lg:grid-flow-col lg:grid-rows-5` replaces a
+   left-to-right `sm:grid-cols-2 lg:grid-cols-3` flow. Four upcoming domains were spreading
+   across all three columns with a single orphan starting a second row; they now form one tidy
+   column under the heading, matching the published category blocks above. `lg:` only, because
+   `grid-flow-col` on a narrow screen would push items sideways off it.
+2. **`text-foreground/80` instead of `text-muted-foreground`.** `muted-foreground` is the token
+   for genuinely secondary text and made real domains look disabled next to the live ones. An
+   alpha on the same token tracks both themes; a fixed grey would have been wrong in one.
+3. **`mb-5` on the heading**, carrying the spacing the removed subtitle used to provide. The
+   "These are in progress" line was deleted (not left commented out) — the heading already says
+   it.
+
+⚠️ **A CSS check nearly produced a false alarm.** `grep` for `text-foreground/80` returned **0**
+— the CSS escapes the slash as `\/` — and printing the rule with `head -1` showed
+`color:var(--foreground)` with no alpha, which looked exactly like a dropped utility of the
+`bg-opacity-50` kind. It is not: **Tailwind v4 emits a plain fallback first and the real value
+inside `@supports (color:color-mix(...))`**. The alpha applies. `.lg\:grid-rows-5` and
+`.lg\:grid-flow-col` are likewise present inside the `lg` media query. **When checking whether a
+Tailwind utility survived, read the whole rule set, not the first match.**
+
+###### ⚠️ THE FIRST TEST RUN PRODUCED THREE FALSE FAILURES — worth recording
+
+The first version mutated statuses with `prisma.domain.update` directly and reported that a
+geo-targeted domain was hidden from its own country and that the section survived after
+everything was un-upcoming. Both were **artefacts of the test, not defects**:
+
+- `DomainService.getUpcoming` is an `unstable_cache` entry (`MEDIUM` = 60s, tag `DOMAINS`), and
+  **only the API calls `invalidateDomains()`**. A direct database write leaves the cache holding
+  the pre-write answer, and the page faithfully renders what it was given.
+- ⚠️ **`DEFAULT_COUNTRY` is `'US'`**, so a cookie-less request populates the *same* cache entry
+  as an explicit `user-country=US`. Test 1 fetched without a cookie and poisoned the US entry
+  before the geo probe existed.
+- ⚠️ The test's own restore set `status` without `isPublished`, leaving one row drifting —
+  precisely the inconsistency the API's derived write exists to prevent. It was repaired, and
+  restore now goes through the API.
+
+**Lesson: a test that bypasses the write path also bypasses its cache invalidation, and will
+blame the feature for its own staleness.** Every mutation now goes through the admin API, which
+is what a real admin does anyway.
 
 ##### ✅ H-1 DONE — 6 Aug 2026 (status enum, admin UI, and the access gate)
 

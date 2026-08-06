@@ -12,6 +12,7 @@ import { buildOpenGraph, buildTwitter, SITE_NAME } from '@/lib/seo';
 import { buildOrganizationJsonLd } from '@/lib/structured-data';
 import { JsonLd } from '@/components/JsonLd';
 import { PageHeading } from '@/components/domain/PageHeading';
+import { UpcomingDomainList } from '@/components/domain/UpcomingDomainList';
 
 // ============================================
 // ISR Configuration
@@ -162,10 +163,17 @@ function organizeDomainsIntoRows(
 export default async function DomainIndexPage() {
   const userCountry = await getUserCountryFromCookies();
 
-  // Fetch data using services (parallel execution)
-  const [domains, categories] = await Promise.all([
+  /*
+    Three queries in parallel rather than two.
+
+    ⚠️ `getUpcoming` takes the SAME `userCountry` as `getAll`. An upcoming domain restricted to
+    one country must stay hidden from everyone else — otherwise "upcoming" would become a way
+    to leak the existence of geo-restricted content that the published list is careful to hide.
+  */
+  const [domains, categories, upcomingDomains] = await Promise.all([
     DomainService.getAll(userCountry),
     CategoryService.getActive(),
+    DomainService.getUpcoming(userCountry),
   ]);
 
   // Organize domains into rows (grouped by categoryOrder for alignment)
@@ -213,6 +221,49 @@ export default async function DomainIndexPage() {
             })
           )).flat()}
         </div>
+
+        {/*
+          ── Upcoming Domains ──────────────────────────────────────────────
+          Domains with status UPCOMING: named here, but with no page behind them.
+
+          ⚠️ OUTSIDE the grid above, not another row inside it. The grid is built from
+          `categoryOrder` bands (see `organizeDomainsIntoRows`), and putting these in it would
+          mean giving them a category column and row — implying they sit alongside published
+          content rather than after it. This is a separate shelf, so it gets a separate block
+          with a rule above it.
+
+          ⚠️ Rendered ONLY when there is something to show. A heading over an empty list reads
+          as a bug, and promises content that does not exist.
+        */}
+        {upcomingDomains.length > 0 && (
+          <section className="mt-12 border-t pt-8" aria-labelledby="upcoming-domains-heading">
+            {/*
+              `mb-5` carries the spacing that used to come from the subtitle's own margin.
+
+              The "These are in progress. Check back soon." line was removed at the user's
+              request — the heading already says these are upcoming, so the sentence restated
+              it. Deleted rather than left commented out: commented-out markup reads as
+              unfinished work to the next person, and git already holds the history.
+            */}
+            <h1
+              id="upcoming-domains-heading"
+              className="text-foreground mb-3 text-2xl font-semibold"
+            >
+              Upcoming Domains
+            </h1>
+
+            {/*
+              Only the list is a Client Component — the heading above stays server-rendered.
+              See the note in UpcomingDomainList for why the items are buttons, not links.
+            */}
+            <UpcomingDomainList
+              domains={upcomingDomains.map((domain) => ({
+                id: domain.id,
+                name: domain.name,
+              }))}
+            />
+          </section>
+        )}
 
         {/* Empty State */}
         {domains.length === 0 && (
