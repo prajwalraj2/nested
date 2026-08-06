@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, slug, icon, description, columnPosition, isActive } = body;
+    const { name, slug, icon, description, columnPosition, isActive, categoryOrder } = body;
 
     // Check if slug is already taken
     const existingCategory = await prisma.domainCategory.findUnique({
@@ -118,21 +118,70 @@ export async function POST(request: NextRequest) {
 
     if (existingCategory) {
       return NextResponse.json(
-        { 
-          success: false, 
-          message: 'A category with this slug already exists' 
+        {
+          success: false,
+          message: 'A category with this slug already exists'
         },
         { status: 409 }
       );
     }
 
-    // Get the next order position for the specified column
-    const lastCategoryInColumn = await prisma.domainCategory.findFirst({
-      where: { columnPosition },
-      orderBy: { categoryOrder: 'desc' }
-    });
+    /**
+     * Work out which ROW this category lands on.
+     * ========================================================================
+     *
+     * ⚠️ `categoryOrder` IS THE ROW NUMBER. This was always true — the public page groups
+     * categories by `categoryOrder` into horizontal bands and renders an empty placeholder
+     * cell for every column that band is missing (`src/app/domain/page.tsx:92`,
+     * `organizeDomainsIntoRows`). But no admin screen could ever set it, so the only lever
+     * you had was the column, and this endpoint always appended to the bottom of that column.
+     * The result: every category created after the original seed landed on a row of its own,
+     * with two blank cells beside it on the live site.
+     *
+     * `categoryOrder` is now accepted from the client. The fallback branch keeps the old
+     * append-to-bottom behaviour for any caller that omits it, so nothing that used to work
+     * stops working.
+     */
+    let nextOrder: number;
 
-    const nextOrder = (lastCategoryInColumn?.categoryOrder || 0) + 1;
+    if (typeof categoryOrder === 'number') {
+      /*
+        ⚠️ A duplicate (column, row) pair makes a category VANISH from the public site with no
+        error at all: `organizeDomainsIntoRows` assigns with
+        `orderGroups[order][column] = group`, a plain overwrite, so the second category to be
+        processed silently replaces the first.
+
+        There is no unique constraint on the pair in the schema, and before this change the
+        `max + 1` logic below made duplicates unreachable in practice. Now that the row can be
+        chosen by hand, it is one keystroke away — so it is refused here, naming the occupant
+        so the message is actionable rather than just a rejection.
+      */
+      const taken = await prisma.domainCategory.findFirst({
+        where: { columnPosition, categoryOrder }
+      });
+
+      if (taken) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Row ${categoryOrder} of column ${columnPosition} is already taken by "${taken.name}". Pick a different row, or move that category first.`
+          },
+          { status: 409 }
+        );
+      }
+
+      nextOrder = categoryOrder;
+    } else {
+      // Legacy path: append below the last category in the target column.
+      const lastCategoryInColumn = await prisma.domainCategory.findFirst({
+        where: { columnPosition },
+        orderBy: { categoryOrder: 'desc' }
+      });
+
+      // `??` rather than `||`: both behave identically here (an existing order of 0 yields 1
+      // either way), but `??` says "only when absent", which is the actual intent.
+      nextOrder = (lastCategoryInColumn?.categoryOrder ?? 0) + 1;
+    }
 
     // Create the category
     const newCategory = await prisma.domainCategory.create({
@@ -212,6 +261,24 @@ function validateCategoryData(data: any): string | null {
   // Validate column position
   if (!data.columnPosition || ![1, 2, 3].includes(data.columnPosition)) {
     return 'Column position must be 1, 2, or 3';
+  }
+
+  /*
+    Row (`categoryOrder`) is OPTIONAL — omitting it means "append to the bottom of the column",
+    which is what every caller did before the field existed. When it IS sent it must be a whole
+    number of at least 1.
+
+    ⚠️ `Number.isInteger` rather than `typeof === 'number'` alone, because JSON quite happily
+    carries `2.5` and `NaN`. A fractional row would sort between two real rows and render as a
+    band of its own, which is not a state any UI can then explain to you.
+
+    There is no upper bound: rows render as the sorted set of DISTINCT values, so 1/2/3 and
+    10/20/30 produce the same three bands. A large number is not wrong, only untidy.
+  */
+  if (data.categoryOrder !== undefined) {
+    if (!Number.isInteger(data.categoryOrder) || data.categoryOrder < 1) {
+      return 'Row must be a whole number of 1 or more';
+    }
   }
 
   // Validate optional fields

@@ -5465,6 +5465,7 @@ cases, so a regression is traceable to one screen.
 | **G-6d** ✅ | **Section Layout — `SectionEditor`** + shadcn pass | **DONE 3 Aug.** Colours **54 → 0**. ⚠️ **On the user's request, both pickers and both remaining native `<select>`s became shadcn** — the domain/page pickers are now searchable `Popover`+`Command` comboboxes with **lucide type icons instead of emoji**, and the "add page to section" control is a `Command` list because it can hold **864 pages**. **Phase G-6 complete: 244 → 0 colours, 0 native selects.** |
 | **G-7** | **Rich Text list + editor** | |
 | **G-8** ✅ | **Users** | **DONE 4 Aug.** Colours **36 → 0** across 6 files. Fixed two spinners using `border-gray-900` (invisible on dark) and ⚠️ **a `container mx-auto py-6` wrapper in 5 places** — the only admin area that double-padded against `AdminLayout`. Already had its "Add New Admin" button. ⚠️ **A hydration diagnosis of mine was wrong here — see the record below.** |
+| **G-9** ✅ | **Categories — the row (`categoryOrder`) is now editable** | **DONE 6 Aug.** ⚠️ **Not a colour pass — a real missing feature, found by the user.** `categoryOrder` has always been the **row number** on the public homepage, but **no admin screen could write it**, so every category added through the UI started its own row. The admin drew three tidy stacks; the live site had **five empty cells**. Adds a Row field, rebuilds the preview as the actual grid, and makes moving a category a **swap** rather than an append. **14/14 HTTP tests pass.** Details below. |
 
 **Components installed as needed, per step** — not up front. Expected later additions: `sonner`
 (toasts, to replace the 8 `alert()` calls), `alert-dialog` (destructive confirms, replacing the
@@ -6587,6 +6588,108 @@ a replace round-trip preserves targeting. Hand-building a CSV and replacing is w
 
 ⚠️ **Not done:** a warning when replacing from a CSV that lacks the column. That is the one
 remaining sharp edge here.
+
+##### ✅ G-9 DONE — 6 Aug 2026 (Categories — the row position, which never existed in the UI)
+
+**Raised by the user**, not by a sweep: *"the Category only has Column Position, but there is no
+way to set the row position. And if I change a column of something, I think it gets in a new
+row."* Both halves were correct, and the second one had a specific cause.
+
+###### THE ROOT CAUSE — one field, two contradictory meanings
+
+`categoryOrder` (`prisma/schema.prisma:22`) is read by two places that disagree about what it is:
+
+| | Interpretation | Consequence |
+| --- | --- | --- |
+| **Admin** — `groupCategoriesByColumn`, `CategoryList.tsx` | a sort key **within a column**; only the relative value matters | three independent stacks; gaps invisible |
+| **Public** — `organizeDomainsIntoRows`, `src/app/domain/page.tsx:92` | the **row number** of a 3-wide grid; an absent column gets a blank placeholder cell (`:210`) | gaps are real whitespace on the live homepage |
+
+So the admin preview was not a preview. The live data, dumped straight from the database:
+
+```
+row 1: [1] Design     [2] Development  [3] Video
+row 2: [1] Marketing  [2] — EMPTY —    [3] — EMPTY —
+row 3: [1] New Tech   [2] — EMPTY —    [3] — EMPTY —
+row 4: [1] — EMPTY —  [2] Other        [3] Business
+```
+
+Five empty cells — visible as the large gaps in the user's own screenshot of `atno.io/domain`,
+and invisible on the screen that manages them.
+
+**Why moving a column jumped to a new row** (`api/admin/categories/[id]/route.ts:166`): the old
+handler recomputed `categoryOrder` as `max + 1` in the destination column, i.e. appended to the
+bottom of that stack — which in grid terms is *a brand-new row with two blank cells*, leaving a
+permanent hole in the row it came from. And when the column did **not** change, `categoryOrder`
+was **not written at all**, so a row-only move was impossible even if a field had existed.
+
+⚠️ **Consequence worth stating plainly: the UI could not produce a row holding two or three
+categories.** Row 1 exists only because the original seed created it that way.
+
+###### WHAT CHANGED
+
+**A. Row is editable.** A shadcn `Select` beside Column in `CategoryForm`, listing every row in
+use plus one new one, each labelled with what occupies that cell in the chosen column
+(*empty* / *taken by X* / *swap with X*). Both API handlers accept and validate `categoryOrder`;
+`PUT` now applies it on **every** save, not only when the column changes.
+
+**B. Collisions.** A duplicate `(column, row)` pair makes a category **vanish from the public
+page with no error** — `orderGroups[order][column] = group` is a plain overwrite
+(`domain/page.tsx:118`), and there is no unique constraint in the schema. Unreachable through
+the old API; one keystroke away once the row is typeable. So: **create refuses** with a 409
+naming the occupant, and **edit swaps** — the displaced category takes the cell being vacated,
+which is free by definition, so it can never fail or cascade. Both writes run in a
+`$transaction`, because between them the two records momentarily share a cell.
+
+**C. The preview is now the grid**, rendered row by row with the blank cells shown. Each blank
+cell is a button carrying `?column=N&row=M`, so "put this beside Development" is one click.
+
+**D. Dead controls removed from `CategoryCard`** — the `#N` badge showed the **array index**,
+not `categoryOrder` ("Other" displayed as **#2** while sitting on **row 4**); `onMove` and its
+↑/↓ buttons were never passed a handler so they never rendered; the `⋯` button had no
+`onClick`; the `⋮⋮` drag handle advertised drag-and-drop that has never existed. **Fourth
+instance of the dead-control pattern this phase.**
+
+###### A BUG FOUND WHILE REVIEWING MY OWN WORK
+
+`useState` initializers run **once**. `requestedColumn` / `requestedRow` are read on mount only,
+so clicking one "Add here" cell and then a **different** one pushed a new URL the form silently
+ignored — it scrolled up and showed the first cell's coordinates. ⚠️ **This flaw already existed
+in the G-6b `?column=` wiring**; with one button per column it was easy to miss, with a button
+per empty cell it would fire constantly. Fixed with an effect keyed on the raw URL strings that
+updates *only* the two position fields, leaving anything already typed intact.
+
+###### TEST CASES — 14/14 passed, over HTTP with a real session, effects verified in the DB
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1 | Move Marketing onto Other's occupied cell | 200; **swap** — Marketing → col 2 row 4, Other → col 1 row 2; response names the swap |
+| 2 | Change **only** the row, same column (**previously impossible**) | 200; New Tech col 1 row 3 → row 4 |
+| 3 | Legacy caller: column changes, no row sent | 200; appends to col 3 row 5 — old behaviour preserved |
+| 4 | Create into an occupied cell | **409**, message names "Other" |
+| 5 | Create into a specific free cell | 200; lands exactly on col 2 row 2 |
+| 6 | Fractional row (`2.5`) | **400** |
+
+**Rendered admin HTML** (148 KB, authenticated): 4 row dividers + "New row" band, **8 "Add here"
+buttons** — matching 0/2/2/1 empty cells across the four real rows plus 3 in the new band — and
+**8 interpolated `Row N` badges** (7 cards + the select trigger), distributed 3/1/1/3 exactly as
+the database says. `Column 1 (Left)` present in the **server** HTML, confirming the
+`SelectValue`-children fix (a bare `<SelectValue />` server-renders blank — the G-3c trap).
+`More actions`, `Move up`, `Move down`, `&#8942;`, `Add to column`: all **0**.
+
+⚠️ **The `Row N` badge count needed a second grep to be trusted.** React splits interpolated
+text with `<!-- -->`, so `grep "Row 1"` returned **1** — the divider — and missed all seven card
+badges. Same trap that produced a false negative on "Step 1 of 4" in G-5d. **A literal grep for
+interpolated JSX text will under-count.**
+
+`tsc` clean; production build clean; database byte-identical before and after the test run.
+
+###### NOT DONE
+
+- **No migration, and no backfill.** The five empty cells are still there — they are *content*
+  decisions, not bugs, and are now fixable in the UI in a few clicks. Deciding which categories
+  should share a row is the user's call, not a script's.
+- **`validateCategoryData` is duplicated** between the two route files (it already was).
+  Deduplicating it touches every field, so it is noted rather than folded in here.
 
 ##### ✅ G-8 DONE — 4 Aug 2026 (Users)
 

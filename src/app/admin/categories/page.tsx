@@ -76,11 +76,17 @@ export default async function CategoriesManagePage() {
         <CardHeader>
           <CardTitle className="text-base">Create a category</CardTitle>
           <CardDescription>
-            Categories group your domains into the three columns of the public homepage.
+            Categories group your domains into a grid on the public homepage — pick a column
+            and a row. Categories sharing a row appear side by side.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <CategoryForm />
+          {/*
+            The whole list, so the form's Row dropdown knows which cells are already taken.
+            Required rather than optional: without it the dropdown would silently offer only
+            "Row 1" and propose cells the API refuses.
+          */}
+          <CategoryForm categories={categories} />
         </CardContent>
       </Card>
 
@@ -89,17 +95,17 @@ export default async function CategoriesManagePage() {
           <CardTitle className="text-base">Column layout</CardTitle>
           <CardDescription>
             {/*
-              ⚠️ THIS SUBTITLE USED TO PROMISE DRAG-AND-DROP: "Drag categories to reorder
-              within columns or move between columns". **There is no drag-and-drop anywhere in
-              these components** — grepped for `draggable`, `onDragStart`, `onDrop` and every
-              dnd library: nothing. `CategoryList`'s own header comment even says
-              "drag-and-drop in future".
+              ⚠️ THIS SUBTITLE ONCE PROMISED DRAG-AND-DROP: "Drag categories to reorder within
+              columns or move between columns". There is none — grepped for `draggable`,
+              `onDragStart`, `onDrop` and every dnd library: nothing. G-6a rewrote it to point
+              at the edit form instead.
 
-              So the label was instructing you to do something impossible. Reordering is done
-              by editing a category's column and order fields, and that is what it now says.
+              It said "change its column or order", which was still not quite honest: there was
+              no order field to change. Now there is, so this finally describes something you
+              can actually do. Empty cells are real gaps on the live homepage.
             */}
-            How your categories appear on the homepage. To move one, edit it and change its
-            column or order.
+            The grid exactly as the homepage renders it. Move a category by editing its column
+            or row; click any empty cell to add one there.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -124,6 +130,11 @@ export default async function CategoriesManagePage() {
             <CardContent>
               <ul className="text-muted-foreground space-y-2 text-sm">
                 <li>
+                  <strong className="text-foreground">Rows are shared:</strong> two categories
+                  with the same row number sit side by side on the homepage. A row with only
+                  one category leaves the other two cells blank, which shows up as a gap.
+                </li>
+                <li>
                   <strong className="text-foreground">Column balance:</strong> keep categories
                   evenly distributed across the three columns.
                 </li>
@@ -137,7 +148,7 @@ export default async function CategoriesManagePage() {
                 </li>
                 <li>
                   <strong className="text-foreground">Order:</strong> most important categories
-                  at the top of each column.
+                  on the lowest row numbers — row 1 renders at the top.
                 </li>
                 <li>
                   <strong className="text-foreground">Slugs:</strong> short and lowercase — they

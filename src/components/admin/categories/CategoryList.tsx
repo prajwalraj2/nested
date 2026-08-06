@@ -26,23 +26,35 @@ import { CategoryCard } from './CategoryCard';
 import { CategoryForm } from './CategoryForm';
 
 /**
- * Category List Component
- * 
- * Displays categories in a 3-column layout matching how they appear on the main site.
- * Provides category management capabilities:
- * - Visual preview of category organization
- * - Edit and delete actions for each category  
- * - Reordering within columns (drag-and-drop in future)
- * - Moving categories between columns
- * - Add category buttons for each column
- * 
- * Layout Structure:
- * ┌─ Column 1 ─────┬─ Column 2 ─────┬─ Column 3 ─────┐
- * │ 📚 Education   │ 🛠️ Tools      │ 💼 Business    │
- * │ 🎨 Design      │ 💻 Tech        │ 📈 Marketing   │
- * │ [Edit][Delete] │ [Edit][Delete] │ [Edit][Delete] │
- * │ + Add Category │ + Add Category │ + Add Category │
- * └────────────────┴────────────────┴────────────────┘
+ * Category List Component — a true preview of the public grid.
+ * ============================================================================
+ *
+ * ⚠️ REBUILT FROM THREE STACKS INTO A ROW GRID, AND THIS IS THE POINT OF THE CHANGE.
+ *
+ * The old version bucketed categories by `columnPosition` and sorted each bucket by
+ * `categoryOrder` — three independent columns, where `categoryOrder` was just a sort key and
+ * only its relative value mattered. **The public page has never worked that way.**
+ * `organizeDomainsIntoRows` in `src/app/domain/page.tsx` groups by `categoryOrder` as a ROW
+ * NUMBER, lays out a 3-wide grid, and renders a blank cell wherever a row has no category in
+ * a given column.
+ *
+ * So the same field meant "sort key within a column" here and "which horizontal band" there.
+ * The admin drew three tidy stacks; the live site had five empty cells and large vertical
+ * gaps. Nothing on this screen could show you that, let alone let you fix it.
+ *
+ * What is rendered now is the same shape the public page produces:
+ *
+ *   Row 1  [ Design    ][ Development ][ Video    ]
+ *   Row 2  [ Marketing ][  + Add here ][ + Add here ]
+ *   Row 3  [ New Tech  ][  + Add here ][ + Add here ]
+ *   Row 4  [ + Add here][ Other       ][ Business ]
+ *
+ * The empty cells are the feature, not clutter: each one is a real gap on the homepage and a
+ * button that opens the create form pre-aimed at exactly that cell.
+ *
+ * ⚠️ Rows are the sorted set of DISTINCT `categoryOrder` values, not indexes. Values of
+ * 1/2/3/4 and 10/20/30/40 render identically — gaps collapse. What matters is only whether
+ * two categories SHARE a value, which is what puts them side by side.
  */
 
 type Category = {
@@ -294,8 +306,13 @@ export function CategoryList({ categories }: CategoryListProps) {
   /** The server's message when a delete was refused — shown inside the dialog. */
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Group categories by column for display
-  const categoriesByColumn = groupCategoriesByColumn(categories);
+  // The grid exactly as the public page would lay it out.
+  const rows = buildRowGrid(categories);
+
+  // Per-column totals for the three headers. Counted from the raw list rather than the grid,
+  // so the number is right regardless of how the rows happen to be arranged.
+  const countInColumn = (column: number) =>
+    categories.filter((cat) => cat.columnPosition === column).length;
 
   /*
     Both dialogs look their category up by id on every render rather than storing a copy, so
@@ -348,58 +365,56 @@ export function CategoryList({ categories }: CategoryListProps) {
   return (
     <div className="space-y-6">
       
-      {/* Column Headers */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <ColumnHeader 
-          columnNumber={1} 
-          categoryCount={categoriesByColumn[1]?.length || 0} 
-        />
-        <ColumnHeader 
-          columnNumber={2} 
-          categoryCount={categoriesByColumn[2]?.length || 0} 
-        />
-        <ColumnHeader 
-          columnNumber={3} 
-          categoryCount={categoriesByColumn[3]?.length || 0} 
-        />
+      {/*
+        Column headers. `hidden md:grid` because below the `md` breakpoint the grid collapses
+        to one column, so "Left / Center / Right" would sit above a single stack and describe
+        nothing.
+      */}
+      <div className="hidden md:grid md:grid-cols-3 gap-4">
+        <ColumnHeader columnNumber={1} categoryCount={countInColumn(1)} />
+        <ColumnHeader columnNumber={2} categoryCount={countInColumn(2)} />
+        <ColumnHeader columnNumber={3} categoryCount={countInColumn(3)} />
       </div>
 
-      {/* 3-Column Category Display */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Column 1 */}
-        <div className="space-y-4">
-          <CategoryColumn
-            columnNumber={1}
-            categories={categoriesByColumn[1] || []}
-            onEdit={setEditingCategory}
-            onDelete={setDeletingCategory}
-          />
-          <AddCategoryButton columnNumber={1} />
-        </div>
+      {/* Row-by-row grid — the same shape the public page renders. */}
+      <div className="space-y-6">
+        {rows.map((row) => (
+          <div key={row.order} className="space-y-2">
+            {/*
+              A labelled divider per row. Without it the grid is just a wall of cards and
+              there is no way to tell which band a card belongs to — which is the one thing
+              this screen now exists to communicate.
+            */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium">
+                {row.isNew ? 'New row' : `Row ${row.order}`}
+              </span>
+              <div className="bg-border h-px flex-1" />
+              <span className="text-muted-foreground text-xs">
+                {row.isNew
+                  ? 'add a category here to start a new row'
+                  : `${row.filled} of 3 columns used`}
+              </span>
+            </div>
 
-        {/* Column 2 */}
-        <div className="space-y-4">
-          <CategoryColumn
-            columnNumber={2}
-            categories={categoriesByColumn[2] || []}
-            onEdit={setEditingCategory}
-            onDelete={setDeletingCategory}
-          />
-          <AddCategoryButton columnNumber={2} />
-        </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[1, 2, 3].map((column) => {
+                const category = row.cells[column];
 
-        {/* Column 3 */}
-        <div className="space-y-4">
-          <CategoryColumn
-            columnNumber={3}
-            categories={categoriesByColumn[3] || []}
-            onEdit={setEditingCategory}
-            onDelete={setDeletingCategory}
-          />
-          <AddCategoryButton columnNumber={3} />
-        </div>
-        
+                return category ? (
+                  <CategoryCard
+                    key={category.id}
+                    category={category}
+                    onEdit={() => setEditingCategory(category.id)}
+                    onDelete={() => setDeletingCategory(category.id)}
+                  />
+                ) : (
+                  <EmptyCell key={`${row.order}-${column}`} column={column} row={row.order} />
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/*
@@ -439,6 +454,9 @@ export function CategoryList({ categories }: CategoryListProps) {
       {editingCategory && categoryToEdit && (
         <EditCategoryModal
           category={categoryToEdit}
+          // The full list, so the form's Row dropdown can say which cells are occupied and
+          // by whom.
+          categories={categories}
           onSuccess={() => {
             setEditingCategory(null);
             router.refresh();
@@ -480,80 +498,42 @@ function ColumnHeader({ columnNumber, categoryCount }: ColumnHeaderProps) {
 }
 
 /**
- * Category Column Component
- * Displays categories for a specific column with management actions
+ * An empty cell in the grid — a real gap on the public homepage.
+ *
+ * ⚠️ REPLACES `AddCategoryButton`, which sat once per column and said "Add to column 3".
+ * That button carried `?column=3` and nothing else, so the form had to guess a row, and the
+ * only row it could safely guess was a brand new one at the bottom. Which is precisely how
+ * the live site ended up with five empty cells: **every category added through the UI started
+ * its own row.**
+ *
+ * Now every gap is its own button and carries BOTH coordinates, so "put this category beside
+ * Development" is a single click on the cell next to Development.
  */
-type CategoryColumnProps = {
-  columnNumber: number;
-  categories: Category[];
-  onEdit: (categoryId: string) => void;
-  onDelete: (categoryId: string) => void;
+type EmptyCellProps = {
+  column: number;
+  row: number;
 };
 
-function CategoryColumn({ columnNumber, categories, onEdit, onDelete }: CategoryColumnProps) {
-  return (
-    <div className="space-y-3">
-      {categories.map((category, index) => (
-        <CategoryCard
-          key={category.id}
-          category={category}
-          position={index + 1}
-          onEdit={() => onEdit(category.id)}
-          onDelete={() => onDelete(category.id)}
-        />
-      ))}
-      
-      {/* Show message if column is empty */}
-      {categories.length === 0 && (
-        <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-lg">
-          No categories in this column yet
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Add Category Button
- * Quick action to add a new category to a specific column
- */
-type AddCategoryButtonProps = {
-  columnNumber: number;
-};
-
-function AddCategoryButton({ columnNumber }: AddCategoryButtonProps) {
+function EmptyCell({ column, row }: EmptyCellProps) {
   const router = useRouter();
 
-  /**
-   * ⚠️ THE LABEL USED TO PROMISE SOMETHING THE BUTTON DID NOT DO.
-   *
-   * It read "Add Category to Column 3" and its handler was, in full,
-   * `window.scrollTo({ top: 0 })` — with a `TODO` admitting the column was not pre-selected.
-   * So it scrolled you to a form where you still had to choose column 3 yourself, having just
-   * told the app which column you wanted.
-   *
-   * Now it puts the choice in the URL as well as scrolling. ⚠️ The form does not read that
-   * parameter **yet** — `CategoryForm` is G-6b, and it will. Until then the button is at least
-   * no longer lying about what it did: the scroll is real and the intent is recorded.
-   *
-   * `scroll: false` on the push because we do our own smooth scroll; letting Next also jump
-   * would fight it.
-   */
-  const handleAddCategory = () => {
-    router.push(`/admin/categories?column=${columnNumber}`, { scroll: false });
+  const handleClick = () => {
+    // `scroll: false` because we run our own smooth scroll below; letting Next jump as well
+    // makes the two fight and the page lands in the wrong place.
+    router.push(`/admin/categories?column=${column}&row=${row}`, { scroll: false });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
     <Button
       variant="outline"
-      onClick={handleAddCategory}
-      // `h-auto border-dashed` keeps the "empty slot" feel of the original without the
-      // hardcoded greys, and `w-full` matches the column width.
-      className="h-auto w-full border-dashed py-4"
+      onClick={handleClick}
+      // `h-auto ... min-h-` rather than a fixed height: the cell should look like a slot in
+      // the row without stretching to match a tall neighbouring card.
+      className="text-muted-foreground h-auto min-h-24 w-full border-dashed"
     >
       <Plus className="size-4" aria-hidden="true" />
-      Add to column {columnNumber}
+      Add here
     </Button>
   );
 }
@@ -669,11 +649,18 @@ function DeleteConfirmationModal({
  */
 type EditCategoryModalProps = {
   category: Category;
+  /** Every category — the form needs the whole set to work out row occupancy. */
+  categories: Category[];
   onSuccess: () => void;
   onCancel: () => void;
 };
 
-function EditCategoryModal({ category, onSuccess, onCancel }: EditCategoryModalProps) {
+function EditCategoryModal({
+  category,
+  categories,
+  onSuccess,
+  onCancel,
+}: EditCategoryModalProps) {
   return (
     /*
       ⚠️ THE SECOND `bg-opacity-50` OVERLAY — same dead-class bug as the delete dialog above,
@@ -702,8 +689,13 @@ function EditCategoryModal({ category, onSuccess, onCancel }: EditCategoryModalP
             icon: category.icon,
             description: category.description,
             columnPosition: category.columnPosition,
+            // ⚠️ Was NOT passed before, because the form had no row field to receive it. Its
+            // absence is why editing a category and saving could not preserve — let alone
+            // change — the row it sits on.
+            categoryOrder: category.categoryOrder,
             isActive: category.isActive
           }}
+          categories={categories}
           onSuccess={onSuccess}
           onCancel={onCancel}
         />
@@ -716,24 +708,95 @@ function EditCategoryModal({ category, onSuccess, onCancel }: EditCategoryModalP
  * Utility Functions
  */
 
+/** One horizontal band of the grid. */
+type GridRow = {
+  /** The `categoryOrder` value this band represents. */
+  order: number;
+  /** Column number → the category in that cell, if any. */
+  cells: Record<number, Category | undefined>;
+  /** How many of the three columns are occupied — shown in the row divider. */
+  filled: number;
+  /** True for the trailing placeholder band that holds no categories yet. */
+  isNew: boolean;
+};
+
 /**
- * Group categories by column position
+ * Build the grid the public page would render.
+ *
+ * ⚠️ REPLACES `groupCategoriesByColumn`, which bucketed by column and sorted each bucket —
+ * three independent stacks. That model does not exist anywhere on the public site; see the
+ * note at the top of this file.
+ *
+ * This mirrors `organizeDomainsIntoRows` in `src/app/domain/page.tsx` deliberately, so that
+ * what is drawn here and what visitors see cannot drift apart. Two differences, both
+ * intentional:
+ *
+ *   1. **Inactive categories are kept.** The public query filters on `isActive`; an admin
+ *      still has to see and manage a hidden category, and the card marks it Inactive.
+ *   2. **Categories with no domains are kept.** The public renderer skips those (an empty
+ *      category contributes no links, so it would render as a blank cell anyway) — but here
+ *      an empty category is a thing you are probably about to fill.
+ *
+ * ⚠️ Both differences mean a row can look occupied here and render empty publicly. That is
+ * the honest trade: hiding them would make categories vanish from the only screen that
+ * manages them.
  */
-function groupCategoriesByColumn(categories: Category[]) {
-  const grouped: Record<number, Category[]> = { 1: [], 2: [], 3: [] };
-  
-  categories.forEach(category => {
-    const column = category.columnPosition;
-    if (column >= 1 && column <= 3) {
-      grouped[column].push(category);
+function buildRowGrid(categories: Category[]): GridRow[] {
+  // Every distinct row value in use, ascending. Values need not be contiguous — a gap simply
+  // means one fewer band, exactly as on the public page.
+  const orders = [...new Set(categories.map((cat) => cat.categoryOrder))].sort((a, b) => a - b);
+
+  const rows: GridRow[] = orders.map((order) => {
+    const cells: Record<number, Category | undefined> = {};
+
+    for (const cat of categories) {
+      if (cat.categoryOrder !== order) continue;
+      if (cat.columnPosition < 1 || cat.columnPosition > 3) continue;
+
+      /*
+        ⚠️ FIRST WRITER WINS, and a clash is surfaced rather than hidden.
+
+        The public renderer does `orderGroups[order][column] = group` — a plain overwrite — so
+        if two categories ever share a (column, row) pair, one of them disappears from the live
+        site with no error anywhere. The API now refuses to create that state, but data written
+        before this change (or directly in the database) could still hold it.
+
+        Rather than silently drop the loser as the public page does, the card is kept out of
+        the cell and the console says which one, so the screen does not quietly agree with a
+        bug it exists to expose.
+      */
+      if (cells[cat.columnPosition]) {
+        console.warn(
+          `[categories] Column ${cat.columnPosition} row ${order} holds more than one category: ` +
+            `"${cells[cat.columnPosition]!.name}" and "${cat.name}". Only the first is visible ` +
+            `on the public page. Move one of them to another row.`
+        );
+        continue;
+      }
+
+      cells[cat.columnPosition] = cat;
     }
+
+    return {
+      order,
+      cells,
+      filled: [1, 2, 3].filter((column) => cells[column]).length,
+      isNew: false,
+    };
   });
-  
-  // Sort categories within each column by categoryOrder
-  Object.keys(grouped).forEach(column => {
-    grouped[parseInt(column)].sort((a, b) => a.categoryOrder - b.categoryOrder);
+
+  /*
+    A trailing empty band, so there is always a way to start a new row. Without it the only
+    route to a fourth row would be an occupied cell's edit form, and a screen with no
+    categories at all would offer no "add" button anywhere.
+  */
+  rows.push({
+    order: (orders[orders.length - 1] ?? 0) + 1,
+    cells: {},
+    filled: 0,
+    isNew: true,
   });
-  
-  return grouped;
+
+  return rows;
 }
 

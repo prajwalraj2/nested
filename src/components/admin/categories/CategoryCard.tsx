@@ -30,18 +30,34 @@ type Category = {
 
 type CategoryCardProps = {
   category: Category;
-  position: number; // Position within the column (1, 2, 3...)
   onEdit: () => void;
   onDelete: () => void;
-  onMove?: (direction: 'up' | 'down') => void; // For future reordering
 };
 
-export function CategoryCard({ 
-  category, 
-  position, 
-  onEdit, 
-  onDelete,
-  onMove 
+/**
+ * ⚠️ THREE PROPS AND CONTROLS REMOVED HERE. All of them promised things that did not exist.
+ *
+ * - **`position`** was the ARRAY INDEX of the card within its column, rendered as `#2`. It was
+ *   not `categoryOrder`, which is the number that actually decides the layout — so "Other"
+ *   displayed as **#2** while sitting on **row 4**. Now the real row is shown, because it is
+ *   now an editable field and the card is where you read it back.
+ *
+ * - **`onMove`** with its ↑/↓ buttons: `CategoryList` never passed it, so `onMove &&` was
+ *   always false and the buttons never rendered at all. Dead code behind a dead prop. The Row
+ *   dropdown replaces the intent, and does it across columns rather than only within one.
+ *
+ * - **the `⋯` "More actions" button**: no `onClick`, no handler, nothing. It rendered, it was
+ *   clickable, and it did nothing — the fourth instance of that pattern this phase.
+ *
+ * - **the `⋮⋮` drag handle**: `cursor-grab` and a hover state, on an element with no drag
+ *   behaviour anywhere near it. Grepped again to be sure: no `draggable`, no `onDragStart`, no
+ *   dnd library in the project. It advertised a feature that has never existed — the same lie
+ *   the panel subtitle told until G-6a.
+ */
+export function CategoryCard({
+  category,
+  onEdit,
+  onDelete
 }: CategoryCardProps) {
   return (
     <div className={`
@@ -57,13 +73,9 @@ export function CategoryCard({
         <StatusBadge isActive={category.isActive} />
       </div>
 
-      {/* Drag Handle (Future Feature) */}
-      <div className="absolute left-2 top-2 opacity-30 hover:opacity-60 cursor-grab">
-        <span className="text-muted-foreground text-sm" aria-hidden="true">&#8942;&#8942;</span>
-      </div>
-
       {/* Category Content */}
-      <div className="pt-2 pl-4">
+      {/* `pl-4` dropped along with the drag handle it was reserving space for. */}
+      <div className="pt-2">
         
         {/* Category Header */}
         <div className="flex items-start justify-between mb-3">
@@ -88,9 +100,12 @@ export function CategoryCard({
             </div>
           </div>
 
-          {/* Position Indicator */}
-          <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-            #{position}
+          {/*
+            The REAL stored row, not the card's index in a list. This is the number the public
+            page groups by, so it is the one worth surfacing — and now the one you can edit.
+          */}
+          <div className="text-xs text-muted-foreground bg-muted shrink-0 px-2 py-1 rounded">
+            Row {category.categoryOrder}
           </div>
         </div>
 
@@ -111,66 +126,25 @@ export function CategoryCard({
           </div>
         )}
 
-        {/* Management Actions */}
-        <div className="flex items-center justify-between pt-3 border-t">
-          
-          {/* Reorder Actions */}
-          <div className="flex items-center space-x-1">
-            {/* Move Up Button */}
-            {position > 1 && onMove && (
-              <button
-                onClick={() => onMove('up')}
-                className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
-                title="Move up"
-              >
-                ↑
-              </button>
-            )}
-            
-            {/* Move Down Button */}
-            {onMove && (
-              <button
-                onClick={() => onMove('down')}
-                className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
-                title="Move down"
-              >
-                ↓
-              </button>
-            )}
-          </div>
+        {/* Management Actions — only the two that do something. */}
+        <div className="flex items-center justify-end gap-2 pt-3 border-t">
+          <button
+            onClick={onEdit}
+            className="px-3 py-1 text-xs font-medium hover:bg-muted rounded transition-colors"
+            title="Edit category"
+          >
+            Edit
+          </button>
 
-          {/* Main Actions */}
-          <div className="flex items-center space-x-2">
-            
-            {/* Edit Button */}
-            <button
-              onClick={onEdit}
-              className="px-3 py-1 text-xs font-medium hover:bg-muted rounded transition-colors"
-              title="Edit category"
-            >
-              Edit
-            </button>
-
-            {/* Delete Button */}
-            <button
-              onClick={onDelete}
-              className="px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 rounded transition-colors"
-              title="Delete category"
-            >
-              Delete
-            </button>
-
-            {/* More Actions Dropdown (Future) */}
-            <button
-              className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
-              title="More actions"
-            >
-              ⋯
-            </button>
-            
-          </div>
+          <button
+            onClick={onDelete}
+            className="px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 rounded transition-colors"
+            title="Delete category"
+          >
+            Delete
+          </button>
         </div>
-        
+
       </div>
     </div>
   );
