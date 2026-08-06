@@ -296,11 +296,11 @@ async function fetchDashboardStats() {
       contentBlocks,
       categories
     ] = await Promise.all([
-      // Get all domains with their published status
+      // Get all domains with their lifecycle status
       prisma.domain.findMany({
         select: {
           id: true,
-          isPublished: true,
+          status: true,
           createdAt: true
         }
       }),
@@ -332,7 +332,9 @@ async function fetchDashboardStats() {
 
     // Calculate derived statistics
     const totalDomains = domains.length;
-    const publishedDomains = domains.filter(d => d.isPublished).length;
+    // `=== 'PUBLISHED'` rather than the old `d.isPublished`. An UPCOMING domain is not
+    // published — it has no live page — so counting it here would overstate the figure.
+    const publishedDomains = domains.filter(d => d.status === 'PUBLISHED').length;
     const totalPages = pages.length;
     const pagesWithContent = pages.filter(p => p.content.length > 0).length;
     const totalCategories = categories.length;

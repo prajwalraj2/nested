@@ -48,6 +48,7 @@ Partially-done findings show which sub-items are complete.
 | ~    | 21  | Dark/light mode — **Phase 1 (public) DONE**; Phase 2 (admin) open                 | 🔵 Feature      | UX                 | 2 hrs–1 day |
 | ~    | 22  | **Admin audit — 22.1/22.3/22.4/22.5 DONE; only 22.2 (write-once table data) open** | 🔴 **Critical** | Functionality      | multi-day |
 | [x]  | 23  | **PRODUCTION OUTAGE: all rich-text admin routes 500 — unpinned Node version**      | 🔴 **Critical** | Deploy / Runtime   | 20 min    |
+| [ ]  | 24  | Domain status (Draft/Published/**Upcoming**) + public "Upcoming Domains" section  | 🔵 Feature      | Schema / UI        | Phase H   |
 
 
 **Sub-items:**
@@ -4845,6 +4846,119 @@ Deferred by the user: *"We will see to it afterwards."*
 
 ---
 
+## 🔵 24. Domain Status — Draft / Published / Upcoming, and an "Upcoming Domains" section
+
+**Requested by the user, 6 Aug 2026.** Two things, one underlying cause.
+
+> *"A separate column at the end of the page, below all the domains, with a heading of Upcoming
+> Domains / Future Domains. And then below it all the list of domains, just like we have on the
+> current UI. On clicking those domains, maybe an alert should come up… Now in the Domain, how
+> do we know which are in what status? One idea is: `isPublished` → something called Status —
+> Draft, Published, Upcoming."*
+
+### 24.1 What the site can express today
+
+`Domain.isPublished` is a **boolean**, so a domain is either listed or not. There is no way to
+say *"this exists, it is not ready, but tell visitors it is coming."* The user's proposal — a
+three-state `status` — is the right shape, and this section records what it touches.
+
+⚠️ **The blast radius is much smaller than a grep suggests.** `isPublished` returns **98
+occurrences across 25 files**, which is misleading:
+
+- **Only `Domain` has the column.** `isPublished` appears exactly **once** in
+  `prisma/schema.prisma` (line 50). `Page` does not have it. The occurrences in
+  `PageTree.tsx`, `PageForm.tsx` and `pages/DomainSelector.tsx` are *domain* objects being
+  passed through the Pages screens.
+- **25 of the 98 are inside a stale sample-JSON comment block** in `CategoryList.tsx` — noise,
+  not code.
+
+The **public** gates are only four queries:
+
+| Location | Gate |
+| --- | --- |
+| `domain.service.ts` `getAllDomainsFromDB` | `isPublished: true` — the `/domain` index |
+| `domain.service.ts` `getDomainsForNavigationFromDB` | `isPublished: true` — the sidebar |
+| `domain.service.ts` `exists()` | returns `domain?.isPublished` — ⚠️ **never called by anything** |
+| `sitemap.ts:125` | `isPublished: true` |
+
+### 24.2 ⚠️ VERIFIED FINDING — the public domain route does not gate on publication at all
+
+`src/app/domain/[...slug]/page.tsx:253-257` checks **only** two things: does the domain exist,
+and is it visible to the visitor's country. It never reads `isPublished`. `DomainService.exists()`
+is the one function that would check it, and **grep confirms it is never called anywhere.**
+
+**Tested rather than inferred**, because a code reading alone could not distinguish "gated" from
+"crashed". Two throwaway domains were created, identical except for publication, both with no
+pages and `targetCountries: ["ALL"]`:
+
+```
+GET /domain/zz-probe-unpublished  (isPublished=false)  ->  404
+GET /domain/zz-probe-published    (isPublished=true)   ->  404   <- the control
+```
+
+**Both 404, identically** — the 404 comes from the domain having no pages, not from its status.
+So publication currently controls **listing, not access**.
+
+Two further details from the same run:
+
+- The unpublished domain's **full record (id, name, slug) is serialised into the RSC flight
+  payload** of the 404 response. Not visible on screen, but present in the HTML.
+- A *nonexistent* slug returns a 51 KB 404 with no domain names in it; an existing-but-pageless
+  one returns 72 KB **with** the name. That difference is what exposed the leak.
+
+⚠️ **Latent, not live: all 37 domains are currently published**, so nothing is exposed today.
+But `UPCOMING` and `DRAFT` domains would be the **first records ever to depend on a gate that
+does not exist.** The gate is therefore part of this work, not a follow-up — and adding it now
+is free precisely because nothing is currently unpublished.
+
+⚠️ **A first attempt at this probe returned 500 and I nearly reported it.** It had hit an
+orphaned dev server left on port 3000 by an earlier `TaskStop` (which kills the `npm` wrapper
+but not the `next dev` child), while the freshly started server was on 3001. **A probe must
+name the port it is aiming at, and a status code from an unidentified server is not evidence.**
+
+### 24.3 Decisions taken (user, 6 Aug)
+
+| Question | Decision | Why |
+| --- | --- | --- |
+| Shape of the field | **`DomainStatus` enum** — `DRAFT` / `PUBLISHED` / `UPCOMING` | A second boolean beside `isPublished` makes 4 states from 2 flags, and "published AND upcoming" is meaningless. An enum makes the invalid state unrepresentable and leaves room for `ARCHIVED`. |
+| Migration safety | **Keep `isPublished` for one release.** Code reads `status` only; writes set both. | atno.io is live. Rollback becomes a revert instead of a data-recovery job. Dropped in a later, separate migration. |
+| Clicking an upcoming domain | **A `<button>` + a `sonner` toast, top-right. No route.** | No URL means no thin page for Google to index, and no link that silently changes meaning when the domain goes live. Keyboard-reachable and announced correctly, which a styled `<div>` would not be. |
+| Sidebar | **Excluded.** Index page only. | The sidebar is navigation and these lead nowhere. A nav entry that does nothing is the dead-control pattern removed 4× in Phase G. |
+| Heading wording | **"Upcoming Domains"** | Delegated to me. "Coming Soon" is punchier but vaguer; the page's core noun is "Domains", so this reads naturally in place. Subheading: *"These are in progress. Check back soon."* — plainer than the user's draft "we are cooking data". |
+| Toast library | **`sonner`** | shadcn deprecated its own `toast` in favour of it, and this doc **already lists `sonner`** as the intended replacement for the 8 remaining `alert()` calls (#22.6). Installing it here pays that down instead of adding a second mechanism. |
+
+### 24.4 ⚠️ Neon — production needs the migration separately, and NOTHING applies it for you
+
+Raised by the user, and the answer is yes:
+
+- **Neon branches are independent databases** (copy-on-write clones). Migrating `development`
+  does **not** touch `production`.
+- **`npm run build` is `prisma generate && next build` — there is no `migrate deploy` in it.**
+  There is no `vercel.json` and no CI workflow either. `COLLEAGUE-SETUP-GUIDE.md:157` already
+  states this.
+- `.env` documents three branches; **only line 30 (`development`) is uncommented**, so all local
+  work and every test in this section hit dev. Production and the old rehearsal branch are
+  commented out and must be uncommented deliberately.
+
+**Order of operations — migrate first, deploy second:**
+
+1. `prisma migrate dev` on **development**, verify.
+2. Commit the migration files (they are part of the repo).
+3. `prisma migrate deploy` against **production** — *before* the code deploy. The migration only
+   adds a column with a default, which the currently-deployed code ignores, so this is safe to
+   run ahead of time.
+4. Merge → Vercel deploys the new code, which finds the column already present.
+
+⚠️ Deploying the code **first** would leave live code querying a `status` column that does not
+exist — a 500 on every public page. Keeping `isPublished` through this release means step 4 is
+also safely revertible.
+
+⚠️ See **#3 (Migration Drift)** for the prior incident on this repo: `db push` was used instead
+of migrations, so Prisma had no record of what had been applied and a fresh `migrate deploy`
+produced a database with no `User` table. **`migrate deploy`, never `db push`.**
+
+---
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -5486,6 +5600,202 @@ Because these are UI rewrites, the risk is silent breakage rather than build fai
 
 ⚠️ **Nothing in Phase G should change behaviour.** Where a real bug is found mid-rebuild, fix it
 as a separate commit so the UI diff stays reviewable.
+
+### Phase H — Domain status + Upcoming Domains (#24) — PLAN (agreed 6 Aug, starting)
+
+Two commits. **H-1 changes no public behaviour** (all 37 domains are already published, so
+swapping the gate to `status: PUBLISHED` is a no-op today) — which makes it independently
+testable before anything user-visible lands.
+
+| Step | Scope | Status |
+| --- | --- | --- |
+| **H-1** ✅ | Schema + migration + admin UI + **the missing access gate** | **DONE 6 Aug.** Migration backfilled **37 → PUBLISHED, 0 DRAFT, 0 UPCOMING**, zero drift against the retained boolean. **25/25 HTTP tests pass.** Record below. |
+| **H-2** | Public "Upcoming Domains" section + `sonner` | |
+
+##### ✅ H-1 DONE — 6 Aug 2026 (status enum, admin UI, and the access gate)
+
+**Migration `20260806090354_add_domain_status`.**
+
+⚠️ **The generated migration would have taken the site down.** `prisma migrate dev
+--create-only` produced only the `CREATE TYPE` and an `ADD COLUMN … DEFAULT 'DRAFT'` — which
+would have marked **all 37 domains DRAFT**, and the public index reads `status` to decide what
+to list. The homepage would have rendered empty. The `UPDATE … CASE WHEN "isPublished"` backfill
+was written by hand and is the reason `--create-only` was used instead of letting Prisma apply
+it directly.
+
+Counts before: 37 total, 37 `isPublished`. After: **37 PUBLISHED / 0 DRAFT / 0 UPCOMING**, and
+**0 rows where `status` disagrees with `isPublished`.**
+
+**The access gate — the real bug fix in H-1.** `domain/[...slug]/page.tsx` now 404s anything
+that is not `PUBLISHED`, in **both** the component and `generateMetadata`. Both are needed: they
+run independently, so a component-only guard would emit a genuine title and canonical URL for a
+page that then 404s.
+
+**`isPublished` is derived, never accepted.** Every write sets `status` and computes
+`isPublished = status === 'PUBLISHED'`, through one shared `resolveStatus()` in the new
+`src/lib/domain-status.ts`. The retained column therefore cannot drift. `resolveStatus` also
+accepts the old boolean, so a client that has not been updated keeps working — verified.
+
+⚠️ **The PATCH quick-toggle had to change shape.** `DomainsTable` sent
+`{ isPublished: !domain.isPublished }` — "make it the other thing". With three states there is
+no other thing, and no sequence of flips reaches UPCOMING. It is now an explicit status set, and
+the single menu item became a short list of the two statuses the domain is not currently in.
+
+⚠️ **`draftDomains` was `!d.isPublished`** on two screens — "everything not live". That would
+have counted UPCOMING domains as drafts. Each status is now counted for what it is.
+
+⚠️ **The Pages screens' "Draft" badge was `!domain.isPublished`**, so an upcoming domain would
+have been labelled a draft. It now names the actual state.
+
+###### TEST CASES — 25/25 passed over HTTP with a real session, effects checked in the database
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1 | No public change | 37 PUBLISHED; `/domain` and `/sitemap.xml` both 200 |
+| 2 | Create via API with explicit status | 200; stored PUBLISHED; boolean in sync; `__main__` page created |
+| 3 | **Control** — PUBLISHED domain **with a page** | **200** |
+| 4 | Same domain → DRAFT | **404**, boolean in sync |
+| 5 | Same domain → UPCOMING | **404**, boolean in sync |
+| 6 | UPCOMING domain not listed or crawled | absent from `/domain` **and** the sitemap |
+| 7 | Back to PUBLISHED | **200** again |
+| 8 | Invalid status (`BANANA`) | **400**, not a 500; status unchanged |
+| 9 | Legacy client sending only `isPublished` | 200; mapped to DRAFT |
+| 10 | Admin filter, all three values | each returns only its own status |
+
+⚠️ **Test 3 is the reason tests 4 and 5 mean anything.** The §24.2 probe returned 404 for *both*
+a published and an unpublished domain, because neither had a page — a 404 that proved nothing.
+Here the same domain, with a page, returns 200 as PUBLISHED and 404 as DRAFT/UPCOMING. **A
+negative result needs a positive control.**
+
+###### ⚠️ MISSED ON THE FIRST PASS — the status filter dropdown (found by the user)
+
+Step 12 of the H-1 plan named `DomainFilters.tsx` explicitly, **and I skipped it.** The API and
+the page query both understood `?status=upcoming` from the start, but the dropdown that drives
+them still offered only *Published* and *Draft* — so the filter could not reach a third of the
+data, and the active-filter chip, a two-way ternary
+(`status === 'published' ? 'Published' : 'Draft'`), would have labelled an upcoming filter
+**"Status: Draft"**.
+
+The root cause is that the option list was written out by hand. It is now **derived** from
+`STATUS_BY_URL_PARAM`, with labels from `DOMAIN_STATUS_LABELS` — the same source the table
+badges use — so a fourth status appears in the filter automatically and the option you pick
+matches the badge you then see. `STATUS_BY_URL_PARAM`'s insertion order is now load-bearing and
+says so.
+
+**Verified** on `?status=` for each value: chips read *Live* / *Draft* / *Upcoming*, and the
+result sets match the database (`upcoming` → only `test2`; `published` → the other 38;
+`draft` → none).
+
+⚠️ **The generalisable point: a hand-written list of enum values is a place a new value gets
+missed silently.** The dropdown did not error — it just quietly offered less than the data had.
+
+⚠️ **NOT verified from server HTML: the row menu's "Set to …" items.** Radix mounts
+`DropdownMenuContent` children only when the menu opens, so they cannot appear in a fetched
+page and a grep for them correctly returns 0. What *is* verified: **37/37 status badges render**,
+"Unpublish" is gone, and the PATCH those items call is covered by tests 4/5/7. The menu itself
+needs a click.
+
+`tsc` clean; production build clean; database returned to 37 domains, all PUBLISHED, zero drift.
+
+###### ⚠️ Orphaned dev servers — a process note
+
+`TaskStop` kills the `npm run dev` wrapper but **not** the `next dev` child. Two orphans
+accumulated on ports 3000 and 3001, and one of them served a stale 500 that nearly went into
+§24.2 as a finding. Every probe now takes its base URL as an argument and the log is read for
+the port actually bound before any request is made.
+
+#### H-1 — schema, admin, access gate
+
+**Database**
+
+1. `prisma/schema.prisma` — add `enum DomainStatus { DRAFT PUBLISHED UPCOMING }` and
+   `status DomainStatus @default(DRAFT)` on `Domain`. **`isPublished` stays** (see 24.3).
+2. Migration backfills deterministically:
+   `UPDATE "Domain" SET status = CASE WHEN "isPublished" THEN 'PUBLISHED' ELSE 'DRAFT' END`
+3. ⚠️ **Verify before continuing**: count rows per status. Expect **37 `PUBLISHED`, 0 `DRAFT`,
+   0 `UPCOMING`**. A mismatch means stop, not proceed.
+
+**Server reads — swap the gate**
+
+4. `src/services/types.ts` — `status` on `DomainBasic` / `DomainWithCategory`.
+5. `src/services/domain.service.ts` — `getAllDomainsFromDB`, `getDomainsForNavigationFromDB`:
+   `isPublished: true` → `status: 'PUBLISHED'`. `exists()` reads `status` (still uncalled, but
+   it should not be *wrong* as well as unused).
+6. `src/app/sitemap.ts:125` — same. **Upcoming domains must not enter the sitemap**: there is no
+   page to visit.
+7. ⚠️ **`src/app/domain/[...slug]/page.tsx` — ADD THE GATE.** 404 unless `PUBLISHED`. This is
+   the fix for 24.2 and the reason H-1 is not purely mechanical.
+
+**API writes**
+
+8. `api/admin/domains/route.ts` + `[id]/route.ts` — accept and validate `status`; **write both
+   `status` and `isPublished`** (`isPublished = status === 'PUBLISHED'`) so the retained column
+   cannot drift; filter on `status`.
+9. ⚠️ The **`PATCH` quick-toggle** (`[id]/route.ts:403`, sent from `DomainsTable.tsx:184` as
+   `{ isPublished: !domain.isPublished }`) **has no meaning with three states.** A boolean flip
+   cannot express "make this upcoming". It becomes a status *set*, and the row action becomes a
+   small menu rather than a toggle.
+
+**Admin UI**
+
+10. `DomainForm.tsx:450` — the `isPublished` checkbox → a 3-way `Select`, each option saying what
+    it means publicly (listed / hidden / listed as upcoming).
+11. `DomainsTable.tsx:513` — badge `Live | Draft` → three states; `:591` toggle → status menu.
+12. `DomainFilters.tsx` — the status filter already speaks `?status=published|draft` in the URL;
+    add `upcoming`. ⚠️ Its `STATUS_LABELS` map and the active-filter chip at `:366` both
+    hardcode a two-way choice.
+13. Counts: `admin/page.tsx:335`, `admin/domains/page.tsx:281-282` (`publishedDomains` /
+    `draftDomains`), and the `whereConditions` at `:226-228`.
+14. Draft badges in `pages/DomainSelector.tsx:172` and `PageTree.tsx`.
+
+**H-1 test cases**
+
+- **Migration**: 37/0/0 across the three statuses, before and after.
+- **No public change**: `/domain` lists the same 37 domains; a published domain's page still 200s.
+- **The new gate works**: a throwaway `DRAFT` and `UPCOMING` domain — *with a page*, so a 404
+  cannot be blamed on emptiness as in 24.2 — must 404, and a `PUBLISHED` control must 200.
+- **Sitemap**: unchanged count today; excludes non-published once one exists.
+- **Both columns stay in sync**: create + edit + the row action, then read `status` and
+  `isPublished` back from the database and confirm they agree.
+- **Admin**: filter by each of the three; badges render all three; dark mode.
+
+#### H-2 — the public section
+
+15. `npx shadcn@latest add sonner`; `<Toaster position="top-right" />` in the root layout.
+    ⚠️ `sonner` needs `next-themes` to follow the app theme — **already installed** (`^0.4.6`).
+16. `DomainService.getUpcoming(userCountry)` — same `orderBy` as the index query, so the admin
+    keeps control of ordering, and the **same country filter**: a geo-hidden domain must not
+    reappear via the upcoming list.
+17. `src/app/domain/page.tsx` — a full-width section below the grid: heading "Upcoming Domains",
+    the subheading, then the domains. Rendered **only when there is at least one** — an empty
+    headed section is worse than no section.
+18. A small client component for the item: a `<button>` styled like `DomainItem`, firing the
+    toast. ⚠️ **The only client component on this page** — `domain/page.tsx` is an async server
+    component, so the toast cannot live in it.
+
+**H-2 test cases**
+
+- With 0 upcoming domains the section does not render at all.
+- Mark one `UPCOMING`: it appears **below** the grid, not inside it, and **not** in the 3-column
+  grid rows.
+- It is **not** a link — no `href`, and its detail page still 404s.
+- It is **not** in the sidebar and **not** in the sitemap.
+- Clicking fires one top-right toast; keyboard `Tab` + `Enter` does the same.
+- A geo-restricted upcoming domain stays hidden from a non-matching country.
+- Dark and light mode; the toast in both.
+
+#### ⚠️ Production checklist for H-1 (see 24.4)
+
+Neon branches are independent and **nothing runs migrations automatically**:
+
+1. `migrate dev` on development → verify counts.
+2. Commit migration files.
+3. `migrate deploy` against **production** — *before* the code deploy.
+4. Merge → Vercel deploys code that finds the column present.
+
+Never `db push` (see #3).
+
+---
 
 #### ✅ G-1 DONE — 30 Jul 2026
 

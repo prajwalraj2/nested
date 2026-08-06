@@ -1,5 +1,6 @@
 'use client';
 
+import type { DomainStatus } from '@/generated/prisma';
 import { useState } from 'react';
 import { AlertTriangle, Globe, Loader2 } from 'lucide-react';
 // ⚠️ `SUPPORTED_COUNTRIES` was imported and never used here, exactly as in `DomainForm`
@@ -60,7 +61,7 @@ type Domain = {
   name: string;
   slug: string;
   pageType: string;
-  isPublished: boolean;
+  status: DomainStatus;
   category: {
     id: string;
     name: string;

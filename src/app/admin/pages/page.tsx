@@ -161,7 +161,9 @@ async function fetchDomainsForPageManagement() {
         name: true,
         slug: true,
         pageType: true,
-        isPublished: true,
+        // `status` replaces `isPublished` — the Pages screens badge a domain that is not
+        // live, and with three states that badge needs to name which non-live state it is.
+        status: true,
         category: {
           select: {
             id: true,

@@ -121,8 +121,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const domains = await prisma.domain.findMany({
       where: {
-        // Unpublished domains are not publicly reachable.
-        isPublished: true,
+        /*
+          Only PUBLISHED domains have a page to visit.
+
+          ⚠️ This deliberately excludes UPCOMING as well as DRAFT. An upcoming domain is named
+          on `/domain` but has no route of its own — its detail page 404s by design — so
+          listing it here would advertise a URL that returns 404 to every crawler. Google reads
+          that as a soft 404 and lets it colour its judgement of the whole sitemap, which is
+          the same reasoning as the geo filter immediately below (finding #15.4).
+        */
+        status: 'PUBLISHED',
 
         // ⚠️ ONLY globally-targeted content. A sitemap is a single global document
         // with no country context, so it cannot express "this URL exists for

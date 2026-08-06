@@ -6,9 +6,14 @@ import { AlertTriangle, Globe, Loader2 } from 'lucide-react';
 // `['IN','US','GB','AU','CA']` tuple; this form needs the display-ready list, which is what
 // `getCountryOptions()` returns (code + name + flag, with "ALL" first).
 import { ALL_COUNTRIES, getCountryOptions } from '@/lib/countries';
+import type { DomainStatus } from '@/generated/prisma';
+import {
+  DOMAIN_STATUSES,
+  DOMAIN_STATUS_DESCRIPTIONS,
+  DOMAIN_STATUS_LABELS,
+} from '@/lib/domain-status';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -72,7 +77,16 @@ type DomainFormProps = {
     pageType: string;
     categoryId: string;
     orderInCategory: number;
-    isPublished: boolean;
+    /**
+     * The lifecycle state. Optional so that a caller still holding the old shape compiles —
+     * the fallback below derives it from `isPublished`, which is exactly what the API does.
+     */
+    status?: DomainStatus;
+    /**
+     * @deprecated Superseded by `status`. Optional, and only read as a fallback when
+     * `status` is absent — callers already migrated to `status` do not pass it at all.
+     */
+    isPublished?: boolean;
     targetCountries?: string[];
     /**
      * How many pages live under this domain. Optional, and only used to size the slug
@@ -96,10 +110,16 @@ export function DomainForm({ categories, domain = null, onSuccess, onCancel }: D
     pageType: domain?.pageType || 'direct',
     categoryId: domain?.categoryId || categories[0]?.id || '',
     orderInCategory: domain?.orderInCategory || 0,
-    // `??` not `||` — `||` would turn a stored `false` into the default. It happens to be
-    // `false` either way here, but the distinction is why this one line differs from its
-    // neighbours, so it is worth not "tidying" into `||`.
-    isPublished: domain?.isPublished ?? false,
+    /*
+      ⚠️ Falls back to deriving the status from the old boolean, rather than defaulting to
+      DRAFT. A blind `?? 'DRAFT'` would open the edit form for a LIVE domain showing "Draft",
+      and saving without touching the field would then take it off the public site — a
+      destructive action from doing nothing.
+
+      New domains still start as DRAFT, since `domain` is null and `isPublished` is undefined.
+    */
+    status:
+      domain?.status ?? (domain?.isPublished ? 'PUBLISHED' : ('DRAFT' as DomainStatus)),
     targetCountries: domain?.targetCountries || [ALL_COUNTRIES],
   });
 
@@ -440,31 +460,42 @@ export function DomainForm({ categories, domain = null, onSuccess, onCancel }: D
       </div>
 
       {/*
-        ── Publication status ──
-        A real `Checkbox`, replacing `<input type="checkbox" className="text-blue-600 …">`
-        (where `text-blue-600` did nothing useful — a native checkbox ignores text colour;
-        `accent-color` is what tints one).
+        ── Status ──
+
+        ⚠️ WAS A CHECKBOX, WHICH CAN ONLY EXPRESS TWO STATES.
+
+        The domain lifecycle now has three (DRAFT / PUBLISHED / UPCOMING), so a checkbox
+        cannot represent it — there is no way to tick your way to "upcoming". A `Select` also
+        lets each option carry a line saying what it means to a visitor, which the checkbox's
+        single line of help text could not.
+
+        `SelectValue` is given explicit children rather than a `placeholder`: Radix resolves
+        the selected label by inspecting mounted content, which does not exist during server
+        rendering, so a bare `<SelectValue />` renders an empty trigger until hydration. Same
+        trap as G-3c.
       */}
-      <div className="flex items-start gap-3 rounded-lg border p-4">
-        <Checkbox
-          id="isPublished"
-          checked={formData.isPublished}
-          // Radix reports `boolean | 'indeterminate'`; this checkbox is never indeterminate,
-          // but coercing keeps `formData.isPublished` a strict boolean for the API.
-          onCheckedChange={(checked) => handleChange('isPublished', checked === true)}
-          // `mt-0.5` optically aligns the box with the first line of the label text.
-          className="mt-0.5"
-        />
-        <div className="space-y-1">
-          <Label htmlFor="isPublished" className="font-medium">
-            Published
-          </Label>
-          <p className="text-muted-foreground text-xs">
-            {formData.isPublished
-              ? 'Live — visible on the public site.'
-              : 'Draft — hidden from visitors.'}
-          </p>
-        </div>
+      <div className="space-y-1.5 rounded-lg border p-4">
+        <Label htmlFor="status" className="font-medium">
+          Status
+        </Label>
+        <Select
+          value={formData.status}
+          onValueChange={(value) => handleChange('status', value)}
+        >
+          <SelectTrigger id="status" className="w-full">
+            <SelectValue>{DOMAIN_STATUS_LABELS[formData.status]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {DOMAIN_STATUSES.map((status) => (
+              <SelectItem key={status} value={status}>
+                {DOMAIN_STATUS_LABELS[status]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-xs">
+          {DOMAIN_STATUS_DESCRIPTIONS[formData.status]}
+        </p>
       </div>
 
       {/*

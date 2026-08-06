@@ -31,11 +31,33 @@ model DomainCategory {
   @@index([columnPosition, categoryOrder])
 }
 
+/// Where a domain is in its lifecycle.
+///
+/// Replaces the two-state `isPublished` boolean, which could only say "listed" or "not
+/// listed" — there was no way to express "this exists, it is not ready, but tell visitors it
+/// is coming."
+///
+/// An enum rather than a second boolean beside `isPublished`: two booleans give four
+/// combinations and "published AND upcoming" is meaningless, so the invalid state would be
+/// representable and every read site would have to decide what it meant. Leaves room for
+/// ARCHIVED later without another migration to the *shape* of the data.
+enum DomainStatus {
+  /// Not listed anywhere, and its page 404s. The default for anything new.
+  DRAFT
+
+  /// Listed on /domain, in the sidebar and in the sitemap; its page renders.
+  PUBLISHED
+
+  /// Listed in the "Upcoming Domains" section at the foot of /domain ONLY — not a link, not
+  /// in the sidebar, not in the sitemap, and its page 404s exactly like a DRAFT.
+  UPCOMING
+}
+
 model Domain {
   id        String   @id @default(uuid())
   name      String
   slug      String   @unique
-  
+
   // Page type: direct content or hierarchical subcategories
   pageType  String   @default("direct") // "direct" | "hierarchical"
   
@@ -46,7 +68,22 @@ model Domain {
   // Ordering within category
   orderInCategory Int @default(0)
   
-  // Publication status
+  /// Lifecycle state — the field every read path should use.
+  ///
+  /// `DRAFT` is the default so a domain created by any path that forgets to set a status is
+  /// invisible rather than accidentally live.
+  status DomainStatus @default(DRAFT)
+
+  /// ⚠️ SUPERSEDED BY `status`, AND DELIBERATELY KEPT FOR ONE RELEASE.
+  ///
+  /// Nothing reads this any more. It is still WRITTEN on every create and update
+  /// (`isPublished = status === 'PUBLISHED'`) so it cannot drift out of agreement with
+  /// `status`.
+  ///
+  /// Why keep it: atno.io is live, and Neon branches are migrated by hand (there is no
+  /// `migrate deploy` in the build — see NEW-IMPROVEMENTS.md §24.4). Leaving the column in
+  /// place means rolling the deployment back is a revert, not a data-recovery job against
+  /// production. Drop it in its own migration once this release has been running happily.
   isPublished Boolean @default(false)
   
   // Geo-targeting: Which countries this domain is visible to

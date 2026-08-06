@@ -5,6 +5,12 @@ import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { invalidateDomains } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
+import {
+  DOMAIN_STATUSES,
+  STATUS_BY_URL_PARAM,
+  isDomainStatus,
+  resolveStatus,
+} from '@/lib/domain-status';
 
 /**
  * Domains API Route
@@ -48,12 +54,18 @@ export async function GET(request: NextRequest) {
       whereConditions.categoryId = categoryId;
     }
     
-    // Status filter
+    /*
+      Status filter.
+
+      ⚠️ The URL vocabulary is lowercase (`?status=published`) while the database enum is
+      uppercase (`PUBLISHED`), so the two are mapped explicitly rather than upper-cased blindly.
+      Blind upper-casing would turn any junk in the query string into an enum value Prisma
+      then rejects at runtime with a 500; an explicit map simply ignores what it does not
+      recognise, which is how the previous two-way version behaved.
+    */
     const status = searchParams.get('status');
-    if (status === 'published') {
-      whereConditions.isPublished = true;
-    } else if (status === 'draft') {
-      whereConditions.isPublished = false;
+    if (status && STATUS_BY_URL_PARAM[status]) {
+      whereConditions.status = STATUS_BY_URL_PARAM[status];
     }
     
     // Page type filter
@@ -93,6 +105,7 @@ export async function GET(request: NextRequest) {
       name: domain.name,
       slug: domain.slug,
       pageType: domain.pageType,
+      status: domain.status,
       isPublished: domain.isPublished,
       orderInCategory: domain.orderInCategory,
       targetCountries: domain.targetCountries,
@@ -198,7 +211,17 @@ export async function POST(request: NextRequest) {
         pageType,
         categoryId,
         orderInCategory: finalOrderInCategory,
-        isPublished: isPublished ?? false,
+        /*
+          ⚠️ BOTH COLUMNS ARE WRITTEN, and `isPublished` is DERIVED — never taken from the
+          request. See schema.prisma: the boolean is retained for one release so a rollback is
+          a revert rather than a data-recovery job, and the only way it can stay trustworthy is
+          if nothing can set it independently of `status`.
+
+          A client that sends the old `isPublished` and no `status` still works: the fallback
+          below maps `true` → PUBLISHED, anything else → DRAFT.
+        */
+        status: resolveStatus(body),
+        isPublished: resolveStatus(body) === 'PUBLISHED',
         targetCountries: validTargetCountries
       },
       include: {
@@ -245,6 +268,7 @@ export async function POST(request: NextRequest) {
         name: newDomain.name,
         slug: newDomain.slug,
         pageType: newDomain.pageType,
+        status: newDomain.status,
         isPublished: newDomain.isPublished,
         orderInCategory: newDomain.orderInCategory,
         targetCountries: newDomain.targetCountries,
@@ -307,6 +331,16 @@ function validateDomainData(data: any): string | null {
   // Validate publication status
   if (data.isPublished !== undefined && typeof data.isPublished !== 'boolean') {
     return 'Publication status must be a boolean value';
+  }
+
+  /*
+    `status` is optional — a caller that sends only the old `isPublished` still works, and
+    `resolveStatus` maps it. But an UNRECOGNISED status must be rejected here rather than
+    passed to Prisma, which would fail with an opaque runtime error instead of a 400 that says
+    what was wrong.
+  */
+  if (data.status !== undefined && !isDomainStatus(data.status)) {
+    return `Status must be one of ${DOMAIN_STATUSES.join(', ')}`;
   }
 
   // Validate targetCountries if provided

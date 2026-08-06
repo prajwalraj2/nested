@@ -1,5 +1,6 @@
 'use client';
 
+import type { DomainStatus } from '@/generated/prisma';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -77,7 +78,7 @@ type Domain = {
   name: string;
   slug: string;
   pageType: string;
-  isPublished: boolean;
+  status: DomainStatus;
   category: {
     id: string;
     name: string;

@@ -20,12 +20,17 @@ import type { DomainWithCategory, DomainWithPages, DomainBasic } from './types';
 
 /**
  * Get all published domains - CACHED across requests
+ *
+ * ⚠️ `status: 'PUBLISHED'` replaces `isPublished: true` here and in every other read below.
+ * With three states, "not draft" is no longer the same question as "published" — an UPCOMING
+ * domain must be excluded from this list, because it is rendered in its own section at the
+ * foot of the page rather than inside the category grid.
  */
 const getAllDomainsFromDB = unstable_cache(
   async (userCountry: string): Promise<DomainWithCategory[]> => {
     const domains = await prisma.domain.findMany({
       where: {
-        isPublished: true,
+        status: 'PUBLISHED',
         ...buildCountryFilter(userCountry),
       },
       include: {
@@ -59,6 +64,9 @@ const getDomainBySlugFromDB = unstable_cache(
         name: true,
         slug: true,
         pageType: true,
+        // Both, because `DomainBasic` still declares `isPublished` for this release. A `select`
+        // that omitted it would not satisfy the type.
+        status: true,
         isPublished: true,
         targetCountries: true,
         orderInCategory: true,
@@ -111,7 +119,14 @@ const getDomainsForNavigationFromDB = unstable_cache(
   async (userCountry: string) => {
     const domains = await prisma.domain.findMany({
       where: {
-        isPublished: true,
+        /*
+          ⚠️ PUBLISHED only — UPCOMING domains are deliberately absent from the sidebar.
+
+          The sidebar is navigation, and an upcoming domain has nowhere to navigate to: its
+          page 404s by design. An entry that looks like a link and goes nowhere is the
+          dead-control pattern removed four times in Phase G.
+        */
+        status: 'PUBLISHED',
         ...buildCountryFilter(userCountry),
       },
       include: {
@@ -146,6 +161,43 @@ const getDomainsForNavigationFromDB = unstable_cache(
   {
     revalidate: CACHE_DURATIONS.MEDIUM,
     tags: [CACHE_TAGS.DOMAINS, CACHE_TAGS.NAVIGATION],
+  }
+);
+
+/**
+ * Get all UPCOMING domains - CACHED across requests
+ *
+ * Mirrors `getAllDomainsFromDB` in every respect except the status, deliberately: same country
+ * filter, same ordering keys. The two lists are two slices of one shelf, and they should not
+ * drift apart in how they sort or who can see them.
+ *
+ * ⚠️ Shares the `DOMAINS` cache tag, so publishing a domain — which moves it out of this list
+ * and into the other — invalidates both at once. A separate tag would let the two lists
+ * disagree for up to the cache duration, briefly showing a domain in both places or neither.
+ */
+const getUpcomingDomainsFromDB = unstable_cache(
+  async (userCountry: string): Promise<DomainWithCategory[]> => {
+    const domains = await prisma.domain.findMany({
+      where: {
+        status: 'UPCOMING',
+        ...buildCountryFilter(userCountry),
+      },
+      include: {
+        category: true,
+      },
+      orderBy: [
+        { category: { columnPosition: 'asc' } },
+        { category: { categoryOrder: 'asc' } },
+        { orderInCategory: 'asc' },
+      ],
+    });
+
+    return domains as DomainWithCategory[];
+  },
+  ['domains-upcoming'],
+  {
+    revalidate: CACHE_DURATIONS.MEDIUM,
+    tags: [CACHE_TAGS.DOMAINS],
   }
 );
 
@@ -208,11 +260,35 @@ export const DomainService = {
   }),
 
   /**
-   * Check if a domain exists and is published
+   * Is there a domain at this slug that the public may actually reach?
+   *
+   * ⚠️ THIS FUNCTION IS NOT CALLED BY ANYTHING. Verified by grep across `src/`. It is the only
+   * place in the codebase that ever asked "is this domain publicly visible?", and the public
+   * route never used it — which is exactly why unpublished domains were never gated (see
+   * NEW-IMPROVEMENTS.md §24.2). The gate now lives in `domain/[...slug]/page.tsx` where the
+   * decision is actually made.
+   *
+   * Updated to `status` rather than deleted: leaving it reading the superseded boolean would
+   * mean an unused function that is also *wrong*, waiting to be picked up by someone who
+   * reasonably assumes it works.
    */
   exists: cache(async (slug: string): Promise<boolean> => {
     const domain = await getDomainBySlugFromDB(slug);
-    return domain?.isPublished ?? false;
+    return domain?.status === 'PUBLISHED';
+  }),
+
+  /**
+   * Domains marked UPCOMING, for the section at the foot of `/domain`.
+   *
+   * ⚠️ Country-filtered exactly like the published list. A domain hidden from a visitor's
+   * country must not reappear here — otherwise "upcoming" would become a way to leak the
+   * existence of geo-restricted content.
+   *
+   * Ordered by the same category column/row/position keys as the main index, so the ordering
+   * you set in the admin governs this section too rather than it coming out arbitrary.
+   */
+  getUpcoming: cache(async (userCountry: string): Promise<DomainWithCategory[]> => {
+    return getUpcomingDomainsFromDB(userCountry);
   }),
 
   /**
