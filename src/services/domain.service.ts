@@ -93,7 +93,9 @@ const getDomainWithPagesFromDB = unstable_cache(
       include: {
         category: true,
         pages: {
-          where: { parentId: null },
+          // Published only. This feeds the domain detail page; a hidden page must not appear
+          // in it, and its own URL 404s anyway (see PageService.getByPath).
+          where: { parentId: null, status: 'PUBLISHED' },
           include: {
             content: { orderBy: { order: 'asc' } },
             subPages: { orderBy: { order: 'asc' } },
@@ -132,7 +134,9 @@ const getDomainsForNavigationFromDB = unstable_cache(
       include: {
         category: true,
         pages: {
-          where: buildCountryFilter(userCountry),
+          // ⚠️ The SIDEBAR. A non-published page here would render as a navigation link to a
+          // 404 — the dead-control pattern, but pointing at a broken URL.
+          where: { status: 'PUBLISHED', ...buildCountryFilter(userCountry) },
           select: {
             id: true,
             title: true,
@@ -240,6 +244,9 @@ export const DomainService = {
         pages: {
           where: {
             parentId: null,
+            // Same gate as the cached variant above; the two must not disagree about what is
+            // visible, or the answer would depend on which one the caller happened to use.
+            status: 'PUBLISHED',
             ...buildCountryFilter(userCountry),
           },
           select: {

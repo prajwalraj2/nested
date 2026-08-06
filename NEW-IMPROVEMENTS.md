@@ -49,6 +49,7 @@ Partially-done findings show which sub-items are complete.
 | ~    | 22  | **Admin audit — 22.1/22.3/22.4/22.5 DONE; only 22.2 (write-once table data) open** | 🔴 **Critical** | Functionality      | multi-day |
 | [x]  | 23  | **PRODUCTION OUTAGE: all rich-text admin routes 500 — unpinned Node version**      | 🔴 **Critical** | Deploy / Runtime   | 20 min    |
 | [x]  | 24  | Domain status (Draft/Published/**Upcoming**) + public "Upcoming Domains" section  | 🔵 Feature      | Schema / UI        | Phase H   |
+| [ ]  | 25  | Page status + "Upcoming Resources" on section-based pages                        | 🔵 Feature      | Schema / UI        | Phase I   |
 
 
 **Sub-items:**
@@ -4959,6 +4960,85 @@ produced a database with no `User` table. **`migrate deploy`, never `db push`.**
 
 ---
 
+## 🔵 25. Page Status — and "Upcoming Resources" on section-based pages
+
+**Requested 6 Aug, immediately after #24 shipped.** The same idea one level down: a child page —
+a "resource block" such as *YouTube Channels* or *Books* under Graphic Designing — should be
+able to say "coming soon", listed at the foot of its parent but not clickable.
+
+### 25.1 `Page` has no status field at all
+
+Confirmed by reading the model: **no `isPublished`, no `status`**. All **1,205 pages** are live,
+subject only to geo targeting.
+
+| contentType | count |
+| --- | --- |
+| `table` | 671 |
+| `rich_text` | 418 |
+| `subcategory_list` | 74 |
+| `section_based` | **42** ← the "resource block" hubs this feature targets |
+
+1,163 of the 1,205 are child pages (`parentId` not null).
+
+### 25.2 ⚠️ THE DEFAULT MUST BE `PUBLISHED` — THE OPPOSITE OF `Domain`
+
+`Domain.status` defaults to `DRAFT`, so a domain created by any path that forgets to set it is
+invisible rather than accidentally live. **That reasoning inverts for `Page`.**
+
+There are **five `prisma.page.create` call sites**, and two of them are *side effects of domain
+operations*:
+
+- `api/admin/domains/route.ts` — creating a direct domain creates its `__main__` page
+- `api/admin/domains/[id]/route.ts` — changing a domain's `pageType` recreates it
+
+Nobody is consciously "creating a page" there. With `@default(DRAFT)`, either path would produce
+an invisible `__main__` and **the entire domain root would 404** — the failure `[#11]` already
+warns about in `domain/[...slug]/page.tsx`, but silent and self-inflicted.
+
+`@default(PUBLISHED)` preserves today's behaviour at every call site. It also makes the
+migration simpler than #24's: `ADD COLUMN … NOT NULL DEFAULT 'PUBLISHED'` gives all 1,205
+existing rows the right value on its own, so **no backfill `UPDATE` is needed** — unlike the
+Domain migration, where the default was wrong for existing data and the hand-written `CASE`
+was the difference between working and blanking the homepage.
+
+### 25.3 ⚠️ The sitemap DOES need changing — the opposite of what was assumed
+
+The question raised was whether the sitemap already covers this. It does **not**.
+
+Domain status is covered *for pages*, because `sitemap.ts` fetches pages as a nested relation
+inside the domain query — so an unpublished domain takes its pages with it. But a single
+upcoming **page** under a live domain would still be listed, advertising a URL that 404s. The
+nested `pages` where-clause currently filters on `targetCountries` only and needs
+`status: 'PUBLISHED'` alongside it. Same soft-404 reasoning as #15.4.
+
+### 25.4 Decisions taken (user, 6 Aug)
+
+| Question | Decision | Why |
+| --- | --- | --- |
+| Type | **A new `PageStatus` enum**, not a shared one | Renaming the live `DomainStatus` to `ContentStatus` is conceptually tidier but means a second production type-rename to sequence, plus renaming `domain-status.ts` and its constants across ~15 files. Three duplicated literal values is the cheaper trade; the *logic* stays shared. |
+| Scope | **All three states** — DRAFT / PUBLISHED / UPCOMING | One mental model with Domains. `DRAFT` is also new capability: today a page is live the moment it exists. |
+| Placement | **`section_based` pages only** (42 of them) | What was asked for, and the smallest change. The 74 `subcategory_list` pages and hierarchical domain roots simply omit upcoming children. |
+| Public heading | **"Upcoming Resources"** | "Resource Blocks" is internal vocabulary. |
+
+### 25.5 ⚠️ Two hazards to close, not document
+
+1. **`__main__` must never be non-published.** It is the domain root for every direct domain. If
+   `getMainPage` filters on status and a `__main__` is drafted, the whole domain 404s. The API
+   will **reject a non-published status on a `__main__` page**, and `PageForm` will hide the
+   control for it. Closing the trap beats warning about it.
+2. **A draft parent hides its whole subtree — and that is correct.** Child URLs resolve through
+   the parent (`/domain/x/parent/child`), so once `getByPath` filters on status, drafting a
+   parent 404s everything beneath it automatically. Worth knowing in advance rather than
+   discovering.
+
+### 25.6 In our favour already
+
+`organizeSectionsIntoRows` in `SectionBasedLayout.tsx` already ends its `pageIds` lookup with
+`.filter(Boolean)`. So once `getChildPages` stops returning non-published pages, they drop out
+of their sections cleanly instead of crashing on `undefined`.
+
+---
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -5661,10 +5741,14 @@ remembering to pass an option.
 button carries no `opacity: 0`**, so it is visible at rest. Some earlier releases revealed it
 only on hover, which would have quietly not been what was asked for.
 
-⚠️ **THE OBVIOUS WAY TO MOVE IT WOULD HAVE BROKEN THE TOAST'S THEMING.** sonner puts the × on
-the leading edge, so it sat on the top-**left** corner, half outside the card. The natural fix
-is a `style` prop carrying sonner's three `--toast-close-button-*` variables — but
-`src/components/ui/sonner.tsx` renders
+⚠️ **THE POSITION CHANGE WAS REVERTED BY THE USER — the × keeps sonner's default top-left
+placement.** The `[data-sonner-toaster]` rule below is **not in the codebase**; commit `d40136d`
+carries only the `closeButton` prop, despite its message describing the move. The reasoning is
+kept because the *trap* it documents is real and will bite anyone who tries this again.
+
+sonner puts the × on the leading edge, so it sits on the top-**left** corner, half outside the
+card. The natural fix is a `style` prop carrying sonner's three `--toast-close-button-*`
+variables — but `src/components/ui/sonner.tsx` renders
 
 ```tsx
 <Sonner … style={{ '--normal-bg': …, '--normal-text': …, '--normal-border': …, '--border-radius': … }} {...props} />
@@ -5676,9 +5760,10 @@ tokens. The toast would have lost its theming in exchange for a moved button. `c
 the identical problem — it would drop `"toaster group"`.
 
 Editing the wrapper to merge them would be the tidy fix, but it is vendored shadcn and stays
-untouched. The variables therefore live in `globals.css`, targeted at sonner's own
-`[data-sonner-toaster]` attribute, which cannot clobber anything the component sets. Verified in
-the compiled CSS, and `--normal-bg` confirmed still present in the client bundle.
+untouched. The variables were therefore put in `globals.css`, targeted at sonner's own
+`[data-sonner-toaster]` attribute, which cannot clobber anything the component sets — verified
+in the compiled CSS with `--normal-bg` still present in the client bundle. **That rule was then
+reverted**, so if the button is ever moved, this is the route to take.
 
 **Generalisable:** before passing `style` or `className` to a wrapped third-party component,
 check where `{...props}` sits in the spread. Last means override, not merge.
@@ -5972,6 +6057,161 @@ Neon branches are independent and **nothing runs migrations automatically**:
 4. Merge → Vercel deploys code that finds the column present.
 
 Never `db push` (see #3).
+
+---
+
+### Phase I — Page status + "Upcoming Resources" (#25) — PLAN (agreed 6 Aug, starting)
+
+Two commits, mirroring Phase H. **I-1 changes no public behaviour** — all 1,205 pages migrate to
+`PUBLISHED`, so every filter added is a no-op on day one, which is what makes it testable.
+
+| Step | Scope | Status |
+| --- | --- | --- |
+| **I-1** ✅ | Schema + migration + read filtering + access gate + admin | **DONE 6 Aug.** Migration needed **no backfill** — 1,205 rows landed on PUBLISHED from the column default alone. **23/23 tests pass.** Record below. |
+
+##### ✅ I-1 DONE — 6 Aug 2026 (page status, filtering, the gate, the `__main__` guard)
+
+**Migration `20260806144304_add_page_status` — a bare `ADD COLUMN`, and that is the point.**
+`DEFAULT 'PUBLISHED'` gave all 1,205 existing rows the correct value on its own. Contrast
+`add_domain_status`, where the generated SQL defaulted to DRAFT — wrong for existing data — and a
+hand-written `CASE` backfill was the difference between working and blanking the homepage. The
+default was chosen to make this true; see §25.2.
+
+Verified: **1,205 PUBLISHED / 0 DRAFT / 0 UPCOMING.**
+
+**Eight read paths filtered:** `getByPath`, `getByPathFallback` (both steps), `getChildPages`,
+`getByDomain`, `getWithSections`, the three nested `pages:` selects in `domain.service.ts`, the
+breadcrumb candidates query, and the sitemap's nested relation.
+
+⚠️ **No separate 404 gate was needed in the route** — unlike H-1. Both `generateMetadata` and the
+component resolve pages through `PageService.getByPath`, so filtering the service *is* the gate.
+Checked rather than assumed, and a redundant guard was not added.
+
+⚠️ **`getMainPage` is deliberately NOT filtered.** `__main__` is the domain root; its visibility
+is already governed by `Domain.status`. If a hidden `__main__` somehow existed, filtering would
+404 the whole domain (finding #11's failure mode) whereas not filtering renders a page that could
+not legitimately have been hidden. The API guard is what keeps that state unreachable.
+
+###### ⚠️ A TEST THAT PASSED FOR THE WRONG REASON — caught by one assertion
+
+Test 7 asserted that hiding a `__main__` page returns 400. It did. But the follow-up assertion
+"the message explains why" **failed** — and that failure was the useful one: the 400 was coming
+from `validatePageUpdateData`'s slug regex `/^[a-z0-9-]+$/`, which rejects `__main__` for its
+underscores. **The guard was never reached.** Three assertions around it were passing on the
+strength of an unrelated rejection.
+
+Fixed by moving the guard **above** the generic validation, so it fires first and returns an
+actionable message. Re-verified: 23/23.
+
+**Lesson: "it returned the right status code" is not evidence that the right code ran.** Assert
+on the message, not only the status.
+
+###### ⚠️ THREE FIXES AFTER THE USER TESTED THE UI — two bugs, one with a shared root cause
+
+**1 + 2. The status showed "Live" on a DRAFT page, AND no badge ever appeared in the tree.**
+Reported as two problems; they were one.
+
+`buildPageHierarchy` in `PagesManager.tsx` rebuilds every page from an **explicit field list**,
+and `status` was not in it. The API returned it correctly — this transform threw it away. So:
+
+- `PageForm` read `editingPage.status` as `undefined` and fell back to `PUBLISHED`, showing
+  "Live" for a drafted page. **Saving it would then have published it** — a destructive result
+  from opening a form and pressing save.
+- `PageTree`'s badge is gated on `page.status && …`, never truthy, so no badge rendered — which
+  looked like the badge had not been built at all.
+
+⚠️ **A rebuild-by-field-list cannot complain about a field it was never told about.** It just
+returns less than it was given, silently. Same family as the hand-written status list in
+`DomainFilters` (#24). **Whenever a new column has to reach the client, check for a transform
+between the API and the component.**
+
+**3. Editing a second page left the first page's data in the form.** `PageForm` seeds its state
+from `editingPage`, and a `useState` initializer runs once — on mount. With the form rendered
+inline it stayed mounted, so switching rows changed the prop and nothing else. This is the third
+time this exact trap has appeared (`CategoryForm`'s `?column=`, `DomainFilters`, now here).
+
+Fixed two ways, deliberately: the form is now a `Dialog` (content unmounts on close), **and** it
+carries `key={editingPage?.id ?? 'new'}` so a remount is forced even if it is ever inlined again.
+
+⚠️ **The inline-vs-dialog comment in that file argued the opposite and was wrong.** It claimed
+the tree behind the form was "the context for what you are typing" — but the parent is chosen
+from a dropdown *inside* the form, not by clicking the tree, and the form sat above a list dozens
+of rows long, so editing anything far down meant scrolling away from it. The old reasoning is
+quoted in place rather than deleted.
+
+**Verified:** the admin list API carries `status` for all 74 pages of the test domain, and a
+page created as DRAFT reads back as DRAFT. ⚠️ The transform fix itself is **client-side and was
+not exercised headlessly** — the badge and the form default need a browser.
+
+###### ⚠️ PRE-EXISTING BUG FOUND (not caused by I-1, not fixed here)
+
+That slug regex means **a `__main__` page cannot be edited through the admin at all.** `PageTree`
+offers "Edit page" on `__main__` rows, `PageForm` opens, and every save returns *"Slug must
+contain only lowercase letters, numbers, and hyphens"* — because the slug it is submitting is the
+one the app itself created. It is the dead-control pattern again: an action that can never
+succeed. Reported, not fixed — out of scope for this step.
+
+###### TEST CASES — 23/23 passed against `next build && next start`
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1 | No public change from the migration | 1,205 PUBLISHED; `/domain` and a domain root 200 |
+| 2 | **Control** — child page reachable while PUBLISHED | 200, and listed in its section |
+| 3 | Same page → DRAFT | **404**; gone from its section; parent still 200 |
+| 4 | Same page → UPCOMING | **404** |
+| 5 | Excluded from the sitemap | absent |
+| 6 | Back to PUBLISHED | 200 again |
+| 7 | `__main__` cannot be hidden | **400** with the right message; still PUBLISHED; domain root 200 |
+| 8 | Invalid status | **400**, not 500 |
+| 9 | Drafted **parent** hides its subtree | grandchild 200 → **404** → 200 |
+
+`tsc` clean, build clean, database restored to 1,205 PUBLISHED with no hidden `__main__` pages.
+| **I-2** | "Upcoming Resources" on `SectionBasedLayout` | |
+
+#### I-1 — schema, filtering, gate, admin
+
+1. `enum PageStatus { DRAFT PUBLISHED UPCOMING }`; `status PageStatus @default(PUBLISHED)`.
+2. Migration: `ADD COLUMN` only. ⚠️ **No backfill needed** — see 25.2.
+3. ⚠️ **Verify before continuing:** 1,205 `PUBLISHED`, 0 `DRAFT`, 0 `UPCOMING`.
+4. `PageService` — `getChildPages`, `getByPath`, `getByPathFallback`, `getMainPage`,
+   `getByDomain` filter on `status: 'PUBLISHED'`.
+5. `domain.service.ts` — the three nested `pages:` selects (sidebar and domain-with-pages).
+6. `navigation.service.ts:580` — the path-resolution candidates query.
+7. `sitemap.ts` — the nested `pages` where-clause (25.3).
+8. `domain/[...slug]/page.tsx` — 404 a non-published page, in the component **and**
+   `generateMetadata`, for the same reason as H-1.
+9. `api/admin/pages/route.ts` + `[id]/route.ts` — accept, validate and write `status`;
+   ⚠️ **reject any non-published status on a `__main__` page** (25.5).
+10. `PageForm` — status `Select`, hidden for `__main__`. `PageTree` — status badge.
+
+**I-1 test cases**
+
+- Migration: 1,205 / 0 / 0.
+- No public change: `/domain` and a domain root still 200; page counts unchanged.
+- The gate: a throwaway child page set to DRAFT and to UPCOMING must 404, with a **PUBLISHED
+  control that 200s** — the H-1 lesson, a negative needs a positive beside it.
+- A non-published child disappears from its section, and the section still renders.
+- `__main__` cannot be set non-published (API returns an error; domain root still 200).
+- A drafted parent 404s its children too.
+- Sitemap excludes non-published pages.
+- Admin: badge and filter show all three; dark mode.
+
+#### I-2 — the public section
+
+11. `PageService.getUpcomingChildPages(domainId, parentId, userCountry)` — same country filter
+    and ordering as `getChildPages`.
+12. Generalise `UpcomingDomainList` into a shared `UpcomingList` — markup and toast are
+    identical, so this is reuse rather than a second component.
+13. `SectionBasedLayout` — "Upcoming Resources" below the section grid, rendered **only when
+    non-empty**.
+
+**I-2 test cases** — section renders/does not render, items are buttons not links, absent from
+sitemap and sidebar, pages 404, geo-restricted upcoming page hidden from other countries.
+
+#### ⚠️ Production checklist (same as #24.4)
+
+`migrate deploy` against **production before** the code deploy; nothing runs migrations
+automatically. Never `db push` (#3).
 
 ---
 

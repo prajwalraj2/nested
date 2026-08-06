@@ -51,6 +51,23 @@ const pageWithContentSelect = {
 
 /**
  * Get __main__ page for a domain - CACHED across requests
+ *
+ * ⚠️ DELIBERATELY NOT FILTERED ON `status`, unlike every other read in this file.
+ *
+ * `__main__` IS the domain root for a direct domain — it is not a page anyone navigates to by
+ * name, it is what `/domain/<slug>` renders. Its visibility is already governed one level up by
+ * `Domain.status`, which H-1 made the route enforce, so a status on this row would be a second
+ * switch for the same door.
+ *
+ * The asymmetry of harm decides it. `POST`/`PUT /api/admin/pages` refuses to set a non-published
+ * status on a `__main__` page and `PageForm` hides the control, so the state is unreachable
+ * through any supported path. If one appeared anyway — a direct database write — then:
+ *
+ *   • filtering here would 404 that domain's entire root, which is finding #11's failure mode;
+ *   • not filtering renders a page that could not legitimately have been marked hidden.
+ *
+ * The second is plainly the better way to be wrong. If this ever changes, change the API guard
+ * first, not this query.
  */
 const getMainPageFromDB = unstable_cache(
   async (domainId: string): Promise<PageWithContent | null> => {
@@ -133,6 +150,18 @@ export const PageService = {
       where: {
         domainId,
         slug: { in: slugPath },
+        /*
+          ⚠️ THIS ONE LINE ALSO HIDES THE WHOLE SUBTREE, AND THAT IS INTENDED.
+
+          The traversal below walks segment by segment, each step looking for a child of the
+          page found in the previous step. A non-published page is simply absent from this
+          result set, so the walk stops there and returns null — which the route turns into a
+          404. Every descendant becomes unreachable with it, because its URL runs through the
+          missing parent.
+
+          That is the correct behaviour: a child of a hidden page has no reachable address.
+        */
+        status: 'PUBLISHED',
         ...buildCountryFilter(userCountry),
       },
       select: {
@@ -182,9 +211,12 @@ export const PageService = {
   ): Promise<PageWithContent | null> => {
     let currentPage: PageWithContent | null = null;
 
+    // Same `status` gate as `getByPath` — this is the fallback for the same lookup, so the two
+    // must agree. If only one filtered, a deep path would be reachable through whichever
+    // branch happened to run.
     const firstPageWhere = domainType === 'direct'
-      ? { slug: slugPath[0], domainId, parentId: mainPageId, ...buildCountryFilter(userCountry) }
-      : { slug: slugPath[0], domainId, parentId: null, ...buildCountryFilter(userCountry) };
+      ? { slug: slugPath[0], domainId, parentId: mainPageId, status: 'PUBLISHED' as const, ...buildCountryFilter(userCountry) }
+      : { slug: slugPath[0], domainId, parentId: null, status: 'PUBLISHED' as const, ...buildCountryFilter(userCountry) };
 
     currentPage = await prisma.page.findFirst({
       where: firstPageWhere,
@@ -197,6 +229,9 @@ export const PageService = {
           slug: slugPath[i],
           domainId,
           parentId: currentPage.id,
+          // Each step of the walk is gated, not just the first — otherwise a published parent
+          // would still hand out a drafted child.
+          status: 'PUBLISHED',
           ...buildCountryFilter(userCountry),
         },
         select: pageWithContentSelect,
@@ -247,6 +282,17 @@ export const PageService = {
       where: {
         domainId,
         parentId,
+        /*
+          Published children only. `SectionBasedLayout` resolves its `sections` JSON by looking
+          each `pageId` up in this list and then calls `.filter(Boolean)` — so a page removed
+          here simply disappears from its section rather than rendering a dead link or
+          crashing on `undefined`. That `.filter(Boolean)` already existed; this change relies
+          on it.
+
+          UPCOMING children are fetched separately by `getUpcomingChildPages` for the
+          "Upcoming Resources" block, so excluding them here does not lose them.
+        */
+        status: 'PUBLISHED',
         ...buildCountryFilter(userCountry),
       },
       select: {
@@ -276,6 +322,9 @@ export const PageService = {
     const pages = await prisma.page.findMany({
       where: {
         domainId,
+        // Feeds the sidebar. A non-published page must not appear there — it would be a
+        // navigation entry pointing at a 404.
+        status: 'PUBLISHED',
         ...buildCountryFilter(userCountry),
       },
       select: {
@@ -303,6 +352,8 @@ export const PageService = {
     const pages = await prisma.page.findMany({
       where: {
         domainId,
+        // Same reasoning as `getByDomain` — this is public read data, not an admin query.
+        status: 'PUBLISHED',
         ...buildCountryFilter(userCountry),
       },
       select: {

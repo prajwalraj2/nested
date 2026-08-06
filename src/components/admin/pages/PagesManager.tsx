@@ -1,9 +1,12 @@
 'use client';
 
-import type { DomainStatus } from '@/generated/prisma';
+// Both come from the generated client; one import rather than two lines for the same module.
+import type { DomainStatus, PageStatus } from '@/generated/prisma';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Globe, Loader2, Network, Plus, Target, X } from 'lucide-react';
+// `X` was dropped along with the inline form's hand-rolled close button — `DialogContent`
+// supplies a properly labelled one of its own.
+import { AlertTriangle, Globe, Loader2, Network, Plus, Target } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -17,6 +20,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { DomainSelector } from './DomainSelector';
 import { PageTree } from './PageTree';
 import { PageForm } from './PageForm';
@@ -57,6 +67,8 @@ type Page = {
   title: string;
   slug: string;
   contentType: string;
+  /** Lifecycle state, carried through to PageTree and PageForm. */
+  status?: PageStatus;
   parentId: string | null;
   domainId: string;
   targetCountries?: string[];
@@ -410,33 +422,60 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
           </div>
 
           {/*
-            The create/edit form stays INLINE rather than moving into a dialog like the
-            domain form did in G-3a. Deliberate: you pick a parent from the tree behind it,
-            and the tree is the context for what you are typing. A modal would cover the
-            thing the form is about.
-          */}
-          {(showCreateForm || editingPage) && (
-            <div className="bg-muted/40 space-y-4 rounded-lg border p-4">
-              <div className="flex items-start justify-between gap-2">
-                <h5 className="font-medium">
-                  {editingPage ? `Edit "${editingPage.title}"` : 'New page'}
-                </h5>
-                {/*
-                  Was a bare `✕` character in a grey span — which a screen reader announces
-                  as "multiplication sign" and which cannot inherit the theme.
-                */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 shrink-0"
-                  onClick={handleFormCancel}
-                  aria-label="Close the form"
-                >
-                  <X className="size-4" aria-hidden="true" />
-                </Button>
-              </div>
+            ⚠️ NOW A DIALOG. The previous comment here argued the opposite, and it was wrong in
+            practice:
 
+              "The create/edit form stays INLINE rather than moving into a dialog like the
+               domain form did in G-3a. Deliberate: you pick a parent from the tree behind it,
+               and the tree is the context for what you are typing."
+
+            The reasoning sounded right but did not survive use. The form sits ABOVE a tree that
+            can run to dozens of rows, so editing a page far down the list meant scrolling up to
+            a form you could no longer see the subject of — and the parent is chosen from a
+            dropdown inside the form, not by clicking the tree, so the tree was never really the
+            context it claimed to be.
+
+            It also produced a real bug: with the form mounted inline, clicking "Edit page" on a
+            DIFFERENT row left every field showing the previous page's data. A `Dialog` unmounts
+            its content on close, so that state cannot survive from one page to the next.
+
+            The `key` below closes the same hole directly rather than relying on that.
+          */}
+          <Dialog
+            open={showCreateForm || editingPage !== null}
+            onOpenChange={(open) => !open && handleFormCancel()}
+          >
+            {/*
+              `max-h-[85vh] overflow-y-auto` because this form is tall — title, slug, content
+              type, parent, status and six country buttons — and a dialog that overflows the
+              viewport traps its own save button off-screen.
+            */}
+            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>
+                  {editingPage ? `Edit "${editingPage.title}"` : 'New page'}
+                </DialogTitle>
+                <DialogDescription>
+                  {editingPage
+                    ? 'Update this page’s details, status and visibility.'
+                    : `Add a page to ${selectedDomain?.name ?? 'this domain'}.`}
+                </DialogDescription>
+              </DialogHeader>
+
+              {/*
+                ⚠️ `key` FORCES A REMOUNT WHEN THE TARGET CHANGES.
+
+                `PageForm` seeds its `useState` from `editingPage` — and a `useState` initializer
+                runs once, on mount. Without a changing key, switching from one page to another
+                while the form is open would keep the first page's values, which is exactly the
+                bug reported. Keying on the id makes React treat each target as a different
+                component instance, so the initializer runs again with the right data.
+
+                `'new'` for the create case, so opening "New page" after an edit also starts
+                clean rather than inheriting the edited page's fields.
+              */}
               <PageForm
+                key={editingPage?.id ?? 'new'}
                 domain={selectedDomain}
                 pages={pages}
                 parentId={createParentId}
@@ -444,8 +483,8 @@ export function PagesManager({ domains, selectedDomainId, expandedPageIds }: Pag
                 onSuccess={handleFormSuccess}
                 onCancel={handleFormCancel}
               />
-            </div>
-          )}
+            </DialogContent>
+          </Dialog>
 
           {loading && (
             <div className="text-muted-foreground flex items-center justify-center gap-2 py-10 text-sm">
@@ -628,11 +667,28 @@ function buildPageHierarchy(flatPages: any[], domain: Domain | null): Page[] {
   if (!domain || !flatPages.length) return [];
   
   // Transform flat pages to typed pages with hierarchy info
+  /*
+    ⚠️ THIS EXPLICIT FIELD LIST SILENTLY DROPS ANYTHING NOT NAMED IN IT.
+
+    `status` was missing here, and the API was returning it perfectly well — this transform
+    threw it away. Two visible symptoms, one cause:
+
+      • `PageForm` read `editingPage.status` as `undefined` and fell back to PUBLISHED, so
+        opening a DRAFT page for editing showed "Live". Saving it would then have published it.
+      • `PageTree`'s badge is gated on `page.status && …`, so it was never truthy and no badge
+        ever rendered — which looked like the badge had not been built.
+
+    Neither failed loudly. A rebuild-by-field-list has no way to complain about a field it was
+    never told about; it just quietly returns less than it was given. Same family of trap as the
+    hand-written status list in `DomainFilters` (#24), and worth checking whenever a new column
+    reaches the client.
+  */
   const transformedPages: Page[] = flatPages.map(page => ({
     id: page.id,
     title: page.title,
     slug: page.slug,
     contentType: page.contentType,
+    status: page.status,
     parentId: page.parentId,
     domainId: page.domainId,
     targetCountries: page.targetCountries,

@@ -1,5 +1,7 @@
 'use client';
 
+import type { PageStatus } from '@/generated/prisma';
+import { PAGE_STATUS_LABELS } from '@/lib/page-status';
 import type { DomainStatus } from '@/generated/prisma';
 import Link from 'next/link';
 import {
@@ -91,6 +93,8 @@ type Page = {
   title: string;
   slug: string;
   contentType: string;
+  /** Lifecycle state. Optional so callers with the older shape still compile. */
+  status?: PageStatus;
   parentId: string | null;
   domainId: string;
   targetCountries?: string[];
@@ -261,6 +265,20 @@ function PageTreeNode({
           {isMainPage && (
             <Badge variant="secondary" className="shrink-0 font-normal">
               Hidden
+            </Badge>
+          )}
+          {/*
+            Status, shown ONLY when it is not the norm. "Live" on 1,205 rows would be noise —
+            the same reasoning as the Draft badge on the domain picker. `outline` for Upcoming
+            and `secondary` for Draft differ in border as well as weight, so the two are
+            distinguishable without relying on colour.
+          */}
+          {page.status && page.status !== 'PUBLISHED' && (
+            <Badge
+              variant={page.status === 'UPCOMING' ? 'outline' : 'secondary'}
+              className="shrink-0 font-normal"
+            >
+              {PAGE_STATUS_LABELS[page.status]}
             </Badge>
           )}
         </div>

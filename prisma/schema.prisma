@@ -103,6 +103,27 @@ model Domain {
   @@index([categoryId, orderInCategory])
 }
 
+/// Where a page is in its lifecycle. Mirrors `DomainStatus` one level down.
+///
+/// ⚠️ A SEPARATE ENUM RATHER THAN REUSING `DomainStatus`, deliberately. Sharing one
+/// `ContentStatus` type is conceptually tidier, but renaming a type that is already live on
+/// production means sequencing a second type-rename migration against the deploy, plus renaming
+/// `lib/domain-status.ts` and its exported constants across every file that imports them.
+/// Three duplicated literal values is the cheaper trade — and the *logic* (label maps, status
+/// resolution, validation) is still written once and shared.
+enum PageStatus {
+  /// Not listed anywhere, and the page 404s — along with everything nested beneath it, since
+  /// child URLs resolve through their parent.
+  DRAFT
+
+  /// Rendered and linked as normal. The default; see the note on the field below.
+  PUBLISHED
+
+  /// Named under "Upcoming Resources" at the foot of its section-based parent, and nowhere
+  /// else. Not a link, not in the sidebar, not in the sitemap, and the page itself 404s.
+  UPCOMING
+}
+
 model Page {
   id        String   @id @default(uuid())
   title     String
@@ -110,6 +131,29 @@ model Page {
 
   // Content type: determines how the page is rendered
   contentType String @default("narrative") // "narrative" | "section_based" | "subcategory_list" | "table" | "rich_text" | "mixed_content"
+
+  /// Lifecycle state — the field every read path should filter on.
+  ///
+  /// ⚠️ DEFAULTS TO `PUBLISHED`, THE OPPOSITE OF `Domain.status`, AND THAT IS DELIBERATE.
+  ///
+  /// A domain defaults to DRAFT because creating one is always a conscious admin action, so
+  /// "invisible until I say so" is the safe direction. Pages are different: of the five
+  /// `prisma.page.create` call sites, TWO are side effects of *domain* operations — creating a
+  /// direct domain creates its `__main__` page, and changing a domain's `pageType` recreates
+  /// it. Nobody is choosing to create a page there.
+  ///
+  /// With a DRAFT default, either of those paths would produce an invisible `__main__` and the
+  /// entire domain root would 404 — the failure `[#11]` already warns about in
+  /// `domain/[...slug]/page.tsx`, except silent and self-inflicted.
+  ///
+  /// The default also makes the migration a bare `ADD COLUMN`: it gives all 1,205 existing rows
+  /// the correct value, so no backfill is required. Contrast `Domain`, where the default was
+  /// wrong for existing data and a hand-written `CASE` backfill was the difference between
+  /// working and blanking the homepage.
+  ///
+  /// ⚠️ A `__main__` page must never leave PUBLISHED — the API refuses it. See
+  /// `api/admin/pages/[id]/route.ts`.
+  status PageStatus @default(PUBLISHED)
 
   // Section configuration for section_based pages
   // Stores how child pages are organized into 3-column layout

@@ -143,9 +143,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         slug: true,
         updatedAt: true,
         pages: {
-          // Same filter one level down. Note this also removes pages from the set
-          // used for path building below, which is intentional — see buildPagePath.
-          where: { targetCountries: { has: ALL_COUNTRIES } },
+          /*
+            Same filter one level down. Note this also removes pages from the set
+            used for path building below, which is intentional — see buildPagePath.
+
+            ⚠️ `status` IS NOT COVERED BY THE DOMAIN FILTER ABOVE. Domain status is —
+            these pages are nested inside the domain query, so an unpublished domain
+            takes its pages with it. But a DRAFT or UPCOMING page under a LIVE domain
+            would still be listed here, advertising a URL that 404s. Same soft-404
+            reasoning as the geo filter it sits beside (#15.4).
+          */
+          where: { status: 'PUBLISHED', targetCountries: { has: ALL_COUNTRIES } },
           select: {
             id: true,
             slug: true,

@@ -582,6 +582,9 @@ async function buildBreadcrumbData(
           domainId: domain.id,
           // '__main__' is the synthetic root of a `direct` domain — see detail 1 above.
           slug: { in: [...pageSegments, '__main__'] },
+          // Published only. These become breadcrumb labels, and a hidden page has no URL to
+          // label — its own route 404s. `__main__` is unaffected: it is always PUBLISHED.
+          status: 'PUBLISHED',
           ...buildCountryFilter(userCountry),
         },
         select: {
