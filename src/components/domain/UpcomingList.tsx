@@ -99,7 +99,7 @@ export function UpcomingList({ items, noun }: UpcomingListProps) {
 
             The text is very slightly dimmed rather than fully muted — see the note on the span.
           */
-          className="hover:bg-accent mb-2 block w-full cursor-pointer rounded-md px-3 py-1 text-left transition-colors"
+          className="hover:bg-accent mb-1 block w-full cursor-pointer rounded-md px-3 py-1 text-left transition-colors"
           title={item.name}
         >
           {/*

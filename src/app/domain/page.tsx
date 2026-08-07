@@ -247,7 +247,7 @@ export default async function DomainIndexPage() {
             */}
             <h1
               id="upcoming-domains-heading"
-              className="text-foreground mb-3 text-2xl font-semibold"
+              className="text-foreground mb-3 text-xl font-semibold"
             >
               Upcoming Domains
             </h1>

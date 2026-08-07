@@ -137,7 +137,7 @@ export function SectionBasedLayout({
           <section className="mt-12 border-t pt-8" aria-labelledby="upcoming-resources-heading">
             <h2
               id="upcoming-resources-heading"
-              className="text-foreground mb-3 text-2xl font-bold"
+              className="text-foreground mb-3 text-xl font-semibold"
             >
               Upcoming Resources
             </h2>
