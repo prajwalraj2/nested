@@ -309,6 +309,42 @@ export const PageService = {
   }),
 
   /**
+   * Child pages marked UPCOMING, for the "Upcoming Resources" block.
+   *
+   * Deliberately mirrors `getChildPages` in every respect except the status: same country
+   * filter, same ordering, same select. The two lists are two slices of one shelf and must not
+   * drift apart in who can see them or how they sort.
+   *
+   * ⚠️ The country filter is not optional. An upcoming page restricted to one country must stay
+   * hidden from everyone else — otherwise "upcoming" would become a way to reveal the existence
+   * of geo-restricted content that the published list takes care to hide.
+   */
+  getUpcomingChildPages: cache(async (
+    domainId: string,
+    parentId: string,
+    userCountry: string
+  ): Promise<ChildPage[]> => {
+    const pages = await prisma.page.findMany({
+      where: {
+        domainId,
+        parentId,
+        status: 'UPCOMING',
+        ...buildCountryFilter(userCountry),
+      },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        contentType: true,
+        parentId: true,
+      },
+      orderBy: { order: 'asc' },
+    });
+
+    return pages as ChildPage[];
+  }),
+
+  /**
    * Get a single page by ID with full content
    */
   getById: cache(async (pageId: string): Promise<PageWithContent | null> => {

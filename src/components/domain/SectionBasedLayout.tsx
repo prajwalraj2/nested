@@ -2,6 +2,9 @@
 
 import Link from 'next/link';
 import { PageHeading } from './PageHeading';
+// Shared with the "Upcoming Domains" block on /domain — see the note in that file for why its
+// items are buttons rather than links.
+import { UpcomingList } from './UpcomingList';
 
 // Types
 type Domain = {
@@ -46,11 +49,24 @@ export function SectionBasedLayout({
   domain, 
   page, 
   childPages = [],
+  upcomingChildPages = [],
   currentPath = ''
 }: {
   domain: Domain;
   page?: Page;
   childPages?: ChildPage[];
+  /**
+   * Child pages with status UPCOMING, rendered in their own block below the grid.
+   *
+   * ⚠️ A SEPARATE PROP, not a filter over `childPages`. `childPages` comes from
+   * `PageService.getChildPages`, which now returns PUBLISHED only — so these pages are not in
+   * it and could not be recovered from it.
+   *
+   * Keeping them apart is also what stops them appearing inside a section:
+   * `organizeSectionsIntoRows` resolves each `pageId` against `childPages` and drops what it
+   * cannot find, so an upcoming page falls out of its configured section automatically.
+   */
+  upcomingChildPages?: ChildPage[];
   currentPath?: string;
 }) {
   const title = page?.title || domain.name;
@@ -99,6 +115,37 @@ export function SectionBasedLayout({
               })
             )).flat()}
           </div>
+        )}
+
+        {/*
+          ── Upcoming Resources ────────────────────────────────────────────
+          Child pages with status UPCOMING: named here, with no page behind them.
+
+          ⚠️ OUTSIDE the section grid, not another section within it. A section is a *configured*
+          thing — it has a title, a column and an order stored in `Page.sections` — and these
+          pages are deliberately absent from that configuration. Putting them in the grid would
+          mean inventing a section they were never assigned to.
+
+          ⚠️ Rendered ONLY when non-empty. A heading over an empty list reads as a bug and
+          promises content that does not exist. Most of the 42 section-based pages will have
+          nothing upcoming, and those must look exactly as they do today.
+
+          The mirror of the "Upcoming Domains" block at the foot of `/domain` (#24), and it
+          shares that block's component so the two cannot drift apart on spacing or wording.
+        */}
+        {upcomingChildPages.length > 0 && (
+          <section className="mt-12 border-t pt-8" aria-labelledby="upcoming-resources-heading">
+            <h2
+              id="upcoming-resources-heading"
+              className="text-foreground mb-3 text-2xl font-bold"
+            >
+              Upcoming Resources
+            </h2>
+            <UpcomingList
+              noun="Resource"
+              items={upcomingChildPages.map((child) => ({ id: child.id, name: child.title }))}
+            />
+          </section>
         )}
       </div>
     </div>

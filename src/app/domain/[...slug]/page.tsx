@@ -408,13 +408,23 @@ export default async function DomainPage({ params }: Props) {
         return notFound();
       }
 
-      const childPages = await PageService.getChildPages(domain.id, mainPage.id, userCountry);
+      /*
+        Two queries in parallel: the published children that fill the sections, and the upcoming
+        ones that fill the block beneath them. They are separate queries rather than one filtered
+        two ways because `getChildPages` is PUBLISHED-only by design — the upcoming rows are not
+        in its result and could not be recovered from it.
+      */
+      const [childPages, upcomingChildPages] = await Promise.all([
+        PageService.getChildPages(domain.id, mainPage.id, userCountry),
+        PageService.getUpcomingChildPages(domain.id, mainPage.id, userCountry),
+      ]);
 
       content = (
         <SectionBasedLayout
           domain={domain}
           page={mainPage}
           childPages={childPages}
+          upcomingChildPages={upcomingChildPages}
           currentPath={`/domain/${domain.slug}`}
         />
       );
@@ -446,12 +456,18 @@ export default async function DomainPage({ params }: Props) {
     // Render based on content type
     switch (page.contentType) {
       case 'section_based': {
-        const childPages = await PageService.getChildPages(domain.id, page.id, userCountry);
+        // Same pair as the domain-root branch above — a section-based page nested deeper gets
+        // the identical treatment, so the block appears wherever sections do.
+        const [childPages, upcomingChildPages] = await Promise.all([
+          PageService.getChildPages(domain.id, page.id, userCountry),
+          PageService.getUpcomingChildPages(domain.id, page.id, userCountry),
+        ]);
         content = (
           <SectionBasedLayout
             page={page}
             domain={domain}
             childPages={childPages}
+            upcomingChildPages={upcomingChildPages}
             currentPath={`/domain/${domain.slug}/${restSlug.join('/')}`}
           />
         );
