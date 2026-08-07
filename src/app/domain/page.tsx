@@ -12,7 +12,7 @@ import { buildOpenGraph, buildTwitter, SITE_NAME } from '@/lib/seo';
 import { buildOrganizationJsonLd } from '@/lib/structured-data';
 import { JsonLd } from '@/components/JsonLd';
 import { PageHeading } from '@/components/domain/PageHeading';
-import { UpcomingDomainList } from '@/components/domain/UpcomingDomainList';
+import { UpcomingList } from '@/components/domain/UpcomingList';
 
 // ============================================
 // ISR Configuration
@@ -254,10 +254,11 @@ export default async function DomainIndexPage() {
 
             {/*
               Only the list is a Client Component — the heading above stays server-rendered.
-              See the note in UpcomingDomainList for why the items are buttons, not links.
+              See the note in UpcomingList for why the items are buttons, not links.
             */}
-            <UpcomingDomainList
-              domains={upcomingDomains.map((domain) => ({
+            <UpcomingList
+              noun="Domain"
+              items={upcomingDomains.map((domain) => ({
                 id: domain.id,
                 name: domain.name,
               }))}
