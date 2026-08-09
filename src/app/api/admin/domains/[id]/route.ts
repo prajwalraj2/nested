@@ -1,3 +1,4 @@
+import { isValidIconId } from '@/lib/icon-manifest';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
@@ -82,6 +83,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       slug: domain.slug,
       pageType: domain.pageType,
       status: domain.status,
+      icon: domain.icon,
       isPublished: domain.isPublished,
       orderInCategory: domain.orderInCategory,
       targetCountries: domain.targetCountries,
@@ -239,6 +241,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         */
         status: resolveStatus(body, existingDomain.status),
         isPublished: resolveStatus(body, existingDomain.status) === 'PUBLISHED',
+        /*
+          ⚠️ `!== undefined`, not `?? existing`. `null` is a MEANINGFUL value here — it means
+          "remove the icon and fall back to the emoji" — so it must be distinguishable from the
+          field being absent. A `??` would treat a deliberate clear as "unchanged" and the
+          Remove button would silently do nothing.
+        */
+        icon: body.icon !== undefined ? body.icon : existingDomain.icon,
         targetCountries: validTargetCountries
       },
       include: {
@@ -273,6 +282,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         slug: updatedDomain.slug,
         pageType: updatedDomain.pageType,
         status: updatedDomain.status,
+        icon: updatedDomain.icon,
         isPublished: updatedDomain.isPublished,
         orderInCategory: updatedDomain.orderInCategory,
         targetCountries: updatedDomain.targetCountries,
@@ -471,6 +481,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           slug: updatedDomain.slug,
           pageType: updatedDomain.pageType,
           status: updatedDomain.status,
+          icon: updatedDomain.icon,
           isPublished: updatedDomain.isPublished,
           orderInCategory: updatedDomain.orderInCategory,
           category: updatedDomain.category
@@ -550,6 +561,19 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
  * Similar to create validation but allows checking against existing domain
  */
 function validateDomainData(data: any, excludeId?: string): string | null {
+  /*
+    Icon. Optional, and `null` is a legitimate value meaning "fall back to the emoji in the
+    name/title".
+
+    ⚠️ VALIDATED AGAINST THE GENERATED MANIFEST, not merely type-checked. This value ends up in
+    an `src` attribute, so an unrecognised id renders a broken image with no error anywhere —
+    the same silent-failure shape as an unvalidated status enum. `isValidIconId` checks it
+    against the SVGs that actually exist in public/icons/.
+  */
+  if (data.icon !== undefined && data.icon !== null && !isValidIconId(data.icon)) {
+    return `Unknown icon "${data.icon}". Add the SVG to public/icons/ first.`;
+  }
+
   // Required fields
   if (!data.name || typeof data.name !== 'string' || !data.name.trim()) {
     return 'Domain name is required';

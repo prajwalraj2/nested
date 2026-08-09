@@ -50,7 +50,12 @@ const MAX_BYTES = 10 * 1024;
  * cleverer parsing, because there is no rule that recovers `YouTube` from `youtube`.
  */
 const LABEL_OVERRIDES = {
-  // e.g. youtube: 'YouTube',
+  // Brands whose own capitalisation cannot be recovered from a lowercase filename.
+  // Add a line here whenever a new icon's auto-generated label reads wrongly.
+  github: 'GitHub',
+  linkedin: 'LinkedIn',
+  ted: 'TED',
+  youtube: 'YouTube',
 };
 
 function toLabel(id) {

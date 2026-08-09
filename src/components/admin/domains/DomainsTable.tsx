@@ -60,6 +60,7 @@ import {
 import { DomainForm } from './DomainForm';
 import type { DomainStatus } from '@/generated/prisma';
 import { DOMAIN_STATUSES, DOMAIN_STATUS_LABELS } from '@/lib/domain-status';
+import { getIcon } from '@/lib/icon-manifest';
 
 /**
  * How each status is drawn in the table.
@@ -146,6 +147,8 @@ type Domain = {
   pageType: string;
   /** Lifecycle state — replaces the old `isPublished` boolean. */
   status: DomainStatus;
+  /** Icon id from public/icons/, or null when the emoji in the name is used. */
+  icon: string | null;
   orderInCategory: number;
   targetCountries?: string[];
   createdAt: Date;
@@ -385,6 +388,23 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
                 categoryId: domainToEdit.category?.id || '',
                 orderInCategory: domainToEdit.orderInCategory,
                 status: domainToEdit.status,
+                /*
+                  ⚠️ THE THIRD TIME AN EXPLICIT FIELD LIST HAS SILENTLY DROPPED A NEW COLUMN.
+
+                  This object is rebuilt field by field rather than spread, so a column the
+                  literal does not name simply never reaches the form — no error, no warning.
+                  The icon saved correctly, rendered correctly in the row, and was present in
+                  the database; it was only missing when you REOPENED the edit dialog, which is
+                  the one place that looks like "it did not save".
+
+                  Previous two: `buildPageHierarchy` dropped `status` in I-1, and would have
+                  dropped `icon` in J-2 had it not been added deliberately.
+
+                  ⚠️ `PagesManager` does not have this problem because it passes the whole page
+                  object (`editingPage={editingPage}`). Spreading, or passing the object, is the
+                  shape that cannot rot.
+                */
+                icon: domainToEdit.icon,
                 // `['ALL']` is the "visible everywhere" default — see the country
                 // targeting in #8. A domain with no explicit list must not become invisible.
                 targetCountries: domainToEdit.targetCountries || ['ALL'],
@@ -434,6 +454,10 @@ type DomainRowProps = {
 };
 
 function DomainRow({ domain, isPublishing, onEdit, onDelete, onStatusChange }: DomainRowProps) {
+  // Resolved from the generated manifest; null when unset OR when the SVG has been deleted
+  // from public/icons/ while rows still reference it.
+  const domainIcon = getIcon(domain.icon);
+
   const isHierarchical = domain.pageType !== 'direct';
 
   return (
@@ -468,6 +492,20 @@ function DomainRow({ domain, isPublishing, onEdit, onDelete, onStatusChange }: D
           */}
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
+              {/*
+                The chosen icon, shown so it is obvious at a glance which rows have one — and,
+                more usefully, so a row carrying BOTH an icon and an emoji in its name is
+                visible here rather than only on the public page (§27.6).
+              */}
+              {domainIcon && (
+                <img
+                  src={domainIcon.url}
+                  alt=""
+                  width={16}
+                  height={16}
+                  className="size-4 shrink-0"
+                />
+              )}
               <span className="truncate font-medium">{domain.name}</span>
               {/*
                 "View live" was a 🔗 emoji styled `text-blue-600`. Now a real icon link.

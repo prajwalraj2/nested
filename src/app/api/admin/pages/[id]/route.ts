@@ -1,3 +1,4 @@
+import { isValidIconId } from '@/lib/icon-manifest';
 import { NextRequest, NextResponse } from 'next/server';
 import { PAGE_STATUSES, isMainPage, isPageStatus, resolvePageStatus } from '@/lib/page-status';
 import { prisma } from '@/lib/prisma';
@@ -72,6 +73,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         slug: true,
         contentType: true,
         status: true,
+        icon: true,
         createdAt: true
       },
       orderBy: { order: 'asc' }
@@ -105,6 +107,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         slug: page.slug,
         contentType: page.contentType,
         status: page.status,
+        icon: page.icon,
         parentId: page.parentId,
         domainId: page.domainId,
         targetCountries: page.targetCountries,
@@ -266,6 +269,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           page must not quietly republish a draft — the same reasoning as the domain PUT.
         */
         status: nextStatus,
+        /*
+          ⚠️ `!== undefined`, not `?? existing`. `null` is a MEANINGFUL value here — it means
+          "remove the icon and fall back to the emoji" — so it must be distinguishable from the
+          field being absent. A `??` would treat a deliberate clear as "unchanged" and the
+          Remove button would silently do nothing.
+        */
+        icon: body.icon !== undefined ? body.icon : existingPage.icon,
         targetCountries: validTargetCountries
       },
       include: {
@@ -306,6 +316,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         slug: updatedPage.slug,
         contentType: updatedPage.contentType,
         status: updatedPage.status,
+        icon: updatedPage.icon,
         parentId: updatedPage.parentId,
         domainId: updatedPage.domainId,
         targetCountries: updatedPage.targetCountries,
@@ -465,6 +476,19 @@ async function getAllDescendants(pageId: string, depth = 0): Promise<Array<{id: 
  * Validate page data for updates
  */
 function validatePageUpdateData(data: any): string | null {
+  /*
+    Icon. Optional, and `null` is a legitimate value meaning "fall back to the emoji in the
+    name/title".
+
+    ⚠️ VALIDATED AGAINST THE GENERATED MANIFEST, not merely type-checked. This value ends up in
+    an `src` attribute, so an unrecognised id renders a broken image with no error anywhere —
+    the same silent-failure shape as an unvalidated status enum. `isValidIconId` checks it
+    against the SVGs that actually exist in public/icons/.
+  */
+  if (data.icon !== undefined && data.icon !== null && !isValidIconId(data.icon)) {
+    return `Unknown icon "${data.icon}". Add the SVG to public/icons/ first.`;
+  }
+
   // Twin of the check in `api/admin/pages/route.ts`: an unrecognised status must become a 400
   // here rather than an opaque Prisma error at query time. Optional, so a caller that omits it
   // keeps the page's existing status.

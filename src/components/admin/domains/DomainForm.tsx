@@ -12,6 +12,7 @@ import {
   DOMAIN_STATUS_DESCRIPTIONS,
   DOMAIN_STATUS_LABELS,
 } from '@/lib/domain-status';
+import { IconPicker } from '@/components/admin/IconPicker';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -82,6 +83,8 @@ type DomainFormProps = {
      * the fallback below derives it from `isPublished`, which is exactly what the API does.
      */
     status?: DomainStatus;
+    /** Icon id from public/icons/, or null to fall back to the emoji in the name. */
+    icon?: string | null;
     /**
      * @deprecated Superseded by `status`. Optional, and only read as a fallback when
      * `status` is absent — callers already migrated to `status` do not pass it at all.
@@ -121,6 +124,11 @@ export function DomainForm({ categories, domain = null, onSuccess, onCancel }: D
     status:
       domain?.status ?? (domain?.isPublished ? 'PUBLISHED' : ('DRAFT' as DomainStatus)),
     targetCountries: domain?.targetCountries || [ALL_COUNTRIES],
+    /*
+      ?? null, not || null: both give null here, but the intent is "only when absent", and an
+      empty string would be a meaningful-looking value that is not a valid icon id.
+    */
+    icon: domain?.icon ?? null,
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -147,7 +155,9 @@ export function DomainForm({ categories, domain = null, onSuccess, onCancel }: D
    * never in edit mode, where the slug is load-bearing (see above) and must only change
    * when deliberately typed.
    */
-  function handleChange(field: string, value: string | number | boolean | string[]) {
+  // `null` is in the union for `icon`, where it is a meaningful value — "no icon, fall back to
+  // the emoji in the name" — rather than an absence.
+  function handleChange(field: string, value: string | number | boolean | string[] | null) {
     setFormData((prev) => ({
       ...prev,
       [field]: value,
@@ -457,6 +467,33 @@ export function DomainForm({ categories, domain = null, onSuccess, onCancel }: D
             );
           })}
         </div>
+      </div>
+
+      {/*
+        ── Icon ──
+        Optional. Null means "use the emoji already in the name", which is the state of all 41
+        domains today.
+
+        ⚠️ The help text warns about the double-icon trap, because it is invisible until you look
+        at the public page: 36 of 41 domain names carry the emoji inside the name STRING
+        (`"🖌️ Graphic Designing"`), so setting an icon without editing the name renders both.
+        See NEW-IMPROVEMENTS.md §27.6.
+      */}
+      <div className="space-y-1.5 rounded-lg border p-4">
+        <Label htmlFor="domain-icon" className="font-medium">
+          Icon
+        </Label>
+        <IconPicker
+          id="domain-icon"
+          value={formData.icon}
+          onChange={(iconId) => handleChange('icon', iconId)}
+          disabled={isLoading}
+        />
+        <p className="text-muted-foreground text-xs">
+          {formData.icon
+            ? 'Remove any emoji from the name above, or both will show.'
+            : 'Optional. Without one, the emoji in the name is used.'}
+        </p>
       </div>
 
       {/*
