@@ -51,6 +51,7 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 24  | Domain status (Draft/Published/**Upcoming**) + public "Upcoming Domains" section  | 🔵 Feature      | Schema / UI        | Phase H   |
 | [x]  | 25  | Page status + "Upcoming Resources" on section-based pages                        | 🔵 Feature      | Schema / UI        | Phase I   |
 | [ ]  | 26  | A `__main__` page can never be saved — app rejects a slug it generated itself      | 🟡 Medium       | Admin / Bug        | 30 min    |
+| [ ]  | 27  | Real icons for Domains and Pages — SVGs in /public, replacing emoji-in-title  | 🔵 Feature      | Schema / UI        | Phase J   |
 
 
 **Sub-items:**
@@ -5125,6 +5126,198 @@ wrong reason precisely because of it.
 
 ---
 
+## 🔵 27. Real icons for Domains and Pages — replacing emoji-in-the-title
+
+**Raised 9 Aug 2026.** Discussed at length before any code; this section records the reasoning,
+the measurements and the rejected options, because several of the decisions are non-obvious and
+one of them reversed mid-discussion.
+
+### 27.1 The requirement
+
+From Notion, where each page can carry either an emoji **or** an uploaded image, and an image
+already used elsewhere can be re-selected. The user's own examples:
+
+- **Domains** — *YouTuber* → the YouTube logo
+- **Pages** — *Facebook Groups*, *LinkedIn Groups*, *Subreddits*, *Instagram Pages*, *TED Talks*
+- **Custom, non-brand** — *Blockchain & Web3*, *AI | ML | DL*, *Entrepreneurship | Startup*
+
+The argument for it is simply that the right mark reads better than an arbitrary emoji, and the
+screenshots supplied make that case well. The counter-argument is scope: this is the largest new
+feature discussed so far.
+
+### 27.2 What exists today — measured, not assumed
+
+⚠️ **There is no icon concept in the schema at all.** The emoji is a *character inside the name
+string*: `title = "▶️ YouTube Channels"`, not `{ icon: "▶️", title: "YouTube Channels" }`.
+
+| | |
+| --- | --- |
+| Domains | **41**, of which **36 carry an emoji inside `name`** |
+| Pages | **1,216**, of which **1,200 carry an emoji inside `title`** |
+| Distinct emoji in use | **166** |
+| Distinct page titles | **395** across 1,216 pages → **3.1× reuse** |
+| `DomainCategory.icon` | field exists, set on **0 of 7** — already-dead field |
+
+⚠️ The **3.1× reuse** is the number that shapes the design: one YouTube logo will serve many
+pages, so icons must be *referenced*, not duplicated per row. It is also why `stripEmoji()` exists
+in `src/lib/seo.ts` — the emoji has to be stripped out of titles for SEO precisely because it is
+welded into them.
+
+### 27.3 Format — SVG
+
+Vector, so one file is sharp at any size on any screen, and no second file is needed for retina.
+Measured from the Simple Icons CDN: **418–2,116 bytes** per coloured logo. PNG/WebP only for
+anything photographic.
+
+⚠️ **A CORRECTION MADE DURING THE DISCUSSION.** An earlier answer implied SVG was risky and
+should perhaps be avoided. **That was overstated and wrong.** The real caution is narrow: an SVG
+file *can* contain `<script>`, so accepting arbitrary SVG **uploads** from a browser needs
+sanitising — which matters for finding #2's reasons. Committing SVGs you downloaded yourself into
+the repository carries no such risk. SVG is the right format and is what we will use.
+
+### 27.4 ⚠️ REJECTED: an icon library (`simple-icons`) — and why
+
+The cheap option was `simple-icons`: 3,453 brand SVGs shipped as an npm package, so `icon =
+"youtube"` renders inline with **no storage, no uploads, no security surface and zero image
+requests**. It was about to be recommended.
+
+It was tested against the user's own examples, by fetching each from the Simple Icons CDN:
+
+```
+youtube    200 ✓   474 bytes        instagram  200 ✓  2,116 bytes
+reddit     200 ✓ 1,248 bytes        ted        200 ✓    418 bytes
+facebook   200 ✓   557 bytes        linkedin   404 ✗  DOES NOT EXIST
+```
+
+**LinkedIn has been removed from Simple Icons on trademark grounds** — and *LinkedIn Groups* was
+one of the five examples given. So the library fails the requirement on day one, uploads would
+have to be bolted on anyway, and the result is two icon systems.
+
+⚠️ **The deeper reason it is the wrong shape**: a library slug and a file URL are different
+kinds of value, so every render site would have to branch on which kind it had. Contrast §27.5,
+where the two candidate approaches both produce a URL and therefore never branch.
+
+**Verified as still useful:** the Simple Icons site offers *Download coloured SVG*, so brand
+logos can be sourced from there in full colour and committed — the library is a good *source*,
+just not a good *mechanism*.
+
+### 27.5 Storage — `/public/icons`, not Vercel Blob
+
+Two candidates:
+
+| | `/public/icons` | Vercel Blob |
+| --- | --- | --- |
+| Where files live | in the repository, deployed with the code | a Vercel storage service |
+| Adding one | drop the file, `git push` (~90 s deploy) | upload from the admin panel |
+| Schema change | **yes** — 2 columns | **yes** — 2 columns **+ a `MediaAsset` table** |
+| Upload endpoint | none | auth, MIME check, size limit, SVG sanitising |
+| Orphan cleanup | not a thing | needed eventually |
+| Cost | £0 | free tier, then paid |
+
+⚠️ **A misconception worth recording: `/public` is NOT "the no-schema-change option".** Both
+approaches must record *which* icon a row uses, so both need columns on `Domain` and `Page`. Blob
+additionally needs the `MediaAsset` table, because the picker has to list what has been uploaded
+— with `/public` that list is the folder itself.
+
+**The decisive argument is frequency, drawn from the data.** 41 domains created in about a year,
+and 395 distinct titles across 1,216 pages, means new pages overwhelmingly reuse titles that
+already exist — and therefore icons that already exist. Icon additions will be a burst of ~30
+now and rare afterwards. An upload pipeline exists to make *frequent, unpredictable* additions
+easy; that is the opposite of this situation, and it would be built to save a `git push` the user
+already performs several times a day.
+
+#### 27.5.1 ⚠️ `/public` is also FASTER — measured, and it is about origin
+
+`/public` files are served from **`atno.io` itself**, confirmed against production:
+
+```
+GET https://atno.io/favicon.ico  →  200,  X-Vercel-Cache: HIT
+```
+
+Blob files are served from `*.public.blob.vercel-storage.com` — **a different origin**. Same-origin
+images reuse the connection the page already opened and are multiplexed over HTTP/2 at no setup
+cost. A different origin forces **DNS → TCP → TLS** before the first byte of the first icon,
+typically **100–300 ms**, once per cold page load. `<link rel="preconnect">` shrinks that gap but
+never closes it. **There is no case in which Blob is faster.**
+
+After the first visit the two are identical — both cached in the browser, zero requests.
+
+#### 27.5.2 ⚠️ `/public` needs a cache-header change, or it is slower than it looks
+
+Vercel serves `/public` with `Cache-Control: public, max-age=0, must-revalidate` — verified on
+production above. That means **the browser re-checks every icon on every page load**: cheap `304`
+responses, but a round trip each, per icon. Fifteen icons is fifteen conditional requests every
+visit.
+
+Fixed with a `headers()` rule in `next.config.ts` (Phase J-1). ⚠️ The consequence of `immutable`
+is that **an icon can never be edited in place** — a changed icon needs a changed filename, or
+browsers will hold the old one for a year. For logos that never change this is the right trade.
+
+### 27.6 ⚠️ THE EMOJI COUPLING — the hidden cost
+
+1,200 page titles and 36 domain names have the emoji **inside the text**. Give such a row an icon
+without touching its title and the visitor sees **two icons**:
+
+```
+[🔴 YouTube logo]  ▶️ YouTube Channels
+```
+
+Two ways out:
+
+1. **Incremental (chosen).** Set an icon only on the rows that deserve one, and hand-remove the
+   emoji from *those* titles. ~30 rows touched, reversible per row, nothing mass-edits content.
+2. **Migrate everything.** A script strips the leading emoji from all 1,216 titles into a field.
+   Tidier model, and `stripEmoji()` could eventually retire — but it rewrites every title in the
+   database in one pass, across 166 distinct emoji.
+
+The user offered to remove emoji manually, which makes (1) straightforward.
+
+### 27.7 Performance — the `force-dynamic` worry is unfounded
+
+⚠️ **`force-dynamic` governs the HTML document, not image assets.** Images are separate requests
+with their own cache lifetime, served from the CDN; a dynamically rendered page does not stop an
+icon being cached for a year.
+
+And **reuse bounds the request count**: it is driven by *distinct* icons, not row count. A domain
+page listing 70 children might reference 10 distinct logos — 10 small requests on first visit,
+zero thereafter.
+
+⚠️ **A size correction.** The figure floated was "under 2 MB", later "under 500 KB". For a 20-pixel
+icon both are enormous — the measured logos are **418–2,116 bytes**. Twenty icons at 500 KB would
+be **10 MB on one page**; the same twenty as SVG are ~30 KB. **Ceiling: 10 KB per icon**, enforced
+by a build check in J-1 so an oversized file cannot slip in unnoticed.
+
+### 27.8 Decisions
+
+| Question | Decision |
+| --- | --- |
+| Format | **SVG** (PNG/WebP only if something photographic ever appears) |
+| Source | Simple Icons *"Download coloured SVG"* for brands; anywhere for custom marks |
+| Storage | **`/public/icons/`**, committed to the repository |
+| Schema | `Domain.icon String?` and `Page.icon String?` — null means "fall back to the emoji" |
+| Picker list | **generated from the folder at build time**, so it cannot drift from the files |
+| Emoji | incremental — remove by hand only on rows that get an icon |
+| Size ceiling | **10 KB**, enforced by a build-time check |
+| Uploads | **deferred, not rejected** — see below |
+
+⚠️ **Deferring uploads costs nothing later, and this is the point that de-risks the decision.**
+Both approaches store a **URL**. `/icons/youtube.svg` and `https://….blob.vercel-storage.com/…`
+are both strings in a `src` attribute, so adding Blob later means the picker grows an Upload
+button and **no schema change, no migration and no change to any render site**. This is exactly
+what §27.4 could not offer.
+
+### 27.9 Corrections made during this discussion
+
+- **SVG was wrongly implied to be unusable.** See §27.3. The risk is specific to accepting
+  uploads, not to the format.
+- **The `NarrativeLayout` image task was misremembered as pending.** It is recorded at line 2196
+  as **WON'T DO (29 Jul)**: `NarrativeLayout` renders for **0 of 1,198 pages**, reachable only
+  through the `default:` branch of a switch whose four real `contentType` values all have explicit
+  cases. Nothing to pick up.
+- **`/public` was described as avoiding a schema change.** It does not — see §27.5.
+
+---
+
 ## 🗺️ Recommended Order of Work
 
 All work happens on `dev-3.0` (branched from `master` @ `c4ff8d8`), one PR per
@@ -6367,6 +6560,219 @@ sitemap and sidebar, pages 404, geo-restricted upcoming page hidden from other c
 
 `migrate deploy` against **production before** the code deploy; nothing runs migrations
 automatically. Never `db push` (#3).
+
+---
+
+### Phase J — Icons for Domains and Pages (#27) — PLAN (agreed 9 Aug, not started)
+
+Four steps. **J-1 and J-2 change nothing a visitor sees** — the field exists and the admin can set
+it, but no public surface reads it until J-3. That ordering is deliberate: it means the schema and
+the picker can be verified in isolation before anything on the live site moves.
+
+| Step | Scope | Public effect | Status |
+| --- | --- | --- | --- |
+| **J-1** ✅ | Schema, migration, folder, manifest generation, cache headers, size check | none | **DONE 9 Aug.** Migration needed no backfill; all 41 domains and 1,216 pages null. Size guard and cache headers both verified **with controls**. Record below. |
+
+##### ✅ J-1 DONE — 9 Aug 2026 (schema, storage, build plumbing)
+
+**Migration `20260809123945_add_icons` — two nullable columns, no default, no backfill.**
+
+Third migration in three phases, and each needed something different — worth keeping together:
+
+| Migration | Default | Backfill |
+| --- | --- | --- |
+| `add_domain_status` | `DRAFT` — **wrong** for existing rows | ⚠️ hand-written `CASE`; without it the homepage would have blanked |
+| `add_page_status` | `PUBLISHED` — **right** for existing rows | none needed |
+| `add_icons` | none — **NULL is the meaningful value** | none possible |
+
+Here NULL means "fall back to the emoji already in the name", which is true of every existing
+row. Verified: **41/41 domains and 1,216/1,216 pages null**, nothing else changed.
+
+**The size ceiling is enforced, not documented.** `scripts/generate-icon-manifest.mjs` exits
+non-zero if any SVG exceeds 10 KB. ⚠️ **Tested by making it fail**, not only by watching it pass —
+a 11.8 KB file stopped the build with a message naming the file and the limit. A guard that has
+only been seen succeeding has not been tested.
+
+**Cache headers verified with a control.** `/icons/*.svg` returns
+`public, max-age=31536000, immutable`, and `og-image.png` returns `max-age=0` — proving the rule
+is scoped to `/icons/` rather than blanketing all of `public/`. Without this, Vercel's default
+`max-age=0, must-revalidate` would have cost a round trip per icon per page load (§27.5.2), which
+would have quietly undone the main reason for choosing same-origin files.
+
+⚠️ **`predev` as well as `prebuild`.** `prebuild` only runs before `npm run build`, so adding an
+icon and running `npm run dev` would not have regenerated the manifest — the new icon simply
+would not appear in the picker, with no error. Both hooks now run the generator.
+
+⚠️ **The manifest is committed despite being generated.** `npm run dev` on a fresh clone would
+otherwise fail on a missing import before `predev` had ever run. It carries a
+DO-NOT-EDIT header, and both hooks keep it honest.
+
+**Deleted:** `public/file.svg`, `globe.svg`, `next.svg`, `vercel.svg`, `window.svg` — Next.js
+starter leftovers. Verified referenced by **0 files** before removing; the three real assets
+(`og-image.png`, `icon-dark.png`, `icon-light.png`) are referenced and untouched.
+
+**J-1 verification**
+
+| Check | Result |
+| --- | --- |
+| Migration | 41/41 domains, 1,216/1,216 pages `icon IS NULL` |
+| Empty folder | manifest generates as `[]`, build succeeds |
+| Valid icon | appears in the manifest with id, url, label, bytes |
+| **Oversized icon** | **build fails, exit 1**, names the file and limit |
+| `/icons/*.svg` headers | `immutable, max-age=31536000` |
+| **Control** — `og-image.png` | `max-age=0` — rule correctly scoped |
+| Public pages | `/domain` 200, `/sitemap.xml` 200, unchanged |
+| `tsc` / build | clean |
+
+**`public/icons/` is empty** — the real SVGs are the user's to add. J-2's picker will have
+nothing to show until at least one is committed.
+| **J-2** | Admin: icon picker on the domain and page forms; icon in the tables | none | |
+| **J-3** | Public rendering across all seven surfaces | **visible** | |
+| **J-4** | Uploads from the admin panel | — | **deferred (#27.8)** |
+
+---
+
+#### J-1 — schema, storage, and the build-time plumbing
+
+**ADD**
+
+| File | Purpose |
+| --- | --- |
+| `public/icons/` | The SVGs themselves. Committed. |
+| `public/icons/README.md` | The rules: SVG, ≤10 KB, lowercase-hyphen filenames, changing an icon means a NEW filename (§27.5.2) |
+| `scripts/generate-icon-manifest.mjs` | Globs `public/icons/*.svg`, writes the manifest, **fails the build** if any file exceeds 10 KB |
+| `src/lib/icon-manifest.ts` | **Generated — do not hand-edit.** `[{ id, url, label }]` for the picker |
+| `prisma/migrations/<ts>_add_icons/` | The migration |
+
+**CHANGE**
+
+| File | Change |
+| --- | --- |
+| `prisma/schema.prisma` | `Domain.icon String?`, `Page.icon String?`. ⚠️ Nullable with **no default** — null means "fall back to the emoji in the name", which is every existing row. So the migration is a bare `ADD COLUMN` with **no backfill**, like `add_page_status` and unlike `add_domain_status`. |
+| `next.config.ts` | `headers()` → `/icons/:path*` gets `public, max-age=31536000, immutable` (§27.5.2) |
+| `package.json` | `"prebuild": "node scripts/generate-icon-manifest.mjs"` so the manifest can never be stale |
+
+**DELETE**
+
+| File | Why |
+| --- | --- |
+| `public/file.svg`, `globe.svg`, `next.svg`, `vercel.svg`, `window.svg` | Next.js starter-template leftovers, referenced by nothing |
+
+**J-1 verification**
+- Migration applied; `Domain.icon` and `Page.icon` null on all 41 / 1,216 rows.
+- `/domain` and a domain root still 200, byte-identical output.
+- Manifest lists exactly the files present; add one, rebuild, it appears.
+- Drop an 11 KB file in → **the build fails**. (Test the guard, not just the happy path.)
+- `curl -I` a `/icons/*.svg` on the built server → `immutable` present.
+
+---
+
+#### J-2 — the admin picker
+
+**ADD**
+
+| File | Purpose |
+| --- | --- |
+| `src/components/admin/IconPicker.tsx` | Searchable `Popover` + `Command` (the pattern already used by `DomainSelector` and the sections picker), showing each icon rendered at 20 px beside its label, plus a **Clear** option for "use the emoji" |
+
+**CHANGE**
+
+| File | Change |
+| --- | --- |
+| `src/components/admin/domains/DomainForm.tsx` | Icon field; `icon` into `formData` and the submit body |
+| `src/components/admin/pages/PageForm.tsx` | Same |
+| `src/app/api/admin/domains/route.ts` + `[id]/route.ts` | Accept, validate and persist `icon`; return it |
+| `src/app/api/admin/pages/route.ts` + `[id]/route.ts` | Same |
+| `src/app/admin/domains/page.tsx` | `icon` into the query `select` and the row transform |
+| `src/app/admin/pages/page.tsx` | `icon` into the `select` |
+| `src/components/admin/domains/DomainsTable.tsx` | `icon` on the row type; render it in the name cell |
+| `src/components/admin/pages/PageTree.tsx` | Same |
+| `src/components/admin/pages/PagesManager.tsx` | ⚠️ **`buildPageHierarchy` — see the warning below** |
+
+⚠️ **`PagesManager.buildPageHierarchy` rebuilds every page from an explicit field list and will
+silently drop `icon` exactly as it dropped `status` in I-1.** That bug cost two symptoms (the form
+defaulting wrongly and the badge never rendering) and was invisible because nothing errors — the
+transform just returns less than it was given. **Add `icon` there in the same commit as the API
+change, and check it end-to-end, not by reading the code.**
+
+⚠️ **Validation must reject an unknown icon id.** The value comes from a form and lands in a `src`
+attribute. Check it against the generated manifest server-side, exactly as `isDomainStatus` guards
+the status enum — otherwise a typo produces a broken image with no error anywhere.
+
+**J-2 verification**
+- Set an icon on a domain and a page; reload the form — it shows the icon that was saved, not the
+  default. (The I-1 failure mode.)
+- Clear it → back to null, emoji still renders.
+- Admin tables show the icon.
+- Post an invalid id via the API → **400**, not a broken image.
+- Public pages still unchanged at this point.
+
+---
+
+#### J-3 — public rendering
+
+**ADD**
+
+| File | Purpose |
+| --- | --- |
+| `src/components/domain/ItemIcon.tsx` | One component used by every surface below: renders the icon at a given size, or nothing when null. Keeps sizing, alt text and spacing in a single place — the `UpcomingList` lesson from I-2. |
+
+**CHANGE — all seven surfaces where a domain name or page title is rendered**
+
+| File | Line (today) | Surface |
+| --- | --- | --- |
+| `src/app/domain/page.tsx` | `DomainItem` | the `/domain` index |
+| `src/components/domain/SectionBasedLayout.tsx` | `:219` | child links inside each section |
+| `src/components/domain/SubcategorySelector.tsx` | `:147` | hierarchical domain roots + 74 `subcategory_list` pages |
+| `src/components/domain/UpcomingList.tsx` | `:124` | **both** upcoming blocks |
+| `src/components/sidebar/SidebarDomain.tsx` | `:56`, `:93` | a domain and its pages in the sidebar |
+| `src/components/sidebar/SidebarPage.tsx` | `:31` | nested pages in the sidebar |
+| `src/components/domain/PageHeading.tsx` | — | optional: a larger icon beside the page `<h1>` |
+
+**CHANGE — the data plumbing that must carry `icon` to those surfaces**
+
+| File | Change |
+| --- | --- |
+| `src/services/types.ts` | `icon` on `DomainBasic`, `PageBasic`, `ChildPage`, and the `Domain`/`Page` intersections |
+| `src/services/domain.service.ts` | `icon` in `getDomainBySlugFromDB`'s `select` and the three nested `pages:` selects |
+| `src/services/page.service.ts` | `icon` in `pageWithContentSelect`, `getChildPages`, `getUpcomingChildPages`, `getByDomain`, `getWithSections` |
+| `src/services/navigation.service.ts` | `icon` through the sidebar payload |
+
+⚠️ **Every one of those is an explicit field list.** The same class of omission as
+`buildPageHierarchy`: miss one and that surface silently shows no icon while every other surface
+works, which reads as "the icon did not save".
+
+⚠️ **`next/image` is NOT used here.** It exists to resize and reformat raster images; an SVG has
+no pixels to resize, and the optimiser would add a transform step for no gain. A plain `<img>`
+with explicit `width`/`height` is correct — and the explicit dimensions are what prevent layout
+shift, which is the reason `next/image` is usually reached for.
+
+**J-3 verification**
+- An icon set on a domain appears on `/domain`, in the sidebar, and on the domain's own page.
+- An icon set on a page appears in its section, in the sidebar, and in the upcoming block if it
+  is upcoming.
+- A row with **no** icon renders exactly as it does today — this is the regression that matters,
+  since it covers ~1,190 of 1,216 pages.
+- Light and dark mode: a coloured logo must stay legible on both backgrounds.
+- Page weight before/after on `/domain` and on a large domain root.
+- `curl` a built page and count icon requests — should equal the number of **distinct** icons, not
+  the number of rows.
+
+---
+
+#### J-4 — uploads from the admin panel (DEFERRED)
+
+Not rejected — deferred on the reasoning in §27.5. Recorded so the trigger is explicit.
+
+**Revisit when** adding an icon mid-content-editing becomes a real irritation, or someone other
+than the repository owner needs to add one.
+
+**What it would take:** a `MediaAsset` table; Vercel Blob; an upload route with auth, MIME
+allow-list, a size limit and **SVG sanitising** (finding #2's reasoning applies the moment files
+arrive over HTTP); upload progress and error states in the picker; orphan cleanup.
+
+⚠️ **It requires no migration of existing icons.** Both approaches store a URL, so `/icons/x.svg`
+and a blob URL coexist in the same column with no branching at any render site.
 
 ---
 

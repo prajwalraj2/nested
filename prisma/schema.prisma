@@ -60,6 +60,24 @@ model Domain {
 
   // Page type: direct content or hierarchical subcategories
   pageType  String   @default("direct") // "direct" | "hierarchical"
+
+  /// Icon id — a filename (without extension) from `public/icons/`, e.g. "youtube".
+  ///
+  /// ⚠️ NULL MEANS "USE THE EMOJI ALREADY IN `name`", which is every one of the 41 existing
+  /// domains. The emoji is currently a character inside the name string itself
+  /// (`"🖌️ Graphic Designing"`), not a separate field — so a row with an icon set AND an emoji
+  /// still in its name would render two icons side by side. The emoji must be removed from the
+  /// name by hand on the rows that get an icon. See NEW-IMPROVEMENTS.md §27.6 for why this is
+  /// done row by row rather than by migrating all 1,216 titles at once.
+  ///
+  /// ⚠️ Stores the ID, not the URL. The URL is derived (`/icons/<id>.svg`) so that the storage
+  /// location stays an implementation detail — if uploads are ever added (J-4) this column can
+  /// hold either kind of reference without a migration.
+  ///
+  /// ⚠️ Validate against `ICON_MANIFEST` before writing. The value reaches an `src` attribute,
+  /// and an unrecognised id renders a broken image with no error anywhere — use
+  /// `isValidIconId()` from `src/lib/icon-manifest.ts`.
+  icon      String?
   
   // Category relationship
   category    DomainCategory? @relation(fields: [categoryId], references: [id])
@@ -131,6 +149,16 @@ model Page {
 
   // Content type: determines how the page is rendered
   contentType String @default("narrative") // "narrative" | "section_based" | "subcategory_list" | "table" | "rich_text" | "mixed_content"
+
+  /// Icon id from `public/icons/` — the same field as `Domain.icon`, see the long note there.
+  ///
+  /// ⚠️ 1,200 of the 1,216 existing pages carry their emoji inside `title`, so the same
+  /// two-icons caveat applies: remove the emoji from the title of any page you give an icon to.
+  ///
+  /// ⚠️ One icon serves many pages. The data shows 395 distinct titles across 1,216 pages —
+  /// a 3.1× reuse factor — so "YouTube Channels" under a dozen domains all reference the single
+  /// `youtube` icon. That is why this is an id rather than an uploaded file per row.
+  icon        String?
 
   /// Lifecycle state — the field every read path should filter on.
   ///

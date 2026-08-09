@@ -7,7 +7,9 @@
   },
   "scripts": {
     "dev": "next dev --turbopack",
+    "predev": "node scripts/generate-icon-manifest.mjs",
     "build": "prisma generate && next build --turbopack",
+    "prebuild": "node scripts/generate-icon-manifest.mjs",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
