@@ -309,6 +309,7 @@ async function fetchDomainsWithFilters(searchParams: SearchParams) {
       slug: domain.slug,
       pageType: domain.pageType,
       status: domain.status,
+      icon: domain.icon,
       isPublished: domain.isPublished,
       orderInCategory: domain.orderInCategory,
       targetCountries: domain.targetCountries,

@@ -1,3 +1,4 @@
+import { isValidIconId } from '@/lib/icon-manifest';
 import { NextRequest, NextResponse } from 'next/server';
 // Shared admin guard — replaces the old inline `auth()` check.
 // See src/lib/api-auth.ts for the 401-vs-403 and isActive reasoning.
@@ -106,6 +107,7 @@ export async function GET(request: NextRequest) {
       slug: domain.slug,
       pageType: domain.pageType,
       status: domain.status,
+      icon: domain.icon,
       isPublished: domain.isPublished,
       orderInCategory: domain.orderInCategory,
       targetCountries: domain.targetCountries,
@@ -222,6 +224,8 @@ export async function POST(request: NextRequest) {
         */
         status: resolveStatus(body),
         isPublished: resolveStatus(body) === 'PUBLISHED',
+        // Optional; null means "use the emoji in the name".
+        icon: body.icon ?? null,
         targetCountries: validTargetCountries
       },
       include: {
@@ -269,6 +273,7 @@ export async function POST(request: NextRequest) {
         slug: newDomain.slug,
         pageType: newDomain.pageType,
         status: newDomain.status,
+        icon: newDomain.icon,
         isPublished: newDomain.isPublished,
         orderInCategory: newDomain.orderInCategory,
         targetCountries: newDomain.targetCountries,
@@ -296,6 +301,19 @@ export async function POST(request: NextRequest) {
  * Validate domain data for creation/updates
  */
 function validateDomainData(data: any): string | null {
+  /*
+    Icon. Optional, and `null` is a legitimate value meaning "fall back to the emoji in the
+    name/title".
+
+    ⚠️ VALIDATED AGAINST THE GENERATED MANIFEST, not merely type-checked. This value ends up in
+    an `src` attribute, so an unrecognised id renders a broken image with no error anywhere —
+    the same silent-failure shape as an unvalidated status enum. `isValidIconId` checks it
+    against the SVGs that actually exist in public/icons/.
+  */
+  if (data.icon !== undefined && data.icon !== null && !isValidIconId(data.icon)) {
+    return `Unknown icon "${data.icon}". Add the SVG to public/icons/ first.`;
+  }
+
   // Required fields
   if (!data.name || typeof data.name !== 'string' || !data.name.trim()) {
     return 'Domain name is required';

@@ -69,6 +69,8 @@ type Page = {
   contentType: string;
   /** Lifecycle state, carried through to PageTree and PageForm. */
   status?: PageStatus;
+  /** Icon id, carried through to PageTree and PageForm. */
+  icon?: string | null;
   parentId: string | null;
   domainId: string;
   targetCountries?: string[];
@@ -689,6 +691,8 @@ function buildPageHierarchy(flatPages: any[], domain: Domain | null): Page[] {
     slug: page.slug,
     contentType: page.contentType,
     status: page.status,
+    // ⚠️ The field this transform dropped last time. See the warning above.
+    icon: page.icon,
     parentId: page.parentId,
     domainId: page.domainId,
     targetCountries: page.targetCountries,

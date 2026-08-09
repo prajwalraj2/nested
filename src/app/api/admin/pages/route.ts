@@ -1,3 +1,4 @@
+import { isValidIconId } from '@/lib/icon-manifest';
 import { NextRequest, NextResponse } from 'next/server';
 import { PAGE_STATUSES, isPageStatus, resolvePageStatus } from '@/lib/page-status';
 // Shared admin guard — replaces the old inline `auth()` check.
@@ -72,6 +73,7 @@ export async function GET(request: NextRequest) {
         slug: true,
         contentType: true,
         status: true,
+        icon: true,
         parentId: true,
         domainId: true,
         targetCountries: true,
@@ -91,6 +93,7 @@ export async function GET(request: NextRequest) {
       slug: page.slug,
       contentType: page.contentType,
       status: page.status,
+      icon: page.icon,
       parentId: page.parentId,
       domainId: page.domainId,
       targetCountries: page.targetCountries,
@@ -247,6 +250,8 @@ export async function POST(request: NextRequest) {
           for why this default is the opposite of the domain one.
         */
         status: resolvePageStatus(body),
+        // Optional; null means "use the emoji in the title".
+        icon: body.icon ?? null,
         targetCountries: validTargetCountries
       },
       select: {
@@ -255,6 +260,7 @@ export async function POST(request: NextRequest) {
         slug: true,
         contentType: true,
         status: true,
+        icon: true,
         parentId: true,
         domainId: true,
         targetCountries: true,
@@ -298,6 +304,19 @@ export async function POST(request: NextRequest) {
  * Validate page data for creation
  */
 function validatePageData(data: any): string | null {
+  /*
+    Icon. Optional, and `null` is a legitimate value meaning "fall back to the emoji in the
+    name/title".
+
+    ⚠️ VALIDATED AGAINST THE GENERATED MANIFEST, not merely type-checked. This value ends up in
+    an `src` attribute, so an unrecognised id renders a broken image with no error anywhere —
+    the same silent-failure shape as an unvalidated status enum. `isValidIconId` checks it
+    against the SVGs that actually exist in public/icons/.
+  */
+  if (data.icon !== undefined && data.icon !== null && !isValidIconId(data.icon)) {
+    return `Unknown icon "${data.icon}". Add the SVG to public/icons/ first.`;
+  }
+
   /*
     `status` is optional — omitting it means PUBLISHED, which is what every existing caller
     effectively did. An UNRECOGNISED value must become a 400 here rather than reaching Prisma,

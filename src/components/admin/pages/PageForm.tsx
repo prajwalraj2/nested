@@ -8,6 +8,7 @@ import { AlertTriangle, Globe, Loader2 } from 'lucide-react';
 // ⚠️ `SUPPORTED_COUNTRIES` was imported and never used here, exactly as in `DomainForm`
 // before G-3c. Removed. `getCountryOptions()` returns the display-ready list.
 import { ALL_COUNTRIES, getCountryOptions } from '@/lib/countries';
+import { IconPicker } from '@/components/admin/IconPicker';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +82,8 @@ type Page = {
   targetCountries?: string[];
   /** Lifecycle state. Optional so a caller with the older shape still compiles. */
   status?: PageStatus;
+  /** Icon id from public/icons/, or null to fall back to the emoji in the title. */
+  icon?: string | null;
   createdAt: Date;
   children: Page[];
   depth: number;
@@ -154,6 +157,8 @@ export function PageForm({
       offline, which is a destructive result from doing nothing.
     */
     status: editingPage?.status ?? ('PUBLISHED' as PageStatus),
+    // Null means "use the emoji already in the title" — true of 1,200 of 1,216 pages today.
+    icon: editingPage?.icon ?? null,
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -282,6 +287,7 @@ export function PageForm({
         parentId: formData.parentId || null,
         targetCountries: formData.targetCountries,
         status: formData.status,
+        icon: formData.icon,
       };
 
       const url = isEditMode ? `/api/admin/pages/${editingPage.id}` : '/api/admin/pages';
@@ -462,6 +468,34 @@ export function PageForm({
               : 'Leave at root level, or nest under an existing page.'}
           </p>
         </div>
+      </div>
+
+      {/*
+        ── Icon ──
+        Optional; null means "use the emoji already in the title".
+
+        ⚠️ The same double-icon trap as domains, and more widespread here: 1,200 of 1,216 page
+        titles carry their emoji inside the title STRING. Setting an icon without editing the
+        title renders both. See NEW-IMPROVEMENTS.md §27.6.
+
+        ⚠️ One icon serves many pages — 395 distinct titles across 1,216 pages — so the picker
+        deliberately lists generic ids (`youtube`) rather than per-page images.
+      */}
+      <div className="space-y-1.5 rounded-lg border p-3">
+        <Label htmlFor="page-icon" className="text-sm font-medium">
+          Icon
+        </Label>
+        <IconPicker
+          id="page-icon"
+          value={formData.icon}
+          onChange={(iconId) => handleChange('icon', iconId)}
+          disabled={isLoading}
+        />
+        <p className="text-muted-foreground text-xs">
+          {formData.icon
+            ? 'Remove any emoji from the title above, or both will show.'
+            : 'Optional. Without one, the emoji in the title is used.'}
+        </p>
       </div>
 
       {/*

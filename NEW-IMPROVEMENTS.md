@@ -6626,7 +6626,99 @@ starter leftovers. Verified referenced by **0 files** before removing; the three
 
 **`public/icons/` is empty** — the real SVGs are the user's to add. J-2's picker will have
 nothing to show until at least one is committed.
-| **J-2** | Admin: icon picker on the domain and page forms; icon in the tables | none | |
+| **J-2** ✅ | Admin: icon picker on the domain and page forms; icon in the tables | none | **DONE 9 Aug.** 18/18 tests pass, including the I-1 trap. Record below. |
+
+##### ✅ J-2 DONE — 9 Aug 2026 (the admin picker)
+
+**One new component, both forms, four API routes, both admin tables.**
+
+`IconPicker` is a `Popover` + `Command` combobox reading `ICON_MANIFEST`, so its list is the
+folder — it cannot drift from the files that exist. Search matches the id as well as the label,
+so "chrome" finds *Google Chrome Extension*, and each row shows the icon, its name and its file
+size (the 10 KB limit is easy to forget, and this is where an anomaly would be noticed before it
+is committed).
+
+⚠️ **Clearing is a first-class action.** `null` is a meaningful value — "fall back to the emoji
+in the name" — and is the state of all 41 domains and 1,216 pages. A picker that could only ever
+*set* an icon would make the default unreachable once left.
+
+⚠️ **An id that is set but unknown is displayed, not hidden.** If an SVG is deleted while rows
+still reference it, falling back to the placeholder would look identical to "no icon" and the
+broken reference would sit there indefinitely. The trigger names the missing id instead.
+
+**Validation is against the manifest, not just the type.** The value lands in an `src`
+attribute, so `isValidIconId()` guards all four routes — an unrecognised id is a **400 naming
+`public/icons/`**, not a broken image with no error. Same reasoning as the status enums.
+
+⚠️ **`icon: body.icon !== undefined ? … : existing`, NOT `??`.** On update, `null` means
+"remove the icon" and must be distinguishable from the field being absent. A `??` would treat a
+deliberate clear as "unchanged" and the Remove button would silently do nothing. Tested both
+ways — clearing works, and a legacy client omitting the field leaves the value alone.
+
+###### ⚠️ The I-1 trap, closed deliberately this time
+
+`buildPageHierarchy` in `PagesManager` rebuilds every page from an **explicit field list**. In
+I-1 it silently dropped `status`, which produced two symptoms — the form defaulting wrongly and
+the tree badge never rendering — with no error anywhere, because a rebuild-by-field-list cannot
+complain about a field it was never told about.
+
+`icon` was added there in the same change as the API, and **test 7 asserts on the payload the
+client actually receives**, not on the database row. A test that stopped at the database would
+have passed while the admin screens showed nothing.
+
+###### TEST CASES — 18/18 against `next build && next start`
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1 | Manifest matches the folder | 9 SVGs, 9 entries |
+| 2 | Set an icon on a domain | 200, stored |
+| 3 | Comes back through the list API | field present, correct value |
+| 4 | **Unknown icon id** | **400**, message names `public/icons/`, value unchanged |
+| 5 | Clearing to `null` | 200, cleared |
+| 6 | **Field omitted entirely** | icon **preserved**, not wiped |
+| 7 | Page icon → **reaches the client payload** | `linkedin` — the I-1 trap, closed |
+| 8 | Public pages untouched | `/domain` 200, no icon markup yet (J-3) |
+
+Database restored: 0 domains and 0 pages carry an icon.
+
+###### ⚠️ THE SAME BUG CLASS, A THIRD TIME — found by the user, and I checked the wrong file
+
+**Symptom:** setting an icon on a domain worked — it saved, it rendered beside the name in the
+table, it was in the database — but **reopening the edit dialog showed no icon**. Pages were
+fine.
+
+**Cause:** `DomainsTable` builds the object it hands to `DomainForm` as an **explicit literal**:
+
+```tsx
+domain={{ id: …, name: …, slug: …, status: domainToEdit.status, /* icon missing */ }}
+```
+
+A field the literal does not name never reaches the form. Nothing errors. And it fails in the
+single place that looks most like "it did not save".
+
+`PagesManager` was unaffected because it passes the whole object — `editingPage={editingPage}`.
+**Spreading, or passing the object, is the shape that cannot rot.**
+
+⚠️ **This is the third instance, and I had written the warning myself.** The Phase J plan says
+in bold that a rebuild-by-field-list would silently drop `icon` "exactly as it dropped `status`
+in I-1" — but it named `buildPageHierarchy`, so that is the one I guarded. **I looked at the file
+I had written down instead of asking where else the pattern occurs.** Naming one instance of a
+recurring bug reads as a complete list and is not one.
+
+**Swept properly afterwards**, rather than fixing the reported case alone: every site copying
+`.status` off a row object was listed and checked for a paired `.icon` copy. **All 12 now have
+one**, across 6 files. That is the check that should have run when the pattern was first
+identified.
+
+###### Housekeeping on the user's nine icons
+
+- ⚠️ `googlechromextension.svg` → **`google-chrome-extension.svg`** — the original was missing an
+  `e` and used no hyphens. Renamed while **no row referenced it**; once icons are in use a
+  rename means re-pointing every row that uses it.
+- `LABEL_OVERRIDES` populated for **GitHub, LinkedIn, TED, YouTube** — the auto-generated labels
+  read *Github*, *Linkedin*, *Ted*, *Youtube*. No rule recovers a brand's capitalisation from a
+  lowercase filename, which is why the override map exists.
+- All nine are within budget: largest **3.1 KB**, total **11.2 KB**.
 | **J-3** | Public rendering across all seven surfaces | **visible** | |
 | **J-4** | Uploads from the admin panel | — | **deferred (#27.8)** |
 

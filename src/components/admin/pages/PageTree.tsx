@@ -2,6 +2,7 @@
 
 import type { PageStatus } from '@/generated/prisma';
 import { PAGE_STATUS_LABELS } from '@/lib/page-status';
+import { getIcon } from '@/lib/icon-manifest';
 import type { DomainStatus } from '@/generated/prisma';
 import Link from 'next/link';
 import {
@@ -95,6 +96,8 @@ type Page = {
   contentType: string;
   /** Lifecycle state. Optional so callers with the older shape still compile. */
   status?: PageStatus;
+  /** Icon id from public/icons/, or null when the emoji in the title is used. */
+  icon?: string | null;
   parentId: string | null;
   domainId: string;
   targetCountries?: string[];
@@ -204,6 +207,8 @@ function PageTreeNode({
    * shown but marked, rather than hidden. Hiding it would make its children look parentless.
    */
   const isMainPage = page.slug === '__main__';
+  // Null when unset, or when the SVG was deleted while rows still referenced it.
+  const pageIcon = getIcon(page.icon);
 
   const TypeIcon = CONTENT_TYPE_ICONS[page.contentType] ?? FileText;
 
@@ -260,6 +265,23 @@ function PageTreeNode({
 
         {/* Title + path. `min-w-0` so long titles truncate instead of pushing the row wide. */}
         <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          {/*
+            The public-facing icon, shown alongside the content-type icon rather than replacing
+            it — they say different things: `TypeIcon` is what KIND of page this is (table, rich
+            text), this is what visitors will see beside its name.
+
+            ⚠️ Mainly here so a row carrying BOTH an icon and an emoji in its title is visible
+            in the admin, not only on the live page. See NEW-IMPROVEMENTS.md §27.6.
+          */}
+          {pageIcon && (
+            <img
+              src={pageIcon.url}
+              alt=""
+              width={16}
+              height={16}
+              className="size-4 shrink-0 self-center"
+            />
+          )}
           <span className="truncate text-sm font-medium">{page.title}</span>
           <span className="text-muted-foreground shrink-0 font-mono text-xs">/{page.slug}</span>
           {isMainPage && (

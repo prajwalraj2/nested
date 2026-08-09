@@ -32,8 +32,14 @@ export const ICON_MANIFEST: IconManifestEntry[] = [
   {
     "id": "github",
     "url": "/icons/github.svg",
-    "label": "Github",
+    "label": "GitHub",
     "bytes": 837
+  },
+  {
+    "id": "google-chrome-extension",
+    "url": "/icons/google-chrome-extension.svg",
+    "label": "Google Chrome Extension",
+    "bytes": 3136
   },
   {
     "id": "instagram",
@@ -44,7 +50,7 @@ export const ICON_MANIFEST: IconManifestEntry[] = [
   {
     "id": "linkedin",
     "url": "/icons/linkedin.svg",
-    "label": "Linkedin",
+    "label": "LinkedIn",
     "bytes": 1316
   },
   {
@@ -56,13 +62,13 @@ export const ICON_MANIFEST: IconManifestEntry[] = [
   {
     "id": "ted",
     "url": "/icons/ted.svg",
-    "label": "Ted",
+    "label": "TED",
     "bytes": 418
   },
   {
     "id": "youtube",
     "url": "/icons/youtube.svg",
-    "label": "Youtube",
+    "label": "YouTube",
     "bytes": 474
   }
 ];
