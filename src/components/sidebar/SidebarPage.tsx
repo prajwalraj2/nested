@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ItemIcon } from '@/components/domain/ItemIcon';
 import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 // Repointed from the deprecated `useSidebarData` hook — see the note in
 // SidebarDomain.tsx. The type declaration is identical in both files.
@@ -28,6 +29,7 @@ export function SidebarPage({
             className="flex items-center gap-2 min-w-0 flex-1"
             title={page.title}
           >
+            <ItemIcon icon={page.icon} size={16} />
             <span className="truncate text-sm font-medium">{page.title}</span>
           </Link>
         </div>

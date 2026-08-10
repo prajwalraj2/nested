@@ -44,6 +44,8 @@ type Domain = {
 type Page = {
   id: string;
   title: string;
+  /** Icon id from public/icons/, shown beside the heading. */
+  icon?: string | null;
   slug: string;
   contentType: string;
   content: any[];
@@ -111,7 +113,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
           {/* Header */}
-          <PageHeading title={page.title} />
+          <PageHeading title={page.title} icon={page.icon} />
 
           {/* Table skeleton */}
           <div className="rounded-lg border border-border overflow-hidden">
@@ -176,7 +178,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <PageHeading title={page.title} />
+          <PageHeading title={page.title} icon={page.icon} />
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -196,7 +198,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <PageHeading title={page.title} />
+          <PageHeading title={page.title} icon={page.icon} />
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -216,7 +218,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
-        <PageHeading title={page.title} />
+        <PageHeading title={page.title} icon={page.icon} />
 
         {/* Professional DataTable from DataTable.tsx */}
         <DataTable

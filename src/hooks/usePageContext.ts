@@ -96,6 +96,8 @@ export type HeaderData = {
 export type SidebarPage = {
   id: string;
   title: string;
+  /** Icon id from public/icons/, or null to fall back to the emoji in the title. */
+  icon?: string | null;
   slug: string;
   contentType: string;
   parentId: string | null;
@@ -106,6 +108,8 @@ export type SidebarPage = {
 export type SidebarDomain = {
   id: string;
   name: string;
+  /** Icon id from public/icons/, or null to fall back to the emoji in the name. */
+  icon?: string | null;
   slug: string;
   pageType: string;
   url: string;
@@ -139,6 +143,8 @@ export type PageSidebarSection = {
 export type PageSidebarPage = {
   id: string;
   title: string;
+  /** Icon id from public/icons/, or null to fall back to the emoji in the title. */
+  icon?: string | null;
   slug: string;
   contentType: string;
   parentId: string | null;

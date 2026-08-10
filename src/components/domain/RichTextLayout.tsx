@@ -19,6 +19,8 @@ type RichTextContent = {
 type Page = {
   id: string;
   title: string;
+  /** Icon id from public/icons/, shown beside the heading. */
+  icon?: string | null;
   slug: string;
   contentType: string;
   richTextContent?: RichTextContent | null;
@@ -36,7 +38,7 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
-        <PageHeading title={page.title} spacing="loose" />
+        <PageHeading title={page.title} icon={page.icon} spacing="loose" />
 
         {/*
           ⚠️ THIS CARD STAYS LIGHT IN DARK MODE, DELIBERATELY. DO NOT "FIX" IT TO A TOKEN.

@@ -13,6 +13,7 @@ import { buildOrganizationJsonLd } from '@/lib/structured-data';
 import { JsonLd } from '@/components/JsonLd';
 import { PageHeading } from '@/components/domain/PageHeading';
 import { UpcomingList } from '@/components/domain/UpcomingList';
+import { ItemIcon } from '@/components/domain/ItemIcon';
 
 // ============================================
 // ISR Configuration
@@ -261,6 +262,7 @@ export default async function DomainIndexPage() {
               items={upcomingDomains.map((domain) => ({
                 id: domain.id,
                 name: domain.name,
+                icon: domain.icon,
               }))}
             />
           </section>
@@ -315,9 +317,16 @@ function DomainItem({ domain }: DomainItemProps) {
   return (
     <Link
       href={`/domain/${domain.slug}`}
-      className="block px-3 py-1 rounded-md hover:bg-accent transition-colors"
+      /*
+        ⚠️ `flex items-center gap-2` replaces a plain `block`, so the icon and the name sit on
+        one line. Rows WITHOUT an icon are unaffected: `ItemIcon` renders nothing at all rather
+        than a placeholder, so a flex row with one child lays out exactly as the block did.
+        That matters — 39 of 41 domains have no icon.
+      */
+      className="flex items-center gap-2 px-3 py-1 rounded-md hover:bg-accent transition-colors"
       title={domain.name} // Show full name on hover
     >
+      <ItemIcon icon={domain.icon} size={18} />
       <span className="text-sm font-medium text-foreground block truncate">
         {domain.name}
       </span>

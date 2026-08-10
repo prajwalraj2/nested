@@ -5,6 +5,7 @@ import { PageHeading } from './PageHeading';
 // Shared with the "Upcoming Domains" block on /domain — see the note in that file for why its
 // items are buttons rather than links.
 import { UpcomingList } from './UpcomingList';
+import { ItemIcon } from './ItemIcon';
 
 // Types
 type Domain = {
@@ -12,6 +13,8 @@ type Domain = {
   name: string;
   slug: string;
   pageType: string;
+  /** Icon id — used for the heading when this is the domain root. */
+  icon?: string | null;
 };
 
 type Page = {
@@ -20,6 +23,8 @@ type Page = {
   slug: string;
   contentType: string;
   sections?: any; // JSON field containing section configuration
+  /** Icon id — used for the heading when this is a nested section-based page. */
+  icon?: string | null;
 };
 
 type ChildPage = {
@@ -28,6 +33,8 @@ type ChildPage = {
   slug: string;
   contentType: string;
   parentId: string | null;
+  /** Icon id from public/icons/, or null to fall back to the emoji in the title. */
+  icon?: string | null;
 };
 
 type Section = {
@@ -69,7 +76,35 @@ export function SectionBasedLayout({
   upcomingChildPages?: ChildPage[];
   currentPath?: string;
 }) {
-  const title = page?.title || domain.name;
+  /**
+   * ⚠️ THE DOMAIN ROOT SHOWS THE DOMAIN'S OWN NAME AND ICON — NOT `__main__`'s.
+   * ==========================================================================
+   *
+   * This used to be `page?.title || domain.name`, and for a direct domain's root `page` IS the
+   * `__main__` page — so `/domain/gdesign` rendered the `__main__` row's title, not the
+   * domain's name. The two drift apart immediately in practice:
+   *
+   *     Domain   name = "Graphic Designing"        icon = facebook
+   *     __main__ title = "🖌️ Graphic Designing"     icon = null
+   *
+   * Editing the domain — removing its emoji, giving it an icon — changed nothing on its own
+   * root page, because the heading was reading a different row. That is what made icons look
+   * broken on domain roots while working everywhere else.
+   *
+   * `__main__`'s title is not something anyone chose: it is copied from the domain name when
+   * the row is auto-created (`POST /api/admin/domains`) and never updated again. The domain is
+   * what the URL identifies, so the domain is what the heading should name.
+   *
+   * ⚠️ It also sidesteps #26 entirely — the `__main__` row could not be edited at all until
+   * this same change, so "just fix the __main__ title" was not available.
+   *
+   * A NESTED section-based page (not a domain root) still uses its own title and icon, which is
+   * correct — that page is what the URL identifies there.
+   */
+  const isDomainRoot = !page || page.slug === '__main__';
+  const title = isDomainRoot ? domain.name : page.title;
+  const headingIcon = isDomainRoot ? domain.icon : page.icon;
+
   const sections: Section[] = page?.sections || [];
   
   // Organize sections into rows (grouped by order)
@@ -79,7 +114,7 @@ export function SectionBasedLayout({
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <PageHeading title={title} />
+        <PageHeading title={title} icon={headingIcon} />
       </div>
 
       {/* Main Content - Row-Based 3-Column Layout */}
@@ -143,7 +178,7 @@ export function SectionBasedLayout({
             </h2>
             <UpcomingList
               noun="Resource"
-              items={upcomingChildPages.map((child) => ({ id: child.id, name: child.title }))}
+              items={upcomingChildPages.map((child) => ({ id: child.id, name: child.title, icon: child.icon }))}
             />
           </section>
         )}
@@ -213,9 +248,12 @@ function SectionItem({ page, domain, currentPath }: {
   return (
     <Link 
       href={pageUrl} 
-      className="block  pl-1 pr-3 py-1 text-foreground hover:bg-accent rounded-md transition-colors"
+      // `flex items-center gap-2` replaces `block` so the icon and title share a line. Rows
+      // with no icon are unaffected — `ItemIcon` renders nothing rather than a placeholder.
+      className="flex items-center gap-2 pl-1 pr-3 py-1 text-foreground hover:bg-accent rounded-md transition-colors"
       title={page.title} // Show full title on hover
     >
+      <ItemIcon icon={page.icon} size={16} />
       <span className="text-sm font-medium block truncate">{page.title}</span>
     </Link>
   );

@@ -19,6 +19,7 @@ import type { PageWithContent, PageBasic, ChildPage } from './types';
 const pageWithContentSelect = {
   id: true,
   title: true,
+  icon: true,
   slug: true,
   contentType: true,
   sections: true,
@@ -31,13 +32,16 @@ const pageWithContentSelect = {
     orderBy: { order: 'asc' as const },
   },
   subPages: {
-    select: { id: true, title: true, slug: true, contentType: true, parentId: true },
+    select: { id: true, title: true, slug: true, contentType: true, parentId: true, icon: true },
     orderBy: { order: 'asc' as const },
   },
   richTextContent: {
     select: {
       id: true,
       htmlContent: true,
+      // ⚠️ NO `icon` here — `RichTextContent` has no such column. Only Domain and Page do.
+      // A sweep that adds a field everywhere `title` appears will over-reach into models that
+      // merely happen to share the field name.
       title: true,
       wordCount: true,
       updatedAt: true,
@@ -298,6 +302,7 @@ export const PageService = {
       select: {
         id: true,
         title: true,
+        icon: true,
         slug: true,
         contentType: true,
         parentId: true,
@@ -334,6 +339,7 @@ export const PageService = {
       select: {
         id: true,
         title: true,
+        icon: true,
         slug: true,
         contentType: true,
         parentId: true,
@@ -366,6 +372,7 @@ export const PageService = {
       select: {
         id: true,
         title: true,
+        icon: true,
         slug: true,
         contentType: true,
         parentId: true,
@@ -395,6 +402,7 @@ export const PageService = {
       select: {
         id: true,
         title: true,
+        icon: true,
         slug: true,
         contentType: true,
         parentId: true,

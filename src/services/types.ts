@@ -52,6 +52,8 @@ export type DomainBasic = {
   name: string;
   slug: string;
   pageType: string;
+  /** Icon id from public/icons/, or null to fall back to the emoji in the name. */
+  icon?: string | null;
   /**
    * The lifecycle state — DRAFT / PUBLISHED / UPCOMING. Use this, not `isPublished`.
    *
@@ -76,6 +78,11 @@ export type DomainBasic = {
 export type PageWithContent = {
   id: string;
   title: string;
+  /**
+   * Icon id from public/icons/, or null to fall back to the emoji in the title.
+   * Resolved for rendering with `getIcon()` from src/lib/icon-manifest.ts.
+   */
+  icon?: string | null;
   slug: string;
   contentType: string;
   sections?: any; // JSON field for section configuration
@@ -94,6 +101,11 @@ export type PageWithContent = {
 export type PageBasic = {
   id: string;
   title: string;
+  /**
+   * Icon id from public/icons/, or null to fall back to the emoji in the title.
+   * Resolved for rendering with `getIcon()` from src/lib/icon-manifest.ts.
+   */
+  icon?: string | null;
   slug: string;
   contentType: string;
   parentId: string | null;
@@ -128,6 +140,11 @@ export type RichTextContentBasic = {
 export type ChildPage = {
   id: string;
   title: string;
+  /**
+   * Icon id from public/icons/, or null to fall back to the emoji in the title.
+   * Resolved for rendering with `getIcon()` from src/lib/icon-manifest.ts.
+   */
+  icon?: string | null;
   slug: string;
   contentType: string;
   parentId: string | null;
@@ -190,6 +207,8 @@ export type HeaderData = {
 export type SidebarDomain = {
   id: string;
   name: string;
+  /** Icon id from public/icons/, or null to fall back to the emoji in the name. */
+  icon?: string | null;
   slug: string;
   pageType: string;
   url: string;
@@ -205,6 +224,11 @@ export type SidebarDomain = {
 export type SidebarPage = {
   id: string;
   title: string;
+  /**
+   * Icon id from public/icons/, or null to fall back to the emoji in the title.
+   * Resolved for rendering with `getIcon()` from src/lib/icon-manifest.ts.
+   */
+  icon?: string | null;
   slug: string;
   contentType: string;
   parentId: string | null;

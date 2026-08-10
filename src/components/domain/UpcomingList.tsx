@@ -1,6 +1,7 @@
 'use client';
 
 import { toast } from 'sonner';
+import { ItemIcon } from './ItemIcon';
 
 /**
  * The clickable list behind every "Upcoming …" block on the public site.
@@ -43,6 +44,8 @@ type UpcomingItem = {
   id: string;
   /** What the visitor sees, and what the toast names. */
   name: string;
+  /** Icon id, or null to fall back to the emoji already in the name. */
+  icon?: string | null;
 };
 
 type UpcomingListProps = {
@@ -120,8 +123,16 @@ export function UpcomingList({ items, noun }: UpcomingListProps) {
             `@supports (color:color-mix(...))` block after it. Reading only the first match looks
             like the alpha was dropped.
           */}
-          <span className="text-foreground/80 block truncate text-sm font-medium">
-            {item.name}
+          {/*
+            `flex items-center gap-2` sits on this inner span rather than the button, so the
+            button keeps its own padding and hover area unchanged.
+
+            `ItemIcon` renders nothing at all when there is no icon — not a placeholder — so a
+            row without one lays out exactly as it did before. That is the common case.
+          */}
+          <span className="text-foreground/80 flex items-center gap-2 text-sm font-medium">
+            <ItemIcon icon={item.icon} size={16} />
+            <span className="block truncate">{item.name}</span>
           </span>
         </button>
       ))}
