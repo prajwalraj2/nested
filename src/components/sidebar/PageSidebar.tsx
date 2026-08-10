@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ItemIcon } from '@/components/domain/ItemIcon';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import {
   SidebarContent,
@@ -242,6 +243,7 @@ function PageSidebarItem({
             className="flex items-center gap-2 min-w-0 flex-1"
             title={page.title}
           >
+            <ItemIcon icon={page.icon} size={16} />
             <span className="truncate text-sm font-medium">{page.title}</span>
           </Link>
           
@@ -278,6 +280,7 @@ function PageSidebarItem({
                   className="flex items-center gap-2"
                   title={childPage.title}
                 >
+                  <ItemIcon icon={childPage.icon} size={16} />
                   <span className="truncate text-sm font-medium">{childPage.title}</span>
                 </Link>
               </SidebarMenuSubButton>

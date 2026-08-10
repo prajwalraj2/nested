@@ -276,6 +276,7 @@ function buildSidebarData(domains: any[], categories: CategoryFull[]): SidebarDa
       organizedDomains.push({
         id: domain.id,
         name: domain.name,
+        icon: domain.icon,
         slug: domain.slug,
         pageType: domain.pageType,
         url: `/domain/${domain.slug}`,
@@ -293,6 +294,7 @@ function buildSidebarData(domains: any[], categories: CategoryFull[]): SidebarDa
     organizedDomains.push({
       id: domain.id,
       name: domain.name,
+      icon: domain.icon,
       slug: domain.slug,
       pageType: domain.pageType,
       url: `/domain/${domain.slug}`,
@@ -322,6 +324,7 @@ function buildRootPages(pages: any[], domain: any) {
         rootPages.push({
           id: page.id,
           title: page.title,
+          icon: page.icon,
           slug: page.slug,
           contentType: page.contentType,
           parentId: page.parentId,
@@ -365,6 +368,7 @@ async function buildPageSidebarData(
             .map(page => ({
               id: page.id,
               title: page.title,
+              icon: page.icon,
               slug: page.slug,
               contentType: page.contentType,
               parentId: page.parentId,
@@ -437,6 +441,7 @@ function organizePagesIntoSections(
         .map(page => ({
           id: page.id,
           title: page.title,
+          icon: page.icon,
           slug: page.slug,
           contentType: page.contentType,
           parentId: page.parentId,
@@ -458,6 +463,7 @@ function organizePagesIntoSections(
       .map((page: any) => ({
         id: page.id,
         title: page.title,
+        icon: page.icon,
         slug: page.slug,
         contentType: page.contentType,
         parentId: page.parentId,
@@ -469,6 +475,7 @@ function organizePagesIntoSections(
           .map(child => ({
             id: child.id,
             title: child.title,
+            icon: child.icon,
             slug: child.slug,
             contentType: child.contentType,
             parentId: child.parentId,

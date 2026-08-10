@@ -50,8 +50,8 @@ Partially-done findings show which sub-items are complete.
 | [x]  | 23  | **PRODUCTION OUTAGE: all rich-text admin routes 500 — unpinned Node version**      | 🔴 **Critical** | Deploy / Runtime   | 20 min    |
 | [x]  | 24  | Domain status (Draft/Published/**Upcoming**) + public "Upcoming Domains" section  | 🔵 Feature      | Schema / UI        | Phase H   |
 | [x]  | 25  | Page status + "Upcoming Resources" on section-based pages                        | 🔵 Feature      | Schema / UI        | Phase I   |
-| [ ]  | 26  | A `__main__` page can never be saved — app rejects a slug it generated itself      | 🟡 Medium       | Admin / Bug        | 30 min    |
-| [ ]  | 27  | Real icons for Domains and Pages — SVGs in /public, replacing emoji-in-title  | 🔵 Feature      | Schema / UI        | Phase J   |
+| [x]  | 26  | A `__main__` page can never be saved — app rejects a slug it generated itself      | 🟡 Medium       | Admin / Bug        | 30 min    |
+| [x]  | 27  | Real icons for Domains and Pages — SVGs in /public, replacing emoji-in-title  | 🔵 Feature      | Schema / UI        | Phase J   |
 
 
 **Sub-items:**
@@ -6719,7 +6719,161 @@ identified.
   read *Github*, *Linkedin*, *Ted*, *Youtube*. No rule recovers a brand's capitalisation from a
   lowercase filename, which is why the override map exists.
 - All nine are within budget: largest **3.1 KB**, total **11.2 KB**.
-| **J-3** | Public rendering across all seven surfaces | **visible** | |
+| **J-3** ✅ | Public rendering across all **eight** surfaces | **visible** | **DONE 9 Aug.** 20/20 tests pass. ⚠️ The plan said seven; there were eight. Record below. |
+
+##### ✅ J-3 DONE — 9 Aug 2026 (public rendering)
+
+**One shared component, eight surfaces, eleven field lists.**
+
+`ItemIcon` renders the icon or **nothing** — never a placeholder. That single decision is what
+makes every call site a one-liner with no branching: a row without an icon lays out exactly as it
+did before, which matters because that is ~1,190 of 1,216 pages and 39 of 41 domains.
+
+⚠️ **Not `next/image`, deliberately.** It exists to resize and re-encode raster images; an SVG has
+no pixels to resize, and these are same-origin files already served `immutable`. The
+layout-shift protection people reach for it to get comes from explicit `width`/`height`, which
+this has — verified in the rendered HTML.
+
+⚠️ **`alt=""` is correct, not an omission.** The icon sits immediately beside the name it belongs
+to, so alt text would make a screen reader say "YouTube YouTube Channels". Empty alt marks it
+decorative, which is what it is here.
+
+###### ⚠️ FOUND BY THE USER IN TESTING — THE PLAN SAID SEVEN. THERE WERE TEN.
+
+Reported as "strange, maybe a Next.js cache issue". It was not caching. Three separate causes,
+two of them omissions in the plan:
+
+**1. `PageHeading` had no icon parameter at all.** It accepts `title` and nothing else, and it
+renders the `<h1>` for **every content page** — section layout, subcategory list, table, rich
+text, narrative. The plan listed it as *"optional: a larger icon beside the page `<h1>`"* and it
+was skipped. That single gap accounted for most of what the user saw: Web Development, LinkedIn
+Groups, Trading & Investing and every rich-text heading showed no icon because the component
+could not render one. **Surface nine.**
+
+**2. ⚠️ A DIRECT DOMAIN'S ROOT `<h1>` WAS READING THE `__main__` PAGE, NOT THE DOMAIN.**
+
+`SectionBasedLayout` computed `title = page?.title || domain.name`, and for a domain root `page`
+*is* the `__main__` page. The two rows drift apart immediately:
+
+```
+Domain    name  = "Graphic Designing"          icon = facebook
+__main__  title = "🖌️ Graphic Designing"        icon = null
+```
+
+So removing the emoji from the domain and giving it an icon changed nothing on that domain's own
+page — the heading was reading a different row. **Editing the thing the URL names had no effect
+on the thing the URL renders.**
+
+Fixed by preferring the domain for a root heading. `__main__`'s title was never chosen by anyone:
+it is copied from the domain name when the row is auto-created and never updated again. The
+domain is what `/domain/<slug>` identifies, so the domain is what it should name. A *nested*
+section-based page still names itself, which is correct.
+
+**3. Breadcrumbs** use `page.title` verbatim (`navigation.service.ts:633`), so an emoji left in a
+title shows there. **Surface ten** — left text-only by decision: crumbs are small and dense, and
+an icon per crumb reads as noise.
+
+###### ✅ #26 FIXED HERE — it stopped being cosmetic
+
+The `__main__` slug bug was recorded as deferred. Fix 2 above made it urgent: `__main__`'s title
+is visible as the `<h1>` of every direct domain, and **the row could not be saved at all**.
+
+Applied the **A + B** option from §26.4:
+
+- **API** — `__main__` is exempt from the slug *format* rule, and a separate guard refuses any
+  attempt to *change* its slug. The exemption alone would have been a loophole; the guard is what
+  closes it. Its message names the real constraint instead of complaining about underscores.
+- **Form** — the slug field is `disabled` for `__main__`, with a line explaining that it is
+  structural. B alone was cosmetic (a direct API call still failed); A alone left an editable
+  field that had to be policed.
+
+⚠️ The POST validator is deliberately **not** exempted — that keeps `__main__` from being created
+through the pages API, where a second one would break the domain's URL model.
+
+###### ⚠️ #26 WAS FIXED ON THE SERVER AND STILL BROKEN ON THE SCREEN
+
+Reported immediately after: the slug field was correctly greyed out, but **editing a `__main__`
+page's TITLE still failed** with *"Slug must contain only lowercase letters, numbers, and
+hyphens"* — a complaint about a field the admin could no longer even edit.
+
+`PageForm` carries its **own client-side copy** of the slug rule (`validateForm`) for fast
+feedback. Only the API's copy was exempted, so the form rejected the value and **never sent the
+request at all**.
+
+⚠️ **The server suite passed 15/15 while the screen it exists for did not.** It drove the API
+directly — which is what makes it reliable for cache-invalidation questions — and that is exactly
+what let it miss a client-side guard sitting in front of the endpoint.
+
+**Generalisable: when a rule is mirrored on both sides for UX reasons, exempting one side fixes
+nothing the user can see.** Search for the *message*, not the endpoint — one `grep` for the error
+string listed both copies together, and would have found them the first time.
+
+Checked while fixing: `DomainForm` and `CategoryForm` carry the same mirrored rule, but neither
+model has a `__main__` concept — their slugs are entirely user-chosen — so no exemption belongs
+there.
+
+###### Verification of these four fixes — 15/15
+
+| Case | Result |
+| --- | --- |
+| `__main__` page saves | **200** — was 400 on every save |
+| `__main__` slug rename | **400**, message names the constraint; slug unchanged |
+| Direct domain root `<h1>` | shows the **domain** name + icon; no `__main__` emoji |
+| Hierarchical domain root `<h1>` | shows name + icon |
+| Table page `<h1>` | shows title + icon |
+| **Regression** — no icon set | name renders, **no `<img>` in the heading** |
+
+###### ⚠️ THE PLAN SAID SEVEN SURFACES. THERE WERE EIGHT.
+
+`PageSidebar.tsx` — the page-level sidebar — also renders page titles, and was missed when the
+surfaces were enumerated. Left out, the main sidebar would have shown icons while the page
+sidebar did not, on the same screen. Found by grepping for title renders rather than by trusting
+the list in the plan.
+
+###### ⚠️ THE FIELD-LIST TRAP, FOURTH AND FIFTH INSTANCES
+
+`navigation.service.ts` builds its sidebar payloads as **explicit literals**, and `icon` is
+**optional** on those types — so omitting it compiled cleanly and the sidebar would simply have
+shown nothing. **`tsc` cannot catch this**, which is precisely why it keeps happening.
+
+Contrast the two errors `tsc` *did* raise, on `SidebarDomain` in `services/types.ts`: that type
+declares its fields exactly, so an excess property was rejected. **The difference between the
+silent case and the caught case is whether the field is optional** — worth knowing when adding
+the next column.
+
+Fixed by sweeping: every literal in that file copying a page title or domain name, then every
+`select:` in the services. **Eleven field lists in total.**
+
+⚠️ One over-reach caught in the same sweep: a regex adding `icon` wherever `title: true` appeared
+put it inside the `richTextContent` select, where `RichTextContent` has no such column. **A
+mechanical sweep keyed on a field name will follow that name into models that merely share it.**
+
+###### ⚠️ THE H-2 CACHE LESSON, REPEATED BY ME
+
+The first run of the J-3 tests reported two failures. Both were the test's fault: it mutated with
+`prisma.domain.update` directly, bypassing `invalidateDomains()`, so the `unstable_cache` entries
+kept serving the pre-write answer and the pages faithfully rendered what they were given. **This
+is documented verbatim in the H-2 record and I did it again.** Rewritten to mutate through the
+admin API, which is what an admin does anyway.
+
+A second failure was a **brittle assertion, not a bug**: it compared the icon count after
+clearing a row against a baseline measured *while that row still had an icon*. Replaced with an
+assertion about what the regression actually is — the icon we set is gone, other rows keep
+theirs, names still render.
+
+###### TEST CASES — 20/20 against `next build && next start`
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1 | Baseline | `/domain` renders |
+| 2 | Domain icon on the index | renders, with explicit `width`/`height` and `alt=""` |
+| 3 | Page icon in its section block | renders; title unaffected |
+| 4 | Sidebar payload | `/api/page-context` carries the field and the value |
+| 5 | Unknown icon id | API refuses with **400**; nothing renders |
+| 6 | **Regression — rows with no icon** | unchanged; no stray empty `<img>` |
+| 7 | Caching | `/icons/*.svg` returns `immutable` |
+
+Database restored: the 2 domains and 5 pages that carried icons before still do.
 | **J-4** | Uploads from the admin panel | — | **deferred (#27.8)** |
 
 ---
@@ -8665,6 +8819,115 @@ discovering it afterwards.
 - The page shell has a gradient banner plus a large hardcoded "Understanding Domain Types"
   explainer panel in cyan/blue/purple — reference material that is read once and then scrolled
   past forever, the same case as the Domains tips box (which became a closed `Collapsible`).
+
+---
+
+## 🔴 #28 — Editing a `__main__` page made it its own parent and detached the whole domain
+
+**Found 10 Aug 2026, by the user, in testing, minutes after #26 shipped. Fixed same day.**
+**Development branch only — production was never touched.**
+
+### What happened
+
+Edited the Graphic Designing `__main__` page to remove the emoji from its title. The title saved
+correctly. Then:
+
+- `/admin/pages` for that domain showed **"No pages yet — 0 pages"**
+- `/domain/gdesign` returned **not found**
+- the terminal filled with `[page-path] parent cycle detected at page ecab70c3…, skipping`
+
+Repeated on Game Development, with the same result. **43 and 31 pages respectively disappeared
+from every surface at once.**
+
+### What was actually wrong
+
+**Two rows.** Nothing was deleted — all 1,216 pages were in the database the entire time. Both
+`__main__` rows had `parentId` set to **their own id**.
+
+`buildPageHierarchy` walks upward through `parentId`. Seeing the same id twice, it logs the cycle
+and drops the row — and every child hangs off that row, so the whole domain goes with it. The
+115 pages that also reported cycles were simply its descendants inheriting the broken walk.
+
+### The cause — `||` cannot tell "no value" from "deliberately null"
+
+`PageForm.tsx` computed the parent default as:
+
+```tsx
+parentId: editingPage?.parentId || parentId || (isDirect ? (mainPage?.id ?? null) : null)
+```
+
+Correct for every ordinary page. A trap for `__main__`, because **`__main__`'s own `parentId` is
+`null` — it is the root** — so the chain fell straight through:
+
+```
+editingPage.parentId → null       falsy → skip
+parentId prop        → null       falsy → skip
+mainPage.id          → ecab70c3…  ← THE ID OF THE PAGE BEING EDITED
+```
+
+⚠️ **`null` here is a meaningful value, not a missing one, and `||` erases that distinction.**
+
+### ⚠️ Why it appeared only now — an unrelated fix made a latent bug reachable
+
+This expression has been wrong since G-4d. It never caused harm because **saving a `__main__`
+page always failed on the slug rule (#26)** — the value was computed on every edit and never once
+written.
+
+#26 was a correct fix. It simply let the save complete for the first time, and the save carried
+this with it.
+
+⚠️ **Generalisable: removing a blocker exposes everything the blocker was silently absorbing.**
+When a fix makes a previously impossible operation possible, the operation's whole payload is
+new, not just the field the fix was about. My #26 testing checked slug and title. It never looked
+at what else the same request wrote.
+
+### ⚠️ And the server's cycle guard reported "no cycle" while creating one
+
+```ts
+const isCircular = await isDescendantOf(parentId, id);   // "is my new parent BELOW me?"
+```
+
+Pass `parentId === id` and it loads that page, finds `parentId: null` — a root, nothing above it
+— and returns `false`. The guard asks *"is the new parent a descendant of me"* and never *"is the
+new parent me"*. **A one-node loop is the one cycle a descendant-walk cannot see**, because the
+walk starts by stepping past the node.
+
+### The fix — three parts
+
+| | Change |
+| --- | --- |
+| **Data** | `parentId = null` on the 2 self-parented rows. Not a guess: a `__main__` page is its domain's root and `buildPageHierarchy` reads null as "top of the tree". Repair script targeted only ids verified self-parented, and refused to run against production. |
+| **Client** | `PageForm.tsx` — `isEditingMainPage` short-circuits the `\|\|` chain to `null`. |
+| **Server** | `PUT /api/admin/pages/[id]` — explicit `if (parentId === id)` → 400, above the descendant check. |
+
+The server guard is not redundant. That endpoint is reachable by any authenticated admin request,
+not only through one component, **and a corrupt tree costs far more to notice than a 400 does.**
+
+### Verification — 12/12, `next dev` on :3000
+
+Test 1 replays the exact payload the form sent. If that returns 200, nothing else matters.
+
+| Case | Result |
+| --- | --- |
+| `parentId` = own id on `__main__` → 400, DB untouched | PASS ×3 |
+| same on an ordinary page → 400, DB untouched | PASS ×2 |
+| a real `__main__` title edit → 200, `parentId` still null, slug still `__main__` | PASS ×4 |
+| `/domain/gdesign` renders again | PASS |
+| **a legitimate re-parent still accepted** (guard not over-broad) | PASS |
+| 0 cycles across all 1,216 pages | PASS |
+
+### ⚠️ Lessons
+
+1. **`||` on a field where `null` is legal is a bug waiting for the right row.** Use `??`, or
+   branch explicitly. Root/parent, zero, and empty-string fields are where this bites.
+2. **Fixing a validation error opens the whole write path, not one field.** After #26, the
+   correct question was "what else does a successful `__main__` save now write?"
+3. **A guard that has never rejected anything is untested.** `isDescendantOf` had presumably
+   never returned `true` in production; its blind spot was free to sit there.
+4. **Test the operation, not the field.** #26's tests asserted on slug and title — both correct
+   — while the same request corrupted a third column.
+5. Loud logging saved this. `[page-path] parent cycle detected` named the exact page id, which
+   turned an alarming "my data is gone" into a two-row repair.
 
 ---
 

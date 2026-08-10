@@ -1,7 +1,7 @@
 'use client';
 
 import type { PageStatus } from '@/generated/prisma';
-import { PAGE_STATUSES, PAGE_STATUS_DESCRIPTIONS, PAGE_STATUS_LABELS, isMainPage } from '@/lib/page-status';
+import { MAIN_PAGE_SLUG, PAGE_STATUSES, PAGE_STATUS_DESCRIPTIONS, PAGE_STATUS_LABELS, isMainPage } from '@/lib/page-status';
 import type { DomainStatus } from '@/generated/prisma';
 import { useState } from 'react';
 import { AlertTriangle, Globe, Loader2 } from 'lucide-react';
@@ -139,6 +139,37 @@ export function PageForm({
   /** The hidden root of a `direct` domain, if it exists. */
   const mainPage = allPages.find((p) => p.slug === '__main__');
 
+  /**
+   * ⚠️ IS THE PAGE BEING EDITED THE `__main__` ROW ITSELF?
+   * ======================================================
+   *
+   * **This one line of state exists because its absence detached two entire domains.**
+   *
+   * The parent default below reads: "when editing, keep the page's own parent; otherwise fall
+   * back to `__main__` for a direct domain". For every ordinary page that is right. For
+   * `__main__` it is a trap, because `__main__`'s own `parentId` is `null` — it is the root —
+   * so the `||` chain skipped straight past it to the fallback:
+   *
+   *     editingPage.parentId → null   (falsy, so `||` moves on)
+   *     parentId prop        → null   (falsy, so `||` moves on)
+   *     mainPage.id          → ecab70c3…   ← THE ID OF THE VERY PAGE BEING EDITED
+   *
+   * Saving then wrote `parentId = own id`. `buildPageHierarchy` walks upward through
+   * `parentId`, saw the same id twice, logged `[page-path] parent cycle detected` and dropped
+   * the row — taking all 42 of its children with it. The admin showed "No pages yet" and
+   * `/domain/gdesign` 404'd, on a domain whose 43 rows were all still in the database.
+   *
+   * ⚠️ **`||` CANNOT DISTINGUISH "no value" FROM "deliberately null".** `null` is the correct,
+   * meaningful parent of a root page, and `||` treats it as absent. That is the whole bug.
+   *
+   * ⚠️ AND IT WAS INVISIBLE FOR MONTHS. Saving a `__main__` page always failed on the slug
+   * rule (#26), so this value was computed every time and never once written. Fixing #26
+   * removed the accident that was suppressing it — **an unrelated fix made a latent bug
+   * reachable.** Nothing about the #26 change was wrong; it simply let a save complete for the
+   * first time, and the save carried this with it.
+   */
+  const isEditingMainPage = isEditMode && editingPage?.slug === '__main__';
+
   const [formData, setFormData] = useState({
     title: editingPage?.title || '',
     slug: editingPage?.slug || '',
@@ -147,8 +178,14 @@ export function PageForm({
       Precedence: the page's own parent when editing → the row you clicked "Add child" on →
       the domain's default. For a `direct` domain that default is `__main__`'s real id, NOT
       `null` — which is the fix described in the header comment.
+
+      ⚠️ …EXCEPT WHEN THE PAGE BEING EDITED **IS** `__main__` — see `isEditingMainPage` below.
+      Without that exclusion this line made the page its OWN parent and detached a whole
+      domain. That bug is worth reading about; the explanation is directly above the constant.
     */
-    parentId: editingPage?.parentId || parentId || (isDirect ? (mainPage?.id ?? null) : null),
+    parentId: isEditingMainPage
+      ? null
+      : editingPage?.parentId || parentId || (isDirect ? (mainPage?.id ?? null) : null),
     targetCountries: editingPage?.targetCountries || [ALL_COUNTRIES],
     /*
       ⚠️ Falls back to PUBLISHED, not DRAFT — matching the column default and today's behaviour,
@@ -241,7 +278,18 @@ export function PageForm({
     if (!formData.title.trim()) return 'Page title is required';
     if (!formData.slug.trim()) return 'URL slug is required';
     if (!formData.contentType) return 'Content type is required';
-    if (!/^[a-z0-9-]+$/.test(formData.slug)) {
+    /*
+      ⚠️ `__main__` IS EXEMPT — and this check is the one that actually bit.
+
+      The API's exemption was added first (#26) and verified server-side, so a scripted PUT
+      succeeded. But this client-side copy still rejected the value, so the form never sent the
+      request: editing a `__main__` page's TITLE still failed with a message about its slug —
+      a field now visibly greyed out and impossible to edit.
+
+      **Fixing the server and not the mirrored client check leaves the bug exactly where the
+      user meets it.** The server test passed while the screen it exists for did not.
+    */
+    if (formData.slug !== MAIN_PAGE_SLUG && !/^[a-z0-9-]+$/.test(formData.slug)) {
       return 'Slug must contain only lowercase letters, numbers, and hyphens';
     }
 
@@ -352,14 +400,33 @@ export function PageForm({
           <Label htmlFor="page-slug">
             URL slug <RequiredMark />
           </Label>
+          {/*
+            ⚠️ READ-ONLY FOR `__main__` — finding #26.
+
+            That slug is generated by the app, contains underscores, and is the marker the whole
+            direct-domain URL model hangs off: `PageService.getByPath` finds every top-level page
+            by looking it up literally. The API refuses to change it.
+
+            Before this, the field was freely editable and the server rejected the value it had
+            itself supplied — so EVERY save of a `__main__` page failed with "Slug must contain
+            only lowercase letters, numbers, and hyphens", naming a field the admin had not
+            touched. Disabling it is the honest signal that this one value is structural.
+          */}
           <Input
             id="page-slug"
             value={formData.slug}
             onChange={(event) => handleChange('slug', event.target.value)}
             placeholder="e.g. youtube-channels"
             className="font-mono"
+            disabled={isMainPage({ slug: formData.slug })}
             required
           />
+          {isMainPage({ slug: formData.slug }) && (
+            <p className="text-muted-foreground text-xs">
+              Fixed — this is the domain&apos;s root page, and every page beneath it is found
+              through this name. Everything else here can be edited.
+            </p>
+          )}
         </div>
       </div>
 

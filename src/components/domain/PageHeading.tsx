@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { ItemIcon } from './ItemIcon'
 import { cn } from '@/lib/utils'
 import { ShareButton } from './ShareButton'
 
@@ -56,6 +57,16 @@ type PageHeadingProps = {
   title: string
 
   /**
+   * Icon id from `public/icons/`, shown before the title. Null renders nothing.
+   *
+   * ⚠️ THIS WAS THE GAP THAT MADE J-3 LOOK BROKEN. Every content page's `<h1>` comes through
+   * this component — the section layout, subcategory list, table, rich text and narrative
+   * layouts all use it — and it had no icon parameter at all, so an icon set in the admin
+   * appeared in lists and the sidebar but never on the page it belonged to.
+   */
+  icon?: string | null
+
+  /**
    * Divider bottom margin.
    *
    *   default  mb-8   — everything
@@ -96,6 +107,7 @@ const SPACING_CLASS = {
 
 export function PageHeading({
   title,
+  icon,
   spacing = 'default',
   actions,
   share = true,
@@ -119,7 +131,18 @@ export function PageHeading({
           not lead with them — but on the page itself they are the visual identity of each
           domain and page, and the sidebar shows them too.
         */}
-        <h1 className="min-w-0 text-3xl font-bold text-foreground">{title}</h1>
+        {/*
+          `flex items-center gap-3` on the h1 so the icon sits on the text baseline block and
+          wraps with it. `ItemIcon` renders nothing when there is no icon, so a heading without
+          one is laid out exactly as before — which is almost every page.
+
+          Size 32 against `text-3xl`: matched to the cap height rather than the full line box,
+          so it reads as part of the title rather than a badge stuck beside it.
+        */}
+        <h1 className="flex min-w-0 items-center gap-3 text-3xl font-bold text-foreground">
+          <ItemIcon icon={icon} size={32} />
+          <span className="min-w-0">{title}</span>
+        </h1>
 
         {/*
           `shrink-0` so the action group keeps its full width and the title wraps instead.

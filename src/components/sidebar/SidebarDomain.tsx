@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ItemIcon } from '@/components/domain/ItemIcon';
 import { ChevronDown, ChevronRight, Home } from 'lucide-react';
 import { 
   SidebarMenuButton, 
@@ -53,6 +54,7 @@ export function SidebarDomain({
             className="flex items-center gap-2 min-w-0 flex-1"
             title={domain.name}
           >
+            <ItemIcon icon={domain.icon} size={16} />
             <span className="truncate text-sm font-medium">{domain.name}</span>
           </Link>
           
@@ -90,6 +92,7 @@ export function SidebarDomain({
                       className="flex items-center gap-2 min-w-0 flex-1"
                       title={page.title}
                     >
+                      <ItemIcon icon={page.icon} size={16} />
                       <span className="truncate text-sm font-medium">{page.title}</span>
                     </Link>
                   </div>

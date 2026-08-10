@@ -64,6 +64,7 @@ const getDomainBySlugFromDB = unstable_cache(
         name: true,
         slug: true,
         pageType: true,
+        icon: true,
         // Both, because `DomainBasic` still declares `isPublished` for this release. A `select`
         // that omitted it would not satisfy the type.
         status: true,
@@ -140,6 +141,7 @@ const getDomainsForNavigationFromDB = unstable_cache(
           select: {
             id: true,
             title: true,
+            icon: true,
             slug: true,
             contentType: true,
             parentId: true,
@@ -252,6 +254,7 @@ export const DomainService = {
           select: {
             id: true,
             title: true,
+            icon: true,
             slug: true,
             contentType: true,
             parentId: true,

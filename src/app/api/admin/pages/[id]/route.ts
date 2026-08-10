@@ -1,6 +1,6 @@
 import { isValidIconId } from '@/lib/icon-manifest';
 import { NextRequest, NextResponse } from 'next/server';
-import { PAGE_STATUSES, isMainPage, isPageStatus, resolvePageStatus } from '@/lib/page-status';
+import { MAIN_PAGE_SLUG, PAGE_STATUSES, isMainPage, isPageStatus, resolvePageStatus } from '@/lib/page-status';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 import { invalidatePages } from '@/lib/cache-invalidation';
@@ -184,6 +184,30 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
      */
     const nextStatus = resolvePageStatus(body, existingPage.status);
 
+    /**
+     * ⚠️ A `__main__` PAGE'S SLUG MAY NOT CHANGE — this is what makes the format exemption in
+     * `validatePageUpdateData` safe rather than a loophole.
+     *
+     * `__main__` is not a URL segment a visitor ever types; it is the marker the whole
+     * direct-domain URL model hangs off (#11). `PageService.getByPath` looks it up by that
+     * literal string to find the parent of every top-level page, so renaming it would orphan
+     * the entire domain.
+     *
+     * Checked before the format rule below can be reached, so the message names the real
+     * constraint instead of complaining about underscores.
+     */
+    if (isMainPage(existingPage) && typeof body.slug === 'string' && body.slug.trim() !== MAIN_PAGE_SLUG) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "A domain's root page must keep the slug __main__ — every page beneath it is " +
+            'found through that name. Everything else on this page can be edited.'
+        },
+        { status: 400 }
+      );
+    }
+
     if (isMainPage(existingPage) && nextStatus !== 'PUBLISHED') {
       return NextResponse.json(
         {
@@ -216,6 +240,31 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (!parent || parent.domainId !== existingPage.domainId) {
         return NextResponse.json(
           { success: false, message: 'Invalid parent page' },
+          { status: 400 }
+        );
+      }
+
+      /*
+        ⚠️ A PAGE MAY NOT BE ITS OWN PARENT — AND `isDescendantOf` DOES NOT CATCH THIS.
+        ================================================================================
+
+        The check below asks *"is the proposed parent somewhere BELOW me in the tree?"*. Pass
+        it `parentId === id` and it loads this very page, finds `parentId: null` (a root, so
+        nothing above it), and returns `false`. **The guard reports "no cycle" while creating
+        the tightest cycle possible** — a one-node loop.
+
+        This is not hypothetical. `PageForm` sent exactly that for a `__main__` page, the
+        endpoint accepted it, and two domains vanished from both the admin tree and the public
+        site: `buildPageHierarchy` walks up through `parentId`, saw the same id twice, logged
+        `[page-path] parent cycle detected` and dropped the row plus all 42 children.
+
+        Fixed in the form too, but it belongs HERE as well — this endpoint is reachable by any
+        authenticated admin request, not only through that one component, and a corrupt tree
+        is far more expensive to notice than a 400.
+      */
+      if (parentId === id) {
+        return NextResponse.json(
+          { success: false, message: 'Cannot set parent: a page cannot be its own parent' },
           { status: 400 }
         );
       }
@@ -518,9 +567,24 @@ function validatePageUpdateData(data: any): string | null {
     return `Content type must be one of: ${validContentTypes.join(', ')}`;
   }
 
-  // Validate slug format
+  /**
+   * Validate slug format.
+   *
+   * ⚠️ `__main__` IS EXEMPT — see finding #26. The application generates that slug itself
+   * (`POST /api/admin/domains` creates it for every direct domain, and a `pageType` change
+   * recreates it), and it contains underscores, which this pattern excludes. So the row could
+   * never satisfy its own validator: **editing a `__main__` page failed on EVERY save**, with a
+   * message naming a field the admin had not touched.
+   *
+   * That made the whole row uneditable — title, target countries, icon, all of it — and it was
+   * not cosmetic: a direct domain's public `<h1>` renders the `__main__` page's title.
+   *
+   * ⚠️ The exemption is NOT a loophole, because the caller may still not CHANGE the slug — see
+   * the guard in the PUT handler. Exempting the format check without that would let anyone
+   * rename `__main__` to something equally invalid.
+   */
   const slugRegex = /^[a-z0-9-]+$/;
-  if (!slugRegex.test(data.slug.trim())) {
+  if (data.slug.trim() !== MAIN_PAGE_SLUG && !slugRegex.test(data.slug.trim())) {
     return 'Slug must contain only lowercase letters, numbers, and hyphens';
   }
 

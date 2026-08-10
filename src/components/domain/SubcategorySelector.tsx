@@ -2,6 +2,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ItemIcon } from './ItemIcon';
 import { usePathname } from 'next/navigation';
 import { PageHeading } from './PageHeading';
 
@@ -9,6 +10,8 @@ import { PageHeading } from './PageHeading';
 type DomainWithPages = {
   id: string;
   name: string;
+  /** Icon id — used for the heading when this is the domain root. */
+  icon?: string | null;
   slug: string;
   pageType: string;
   pages: PageWithContent[];
@@ -17,6 +20,8 @@ type DomainWithPages = {
 type PageWithContent = {
   id: string;
   title: string;
+  /** Icon id from public/icons/, or null to fall back to the emoji in the title. */
+  icon?: string | null;
   slug: string;
   contentType: string;
   content: any[];
@@ -65,7 +70,15 @@ export function SubcategorySelector({ domain, page }: {
   const pathname = usePathname();
   const subcategories = page?.subPages || domain.pages;
   const pathPrefix = pathname;
-  const title = page?.title || domain.name;
+  /*
+    Same rule as SectionBasedLayout: when this IS the domain root, the heading names the DOMAIN,
+    not whatever page row happens to be passed. A hierarchical domain has no `__main__` page at
+    all, so `page` is simply absent here — but a nested subcategory_list page passes its own row
+    and should name itself.
+  */
+  const isDomainRoot = !page;
+  const title = isDomainRoot ? domain.name : page.title;
+  const headingIcon = isDomainRoot ? domain.icon : page.icon;
 
   // Organize pages into row groups (each with 3 columns of up to 5 pages)
   const rowGroups = organizePagesIntoRows(subcategories);
@@ -74,7 +87,7 @@ export function SubcategorySelector({ domain, page }: {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <PageHeading title={title} />
+        <PageHeading title={title} icon={headingIcon} />
       </div>
 
       {/* 3-Column Grid Layout */}
@@ -140,9 +153,10 @@ function SubcategoryItem({ subcategory, pathPrefix }: {
   return (
     <Link
       href={`${pathPrefix}/${subcategory.slug}`}
-      className="block px-3 py-1 rounded-md hover:bg-accent transition-colors"
+      className="flex items-center gap-2 px-3 py-1 rounded-md hover:bg-accent transition-colors"
       title={subcategory.title}
     >
+      <ItemIcon icon={subcategory.icon} size={16} />
       <span className="text-sm font-medium text-foreground block truncate">
         {subcategory.title}
       </span>
