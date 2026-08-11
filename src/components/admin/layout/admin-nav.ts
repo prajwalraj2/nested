@@ -1,4 +1,5 @@
 import {
+  Image as ImageIcon,
   LayoutDashboard,
   FolderTree,
   Globe,
@@ -115,6 +116,18 @@ export const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'System',
     items: [
+      {
+        /*
+          ⚠️ System, not Content. Images are a SHARED RESOURCE referenced by rows across many
+          tables — one image serves rows in several domains — rather than content belonging to
+          a page. Filing it under Content would imply it sits inside one, and the screen's main
+          job (finding what nothing uses any more) is maintenance, not authoring.
+        */
+        href: '/admin/images',
+        label: 'Images',
+        icon: ImageIcon,
+        description: 'Pictures used beside table rows',
+      },
       {
         href: '/admin/users',
         label: 'Admin Users',
