@@ -69,6 +69,21 @@ import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff } from "lucide-react"
  * - Mobile-responsive design
  */
 
+/**
+ * `col.align` -> a Tailwind class (K-3).
+ *
+ * ⚠️ Full literals, for the same reason as `BADGE_COLOR_CLASSES`: Tailwind scans source for
+ * class strings and never evaluates code, so `text-${align}` would emit no CSS at all.
+ *
+ * Every one of the 2,675 stored columns currently says `left`, so wiring this changes
+ * nothing visible today. It exists so the K-6 editor has somewhere to write.
+ */
+const ALIGN_CLASS: Record<'left' | 'center' | 'right', string> = {
+  left: 'text-left',
+  center: 'text-center',
+  right: 'text-right',
+};
+
 type DataTableProps = {
   schema: TableSchema;
   data: TableData;
@@ -106,6 +121,106 @@ export function DataTable({
    */
   const resolved = React.useMemo(() => resolveTableSettings(settings), [settings]);
   const { ui, pagination } = resolved;
+
+  /**
+   * COLUMN RESIZING (K-3).
+   * ============================================================================
+   *
+   * ⚠️ WHY THIS IS HAND-WRITTEN INSTEAD OF `columnResizeMode: 'onChange'`.
+   *
+   * TanStack's resizing needs every column to carry an explicit `size`, which forces the
+   * table into a fixed layout. Today **no column has a width** — `col.width` is `undefined`
+   * on all 2,675 of them — so the browser auto-sizes to content, and that is why the tables
+   * currently look right: a long "Course Name" gets the room it needs without anyone
+   * configuring anything.
+   *
+   * Switching all 654 tables to fixed widths, to enable an interaction nobody sees until
+   * they drag, is a bad trade. **This is also the trap the original attempt fell into** —
+   * the commented-out code inferred widths from column type
+   * (`description ? 280 : link ? 200 : 150`), which would have re-laid-out every table.
+   *
+   * So: nothing is sized until someone actually drags.
+   *
+   * ⚠️ THE FIRST DRAG MEASURES EVERY COLUMN, NOT JUST THE ONE BEING DRAGGED.
+   * Setting a width on one column of an auto-laid-out table makes the browser
+   * redistribute all the others, so the neighbours would visibly jump while you drag. The
+   * mousedown handler therefore snapshots what the browser has already chosen for every
+   * column and pins all of them at once, at their current widths — invisible at the moment
+   * it happens, and it makes the drag behave.
+   *
+   * Per the decision in #29.6(c) this is component state only: **a drag is one visitor's,
+   * for one visit, and resets on reload.** No schema write, no permission question.
+   */
+  const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({});
+  const dragRef = React.useRef<{ id: string; startX: number; startWidth: number } | null>(null);
+
+  /** Bounds, per column, falling back to sane defaults when the schema says nothing. */
+  const widthBounds = React.useMemo(() => {
+    const out: Record<string, { min: number; max: number }> = {};
+    for (const col of schema.columns) {
+      out[col.id] = { min: col.minWidth ?? 80, max: col.maxWidth ?? 800 };
+    }
+    return out;
+  }, [schema.columns]);
+
+  const handleResizeStart = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>, columnId: string) => {
+      // Stop the header's sort button from firing, and stop the browser starting a
+      // text selection that would fight the drag.
+      event.preventDefault();
+      event.stopPropagation();
+
+      const th = (event.currentTarget as HTMLElement).closest('th');
+      const tableEl = th?.closest('table');
+      if (!th || !tableEl) return;
+
+      /*
+        Read the CURRENT rendered widths straight from the DOM rather than from state.
+        This is what makes the first drag race-free: the starting width is a measurement,
+        not a value that a `setState` earlier in this same handler has not applied yet.
+      */
+      const measured: Record<string, number> = {};
+      tableEl.querySelectorAll('thead th').forEach((el) => {
+        const id = (el as HTMLElement).dataset.columnId;
+        if (id) measured[id] = Math.round(el.getBoundingClientRect().width);
+      });
+
+      dragRef.current = { id: columnId, startX: event.clientX, startWidth: measured[columnId] ?? 150 };
+      setColumnWidths((prev) => ({ ...measured, ...prev }));
+
+      const onMove = (e: MouseEvent) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        const { min, max } = widthBounds[drag.id] ?? { min: 80, max: 800 };
+        const next = Math.min(max, Math.max(min, drag.startWidth + (e.clientX - drag.startX)));
+        setColumnWidths((prev) => ({ ...prev, [drag.id]: next }));
+      };
+      const onUp = () => {
+        dragRef.current = null;
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        // Restore the page's normal cursor and text selection.
+        document.body.style.removeProperty('cursor');
+        document.body.style.removeProperty('user-select');
+      };
+
+      // Listeners go on `document`, not the handle: the pointer routinely leaves a 6px
+      // strip during a drag, and a handler bound to the handle would stop tracking.
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      // Keep the resize cursor while dragging even when the pointer is over other content.
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [widthBounds],
+  );
+
+  /**
+   * Only once a drag has happened does the table need authoritative widths. Until then it
+   * stays on the browser's automatic layout — identical to how it renders today, and still
+   * responsive to the window.
+   */
+  const hasResized = Object.keys(columnWidths).length > 0;
   // Table state
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -144,30 +259,68 @@ export function DataTable({
     return schema.columns.map((col) => ({
       accessorKey: col.id,
       id: col.id,
-      header: ({ column }) => {
+      header: ({ column, table }) => {
+        /*
+          ⚠️ Derived, not `column.getIsLastColumn()` — that helper belongs to the column
+          pinning feature, which is not enabled here. `getVisibleLeafColumns` is core API
+          and also respects the View menu, so hiding the last column moves the omitted
+          handle to whichever column is now last.
+        */
+        const isLastColumn = table.getVisibleLeafColumns().at(-1)?.id === column.id;
         return (
-          <div className="flex items-center space-x-2 select-none">
+          <div className="flex items-center select-none">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-              className="flex items-center hover:bg-accent text-foreground"
+              // `min-w-0` + truncate: a narrow column must clip its own title rather
+              // than force the header wider than the column the visitor just dragged.
+              className="flex min-w-0 items-center hover:bg-accent text-foreground"
+              disabled={!col.sortable}
             >
-              <span>{col.name}</span>
-              {column.getIsSorted() === "desc" ? (
+              <span className="truncate">{col.name}</span>
+              {col.sortable && (column.getIsSorted() === "desc" ? (
                 <span className="ml-2 text-primary"><ArrowDown /></span>
               ) : column.getIsSorted() === "asc" ? (
                 <span className="ml-2 text-primary"><ArrowUp /></span>
               ) : (
                 <span className="ml-2 opacity-50"><ChevronsUpDown className="text-muted-foreground" size={16} /></span>
-              )}
+              ))}
             </Button>
-            
-            {/* Column Resizer - Basic Implementation - COMMENTED OUT FOR NOW */}
-            {/* <div
-              className="w-1 h-4 bg-gray-500 cursor-col-resize opacity-0 hover:opacity-100 transition-opacity ml-2"
-              title="Drag to resize column"
-            /> */}
+
+            {/*
+              ⚠️ THE DRAG HANDLE IS THE LAST COLUMN'S TOO, DELIBERATELY OMITTED.
+              Resizing the final column of a `w-full` table has nowhere to give the space
+              back to, so it either does nothing or fights the table width. The handle is
+              rendered for every column except the last — see the `isLast` check below.
+
+              Absolutely positioned so it does not occupy layout space: a 6px strip
+              straddling the column edge, with a 1px line drawn inside it. `opacity-0` until
+              hover keeps the header clean, and `group-hover` is not used because the group
+              would be the whole header row, lighting up every handle at once.
+            */}
+            {!isLastColumn && (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={`Resize ${col.name}`}
+                onMouseDown={(e) => handleResizeStart(e, col.id)}
+                onDoubleClick={(e) => {
+                  // Double-click clears this column's width and hands it back to the
+                  // browser's automatic sizing — the quickest way out of a bad drag.
+                  e.stopPropagation();
+                  setColumnWidths((prev) => {
+                    const next = { ...prev };
+                    delete next[col.id];
+                    return next;
+                  });
+                }}
+                className="absolute right-0 top-0 h-full w-2.5 translate-x-1/2 cursor-col-resize opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+                title="Drag to resize · double-click to reset"
+              >
+                <div className="mx-auto h-full w-0.5 rounded-full bg-primary" />
+              </div>
+            )}
           </div>
         );
       },
@@ -187,6 +340,16 @@ export function DataTable({
       },
       enableSorting: col.sortable,
       enableColumnFilter: col.filterable,
+      /*
+        ⚠️ `col.searchable` was declared, stored on all 2,675 columns, and ignored — the
+        global filter matched every column regardless. Found during the K-3 survey.
+
+        Nearly a no-op in practice: 468 of the 469 columns marked `false` are the hidden
+        `Target Countries` system column, which the service strips before the payload
+        leaves the server. One real column is affected. Wired anyway, because a flag that
+        does nothing is worse than one that does something small.
+      */
+      enableGlobalFilter: col.searchable !== false,
       // COLUMN RESIZING - COMMENTED OUT FOR NOW
       // enableResizing: true,
       // size: col.type === 'description' ? 280 : col.type === 'link' ? 200 : 150,
@@ -382,7 +545,15 @@ export function DataTable({
             : ''
         }`}
       >
-        <Table>
+        {/*
+          ⚠️ `table-fixed` ONLY AFTER A DRAG. While `columnWidths` is empty the browser's
+          automatic layout runs, which is what makes every table look as it does today and
+          keeps it responsive to the window. Once widths are pinned they must be obeyed
+          exactly, and only `table-fixed` does that — under auto layout a `width` is a hint
+          the browser may overrule when content demands more, so the drag would feel like it
+          was fighting back.
+        */}
+        <Table className={hasResized ? 'table-fixed' : undefined}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow
@@ -393,6 +564,13 @@ export function DataTable({
                   return (
                     <TableHead
                       key={header.id}
+                      // Read back by the resize handler to measure every column at once.
+                      data-column-id={header.column.id}
+                      style={
+                        columnWidths[header.column.id]
+                          ? { width: columnWidths[header.column.id] }
+                          : undefined
+                      }
                       /*
                         ⚠️ `bg-muted` and not `bg-muted/50` when sticky. A translucent
                         header lets the rows scrolling underneath show through it, which
@@ -401,7 +579,7 @@ export function DataTable({
                         `z-10` keeps it above the cells; without it the header paints
                         first and rows slide over the top of it.
                       */
-                      className={`text-foreground ${
+                      className={`text-foreground ${ALIGN_CLASS[schema.columns.find((c) => c.id === header.column.id)?.align ?? 'left']} ${
                         ui.stickyHeader
                           ? /*
                               ⚠️ NO `relative` HERE WHEN STICKY. Both are `position`
@@ -457,9 +635,15 @@ export function DataTable({
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
                       key={cell.id}
-                      // Density (#29.5). `p-2` from the vendored TableCell sets the
-                      // horizontal padding; only the vertical half varies.
-                      className={`text-foreground relative overflow-hidden ${DENSITY_ROW_PADDING[ui.density]}`}
+                      /*
+                        Density (#29.5) — `p-2` from the vendored TableCell sets the
+                        horizontal padding; only the vertical half varies.
+
+                        `col.align` (K-3) is stored on all 2,675 columns and was ignored.
+                        Every one currently says `left`, so this changes nothing visible
+                        today — it exists so the K-6 editor has something to write to.
+                      */
+                      className={`text-foreground relative overflow-hidden ${DENSITY_ROW_PADDING[ui.density]} ${ALIGN_CLASS[schema.columns.find((c) => c.id === cell.column.id)?.align ?? 'left']}`}
                     >
                       <div className="overflow-hidden">
                         {flexRender(
@@ -644,7 +828,7 @@ function formatCellValue(
     case 'description':
       const text = String(value);
       const shortText = text.length > 50 ? text.substring(0, 50) + '...' : text;
-      
+
       // Always show popover for consistency
       return (
         <div className="max-w-[250px]">

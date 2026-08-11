@@ -421,7 +421,7 @@ Ordered so the most visible fix lands first and nothing depends on anything late
 | --- | --- | --- | --- |
 | **K-1** ✅ | Badge colour system — positional assignment, 10-colour tinted palette | `col.meta.badgeColors` (existing field, first use) | **Large** — 75 broken columns fixed. **DONE 11 Aug, 23/23 + CSS proof. Record below.** |
 | **K-2** ✅ | Read the settings already stored — density, sticky header, page size, alternating rows. Delete dead code | none | Visible: consistent row height. **DONE 11 Aug, 36/36. Record below.** |
-| **K-3** | `col.align`, `col.width`, working column resize | none | Visible: controlled column widths |
+| **K-3** ✅ | `col.align`, `col.width`, working column resize | none | Visible: column resizing. **DONE 11 Aug. Record below.** |
 | **K-4** | Toolbar — Filter, Sort, Columns panels | none | **Large** — the tool feel |
 | **K-5a** | Storage adapter + Vercel Blob + upload endpoint + `TableImage` model | **`TableImage` table** | none |
 | **K-5b** | Image Management admin section | none | none |
@@ -826,6 +826,82 @@ the visual check is the user's.
 
 **Test:** drag persists within the visit, **resets on reload**, respects min/max, and a table with
 no widths set looks exactly as it does today.
+
+##### ✅ K-3 DONE — 11 Aug 2026 (alignment, widths, column resizing)
+
+**One file:** `DataTable.tsx`. No schema change, no data change, no new dependency.
+
+###### ⚠️ The survey first: two of the three planned changes are invisible
+
+| Field | Stored on 2,675 columns | Effect of wiring it |
+| --- | --- | --- |
+| `col.align` | **`"left"` on every one** | **None visible** — left is already the rendered default |
+| `col.width` / `minWidth` / `maxWidth` | **`undefined` on every one** | **None** — nothing to apply |
+| `col.searchable` | `false` on 469 | **Almost none** — 468 are the hidden `Target Countries` system column, stripped server-side. One real column. |
+
+So K-3's visible content is **column resizing alone**. The rest is plumbing so the K-6 editor
+has somewhere to write. Recorded plainly rather than presented as three features.
+
+Also measured: tables are **max 7 columns, median 4**, which is why resizing matters less here
+than the request implied — there is rarely a width problem in four columns.
+
+###### ⚠️ WHY THE RESIZE IS HAND-WRITTEN INSTEAD OF `columnResizeMode: 'onChange'`
+
+TanStack's resizing requires every column to carry an explicit `size`, which forces the table
+into a **fixed layout**. No column has a width today, so the browser auto-sizes to content —
+and that is precisely why the tables look right: a long *Course Name* takes the room it needs
+with nothing configured.
+
+Re-laying-out all 654 tables to enable an interaction nobody sees until they drag is a bad
+trade. **This is also the trap the original attempt fell into** — the commented-out code
+inferred widths from column type (`description ? 280 : link ? 200 : 150`), which would have
+changed every table's proportions on the day it shipped.
+
+So nothing is sized until someone drags:
+
+| State | Layout |
+| --- | --- |
+| Untouched (every table, every load) | browser auto layout — **identical to before**, still responsive |
+| After a drag | `table-fixed` with pinned widths, so the drag is obeyed exactly |
+| After reload | untouched again — per decision #29.6(c) |
+
+⚠️ **The first drag measures EVERY column, not just the dragged one.** Setting a width on one
+column of an auto-laid-out table makes the browser redistribute the rest, so the neighbours
+would visibly jump mid-drag. `mousedown` snapshots what the browser has already chosen for all
+columns and pins them at once — invisible at the moment it happens, and it is what makes the
+drag behave.
+
+⚠️ **The starting width is read from the DOM, not from state.** `setColumnWidths` earlier in the
+same handler has not applied yet, so a state read would start every drag from the fallback
+150px and the column would jump before moving. Measuring sidesteps the timing entirely.
+
+⚠️ **`table-fixed` is required, not cosmetic.** Under auto layout a `width` is a hint the
+browser may overrule when content demands more — the drag would feel like it was fighting back.
+
+Smaller decisions:
+- **Listeners on `document`, not the handle** — the pointer routinely leaves a 6px strip
+  mid-drag, and a handler bound to the handle would stop tracking.
+- **No handle on the last column** — a `w-full` table has nowhere to give the space back to.
+  Derived from `getVisibleLeafColumns()`, ⚠️ **not `column.getIsLastColumn()`**, which belongs
+  to the column-pinning feature that is not enabled. It also respects the View menu, so hiding
+  the last column moves the omitted handle.
+- **Double-click resets** a column to automatic sizing — the quickest way out of a bad drag.
+- **`cursor` and `user-select` are set on `<body>` during the drag**, so the resize cursor
+  survives the pointer crossing other content.
+
+###### Verification
+
+⚠️ **A drag cannot be tested here** — it is a DOM interaction, the table is not
+server-rendered (#30), and no headless browser is installed. What was verified:
+
+| Check | Result |
+| --- | --- |
+| `tsc`, `next build` | clean |
+| `table-fixed`, `cursor-col-resize`, `text-left/center/right`, `translate-x-1/2`, `absolute` in built CSS | all present |
+| `/courses`, `/tools`, `/newsletters` still serve | 200 ×3 |
+| **The no-op claim** — API payload carries `align: "left"`, `width: null` on every column | confirmed, so every table still renders on auto layout |
+
+**The drag itself is the user's to test.**
 
 ### K-4 — The toolbar
 
