@@ -60,15 +60,127 @@ export const DEFAULT_TABLE_SETTINGS: TableSettings = {
     hideColumns: [],
   },
   export: {
+    /*
+      ⚠️ LEFT `true` — AND AN EARLIER CLAIM OF MINE ABOUT THIS WAS WRONG.
+
+      §29.2 recorded `src/lib/export-table.ts` as "71 lines, imported by nothing". It is
+      not: `TableEditor` and `TablesManager` both import `downloadTableExport`. The audit
+      grep excluded any line matching `lib/export-table`, which also excluded the very
+      `from '@/lib/export-table'` lines it was looking for. **An exclusion pattern that
+      matches the import path cannot find imports.**
+
+      So export exists, in the admin, and works. The user's decision (#29.6f) is that it
+      does not belong on **public** pages — which is already the case, because no public
+      surface has ever rendered an export control.
+
+      Flipping this to `false` would have been actively misleading: `TablePreview` renders
+      it as an "Enabled / Disabled" badge in the creation wizard, while admin export runs
+      unconditionally without consulting it. The badge would have claimed export was off
+      while the button next to it kept working.
+    */
     enabled: true,
     formats: ['csv', 'json'],
   },
   ui: {
     density: 'normal',
     showBorders: true,
-    alternatingRows: true,
+    /*
+      ⚠️ WAS `true`, AND HAD NEVER BEEN IMPLEMENTED (K-2).
+
+      K-2 makes the renderer obey these settings, so leaving this `true` would have striped
+      every row of all 654 tables — a site-wide visual change nobody asked for, justified by
+      a value nobody chose.
+
+      **The whole settings blob was boilerplate.** All 20 fields held exactly one distinct
+      value across all 654 tables, written once at table creation and never edited, because
+      no screen writes them. `export.enabled: true` sitting beside a decision NOT to have
+      export is the clearest proof.
+
+      Striping is implemented and works — set this `true` on a table and it stripes. The
+      default is `false` because a single ground with hairline rules is what the tables
+      already look like, and what Notion, the shadcn demo and Port all do.
+    */
+    alternatingRows: false,
     stickyHeader: true,
   },
+};
+
+/**
+ * Merge a stored settings blob over the defaults (K-2).
+ * ============================================================================
+ *
+ * ⚠️ WHY A HAND-WRITTEN MERGE AND NOT `{ ...DEFAULT, ...stored }`.
+ *
+ * A spread is SHALLOW. `TableSettings` is two levels deep, so spreading a stored blob that
+ * happens to contain only `{ ui: { density: 'compact' } }` would replace the whole `ui`
+ * object — silently dropping `showBorders` and `stickyHeader` to `undefined`, which read as
+ * "off". A partial save in the K-6 editor would then turn features off that nobody touched.
+ *
+ * ⚠️ `??` throughout, NEVER `||`. Every field here is a boolean or a number, so `false` and
+ * `0` are legitimate values. `stored.ui.showBorders || true` would make `false` impossible
+ * to express — the same class of bug as #28, where `||` could not distinguish "no value"
+ * from "deliberately null".
+ */
+export function resolveTableSettings(stored?: unknown): TableSettings {
+  // Anything at all can be in a Json column; narrow before reaching into it.
+  const s = (stored ?? {}) as Partial<TableSettings>;
+  const d = DEFAULT_TABLE_SETTINGS;
+
+  return {
+    pagination: {
+      enabled: s.pagination?.enabled ?? d.pagination.enabled,
+      pageSize: s.pagination?.pageSize ?? d.pagination.pageSize,
+      showSizeSelector: s.pagination?.showSizeSelector ?? d.pagination.showSizeSelector,
+      showInfo: s.pagination?.showInfo ?? d.pagination.showInfo,
+    },
+    sorting: {
+      enabled: s.sorting?.enabled ?? d.sorting.enabled,
+      defaultSort: s.sorting?.defaultSort ?? d.sorting.defaultSort,
+      defaultDirection: s.sorting?.defaultDirection ?? d.sorting.defaultDirection,
+      multiSort: s.sorting?.multiSort ?? d.sorting.multiSort,
+    },
+    filtering: {
+      enabled: s.filtering?.enabled ?? d.filtering.enabled,
+      globalSearch: s.filtering?.globalSearch ?? d.filtering.globalSearch,
+      columnFilters: s.filtering?.columnFilters ?? d.filtering.columnFilters,
+      advancedFilters: s.filtering?.advancedFilters ?? d.filtering.advancedFilters,
+    },
+    responsive: {
+      enabled: s.responsive?.enabled ?? d.responsive.enabled,
+      breakpoint: s.responsive?.breakpoint ?? d.responsive.breakpoint,
+      stackColumns: s.responsive?.stackColumns ?? d.responsive.stackColumns,
+      hideColumns: s.responsive?.hideColumns ?? d.responsive.hideColumns,
+    },
+    export: {
+      enabled: s.export?.enabled ?? d.export.enabled,
+      formats: s.export?.formats ?? d.export.formats,
+    },
+    ui: {
+      density: s.ui?.density ?? d.ui.density,
+      showBorders: s.ui?.showBorders ?? d.ui.showBorders,
+      alternatingRows: s.ui?.alternatingRows ?? d.ui.alternatingRows,
+      stickyHeader: s.ui?.stickyHeader ?? d.ui.stickyHeader,
+    },
+  };
+}
+
+/**
+ * Row padding per density (K-2, #29.5).
+ *
+ * ⚠️ THIS IS THE FIX FOR "SOME TABLES HAVE ROW HEIGHT VERY LESS".
+ *
+ * Row height was previously whatever the content made it: cells are `p-2`, so a plain-text
+ * table sat near 36px while one containing a badge or the description popover ran taller.
+ * It was never a per-table setting — **nothing controlled it at all**, while
+ * `settings.ui.density` sat in the type and in every stored blob, unread.
+ *
+ * Padding rather than a fixed `height`: a fixed height clips content that does not fit,
+ * whereas symmetric padding sets a floor and lets an unusually tall cell grow.
+ */
+export const DENSITY_ROW_PADDING: Record<TableSettings['ui']['density'], string> = {
+  compact: 'py-1',      //  4px — dense scanning, ~28px rows
+  normal: 'py-2.5',     // 10px — the default, ~40px rows
+  comfortable: 'py-4',  // 16px — ~52px rows, and what image cells will want in K-5c
 };
 
 export const COLUMN_TYPE_OPTIONS: Array<{

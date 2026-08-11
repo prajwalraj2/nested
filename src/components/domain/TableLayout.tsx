@@ -57,7 +57,15 @@ type TableWithData = {
   name: string;
   schema: TableSchema;
   data: TableData;
-  settings?: any;
+  /*
+    ⚠️ THIS FIELD WAS TYPED AND THEN DROPPED (K-2, #29.2).
+
+    It was `settings?: any` and never passed to `DataTable`, so density, sticky header and
+    page size were stored on all 654 tables and read by nothing. `unknown` rather than
+    `any` now: it comes from a Prisma `Json` column and has been validated by nobody, so
+    the type should force it through `resolveTableSettings` before anyone reaches into it.
+  */
+  settings?: unknown;
 };
 
 type TableLayoutProps = {
@@ -224,6 +232,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
         <DataTable
           schema={tableData.schema}
           data={tableData.data}
+          settings={tableData.settings}
         />
       </div>
     </div>

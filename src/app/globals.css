@@ -172,3 +172,77 @@
 .rich-text-content a:hover {
   color: #000 !important;
 }
+
+/* ==========================================================================
+   Scrollbars — thin, themed, everywhere
+   ==========================================================================
+   Added in K-2 after the table gained a scroll container of its own, which put
+   a default OS scrollbar next to the page's default OS scrollbar. Reference for
+   the look was demo.port.io: a thin rounded thumb with no visible track.
+
+   ⚠️ SHADCN'S `ScrollArea` WAS CONSIDERED AND REJECTED for this.
+   It only styles containers you wrap, so it could never reach the page's own
+   scrollbar — the fix would have been half-done by construction. It also renders
+   its viewport children inside `<div style="min-width:100%; display:table">`,
+   and an unexpected wrapper around this table is exactly what had just broken
+   `position: sticky` on the header. Two CSS properties do the whole job with no
+   dependency and no change to a single element's structure.
+   (`ScrollArea` is still the right call for the sidebar, which has no sticky
+   children — separate job.)
+
+   ⚠️ BOTH SYNTAXES ARE DECLARED, DELIBERATELY, AND THEY DO NOT FIGHT.
+   `scrollbar-width` / `scrollbar-color` are the standard (Firefox, Chrome 121+,
+   Safari 18.2+). `::-webkit-scrollbar` is the legacy WebKit route. Where both are
+   understood, Chrome uses the pseudo-elements and ignores the standard
+   properties; Firefox does the reverse, because it has never supported
+   `::-webkit-scrollbar`. So each engine picks the one it implements and neither
+   needs an `@supports` guard.
+
+   The pseudo-elements earn their place: `scrollbar-color` has no hover state,
+   because there is no selector for the thumb. WebKit gives Chrome one.
+
+   ⚠️ NO DARK VARIANT IS NEEDED. `--muted-foreground` is already redefined under
+   `.dark` (oklch(0.556 0 0) light, oklch(0.708 0 0) dark), so the thumb follows
+   the theme for free. This is the opposite of the `.rich-text-content` rule above,
+   which is pinned to a light card and says so.
+
+   Inherited, so `html` covers every scroll container in the app — the page, the
+   table, the sidebar, popovers, the admin.
+   ========================================================================== */
+
+html {
+  scrollbar-width: thin;
+  /* Softened rather than the raw token: at full strength the thumb competes with
+     the content it sits beside. Track transparent, so no channel is drawn. */
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+  border-radius: 999px;
+  /* The transparent border plus `content-box` clipping is what makes the thumb
+     read as a floating pill rather than a bar filling the gutter — it insets the
+     paint by 2px on every side while keeping the 10px hit area for the pointer. */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+}
+
+/* ⚠️ Where the horizontal and vertical bars meet. Left unstyled it paints an
+   opaque square — visible in the bottom-right of any table that scrolls both
+   ways, which after K-2 is most of them. */
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
