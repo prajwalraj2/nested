@@ -20,7 +20,7 @@ import {
 
 import { DataTableFilterPanel } from './DataTableFilterPanel';
 import { DataTableSortPanel } from './DataTableSortPanel';
-import { DataTableViewOptions } from './DataTableViewOptions';
+import { DataTableColumnsPanel } from './DataTableColumnsPanel';
 import type { TableData, TableSchema, TableSettings } from '@/types/table';
 
 type Density = TableSettings['ui']['density'];
@@ -176,7 +176,8 @@ export function DataTableToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DataTableViewOptions table={table} schema={schema} />
+        {/* Columns (K-4d) — visibility and order in one place. */}
+        <DataTableColumnsPanel table={table} schema={schema} />
       </div>
     </div>
   );
