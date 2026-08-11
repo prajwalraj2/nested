@@ -11,23 +11,23 @@ datasource db {
 }
 
 model DomainCategory {
-  id          String   @id @default(uuid())
-  name        String   // "Design & Creative", "Development & Tech"
-  slug        String   @unique // "design", "development"
-  icon        String?  // "🎨", "💻", "🎬"
-  description String?  // Optional description
-  
+  id          String  @id @default(uuid())
+  name        String // "Design & Creative", "Development & Tech"
+  slug        String  @unique // "design", "development"
+  icon        String? // "🎨", "💻", "🎬"
+  description String? // Optional description
+
   // Flexible 3-column layout
-  columnPosition Int    @default(1) // 1, 2, or 3 (which column)
-  categoryOrder  Int    @default(0) // 0, 1, 2, 3... (order within column)
-  
+  columnPosition Int @default(1) // 1, 2, or 3 (which column)
+  categoryOrder  Int @default(0) // 0, 1, 2, 3... (order within column)
+
   // Relationships
-  domains     Domain[]
-  
+  domains Domain[]
+
   // Metadata
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
   @@index([columnPosition, categoryOrder])
 }
 
@@ -54,12 +54,12 @@ enum DomainStatus {
 }
 
 model Domain {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
+  id   String @id @default(uuid())
+  name String
+  slug String @unique
 
   // Page type: direct content or hierarchical subcategories
-  pageType  String   @default("direct") // "direct" | "hierarchical"
+  pageType String @default("direct") // "direct" | "hierarchical"
 
   /// Icon id — a filename (without extension) from `public/icons/`, e.g. "youtube".
   ///
@@ -77,15 +77,15 @@ model Domain {
   /// ⚠️ Validate against `ICON_MANIFEST` before writing. The value reaches an `src` attribute,
   /// and an unrecognised id renders a broken image with no error anywhere — use
   /// `isValidIconId()` from `src/lib/icon-manifest.ts`.
-  icon      String?
-  
+  icon String?
+
   // Category relationship
-  category    DomainCategory? @relation(fields: [categoryId], references: [id])
-  categoryId  String?
-  
+  category   DomainCategory? @relation(fields: [categoryId], references: [id])
+  categoryId String?
+
   // Ordering within category
   orderInCategory Int @default(0)
-  
+
   /// Lifecycle state — the field every read path should use.
   ///
   /// `DRAFT` is the default so a domain created by any path that forgets to set a status is
@@ -103,11 +103,11 @@ model Domain {
   /// place means rolling the deployment back is a revert, not a data-recovery job against
   /// production. Drop it in its own migration once this release has been running happily.
   isPublished Boolean @default(false)
-  
+
   // Geo-targeting: Which countries this domain is visible to
   // Values: "ALL" (default, visible everywhere), or country codes like "IN", "US", "GB", "AU", "CA"
   targetCountries String[] @default(["ALL"])
-  
+
   pages     Page[]
   createdAt DateTime @default(now())
 
@@ -116,7 +116,7 @@ model Domain {
   // sitemap had to omit lastModified entirely, because using createdAt would
   // claim every page was unchanged since creation. Google ignores lastmod across
   // an entire sitemap once it decides the values are unreliable.
-  updatedAt DateTime @updatedAt @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([categoryId, orderInCategory])
 }
@@ -143,9 +143,9 @@ enum PageStatus {
 }
 
 model Page {
-  id        String   @id @default(uuid())
-  title     String
-  slug      String
+  id    String @id @default(uuid())
+  title String
+  slug  String
 
   // Content type: determines how the page is rendered
   contentType String @default("narrative") // "narrative" | "section_based" | "subcategory_list" | "table" | "rich_text" | "mixed_content"
@@ -158,7 +158,7 @@ model Page {
   /// ⚠️ One icon serves many pages. The data shows 395 distinct titles across 1,216 pages —
   /// a 3.1× reuse factor — so "YouTube Channels" under a dozen domains all reference the single
   /// `youtube` icon. That is why this is an id rather than an uploaded file per row.
-  icon        String?
+  icon String?
 
   /// Lifecycle state — the field every read path should filter on.
   ///
@@ -185,19 +185,19 @@ model Page {
 
   // Section configuration for section_based pages
   // Stores how child pages are organized into 3-column layout
-  sections   Json?
+  sections Json?
 
-  domain    Domain   @relation(fields: [domainId], references: [id])
-  domainId  String
+  domain   Domain @relation(fields: [domainId], references: [id])
+  domainId String
 
-  parent     Page?    @relation("PageToSubPages", fields: [parentId], references: [id])
-  parentId   String?
-  subPages   Page[]   @relation("PageToSubPages")
-  content    ContentBlock[]
-  
+  parent   Page?          @relation("PageToSubPages", fields: [parentId], references: [id])
+  parentId String?
+  subPages Page[]         @relation("PageToSubPages")
+  content  ContentBlock[]
+
   // Table relationship - one page can have one table
-  table      Table?
-  
+  table Table?
+
   // Rich text relationship - one page can have one rich text content
   richTextContent RichTextContent?
 
@@ -205,28 +205,28 @@ model Page {
   // Values: "ALL" (default, visible everywhere), or country codes like "IN", "US", "GB", "AU", "CA"
   targetCountries String[] @default(["ALL"])
 
-  order      Int      @default(0)
-  createdAt  DateTime @default(now())
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
 
   // See the note on Domain.updatedAt — same purpose, same reasoning.
-  updatedAt  DateTime @updatedAt @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([domainId, parentId, slug])
 }
 
 model ContentBlock {
-  id             String           @id @default(uuid())
-  page           Page             @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  pageId         String
+  id     String @id @default(uuid())
+  page   Page   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  pageId String
 
   type           ContentBlockType
   content        Json
   order          Int              @default(0)
   columnPosition Int              @default(1)
   isActive       Boolean          @default(true)
-  
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @default(now()) @updatedAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 enum ContentBlockType {
@@ -243,78 +243,78 @@ enum ContentBlockType {
   IMAGE
   VIDEO
   QUOTE
-  
+
   // New section-based content types
-  SECTION_HEADER    // For section titles like "Skill Development"
-  SECTION_LINKS     // For lists of links within sections
-  SUBCATEGORY_CARD  // For subcategory selection cards
-  
+  SECTION_HEADER // For section titles like "Skill Development"
+  SECTION_LINKS // For lists of links within sections
+  SUBCATEGORY_CARD // For subcategory selection cards
+
   // Table-related content types
-  TABLE_CONTAINER   // For pages that contain tables
+  TABLE_CONTAINER // For pages that contain tables
   TABLE_DESCRIPTION // For table descriptions/headers
-  
+
   // Rich text related content types
-  RICH_TEXT_CONTAINER   // For pages that contain rich text
-  RICH_TEXT_SECTION     // For rich text sections
-  RICH_TEXT_EDITOR      // For embedded rich text editors
+  RICH_TEXT_CONTAINER // For pages that contain rich text
+  RICH_TEXT_SECTION // For rich text sections
+  RICH_TEXT_EDITOR // For embedded rich text editors
 }
 
 model Table {
-  id        String   @id @default(uuid())
-  name      String   // Table name/title
-  pageId    String   @unique
-  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  name   String // Table name/title
+  pageId String @unique
+  page   Page   @relation(fields: [pageId], references: [id], onDelete: Cascade)
 
   // Table Schema Definition (JSON)
   // Structure: { columns: [{ id, name, type, sortable, filterable, width, ... }] }
-  schema    Json
+  schema Json
 
   // Table Data (JSON) 
   // Structure: { rows: [{ id, [columnId]: content, ... }] }
-  data      Json
+  data Json
 
   // Table Settings (JSON)
   // Structure: { pagination, sorting, filtering, responsive, ... }
-  settings  Json?
+  settings Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([pageId])
 }
 
 model RichTextContent {
-  id        String   @id @default(uuid())
-  pageId    String   @unique  // One-to-one with Page
-  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(uuid())
+  pageId String @unique // One-to-one with Page
+  page   Page   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
   // Main HTML content storage
-  htmlContent  String   @db.Text  // Raw HTML content
-  
+  htmlContent String @db.Text // Raw HTML content
+
   // Metadata
-  title        String?   // Optional title for the content
-  wordCount    Int       @default(0)
-  
+  title     String? // Optional title for the content
+  wordCount Int     @default(0)
+
   // Auto-generated content for search and SEO
-  plainText    String?   @db.Text  // For search functionality
-  
+  plainText String? @db.Text // For search functionality
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([pageId])
 }
 
 // Authentication Models for Auth.js
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  password      String    // Hashed password
-  isAdmin       Boolean   @default(false)
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  lastLoginAt   DateTime?
+  id          String    @id @default(cuid())
+  email       String    @unique
+  name        String?
+  password    String // Hashed password
+  isAdmin     Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
 
   // --- Brute-force protection (see src/lib/auth.ts) ---------------------------
   //
@@ -338,22 +338,20 @@ model User {
   /**
    * When set to a FUTURE timestamp, sign-in is refused without even checking the
    * password. `null` (or a past timestamp) means not locked.
-   *
    * Storing an expiry instant rather than a "locked" boolean means the lock releases
    * itself — no scheduled job is needed to unlock accounts.
    */
   lockedUntil DateTime?
 
-
   // Track who created this user (for admin audit)
   createdBy     String?
-  createdByUser User?     @relation("UserCreatedBy", fields: [createdBy], references: [id])
-  createdUsers  User[]    @relation("UserCreatedBy")
-  
+  createdByUser User?   @relation("UserCreatedBy", fields: [createdBy], references: [id])
+  createdUsers  User[]  @relation("UserCreatedBy")
+
   // Auth.js required relations
-  accounts      Account[]
-  sessions      Session[]
-  
+  accounts Account[]
+  sessions Session[]
+
   @@index([email])
 }
 
@@ -382,7 +380,7 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@index([sessionToken])
   @@index([userId])
 }
@@ -393,4 +391,46 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+/// An image referenced by table rows (K-5a, #29.6d).
+///
+/// ⚠️ ROWS STORE `key`, NEVER `url`. That indirection is the whole design:
+///
+///   • **Reuse.** 7,602 rows resolve to 4,521 distinct things (1.68x). One `pixabay` image
+///     serves 40 rows across several tables. Stored as a URL per row that is 40 copies to
+///     update; stored as a key it is one write.
+///   • **Replacement.** New artwork under the same key changes every referencing row at
+///     once, with no hunting and no cache problem — see `url` below.
+///   • **Portability.** Moving from Vercel Blob to Cloudflare R2 rewrites this one column
+///     rather than thousands of rows inside 654 JSON blobs. Full procedure in
+///     `BLOB-TO-R2-MIGRATION.md`.
+model TableImage {
+  id String @id @default(uuid())
+
+  /// What rows reference — human-chosen and stable, e.g. "pixabay". Changing the artwork
+  /// does not change this.
+  key String @unique
+
+  /// The object URL. ⚠️ **Content-hashed**, so different bytes always produce a different
+  /// URL. That makes `immutable, max-age=31536000` safe and removes the "never overwrite,
+  /// use -v2" discipline that `ICON-GUIDE.md` §9 needs for repository-hosted icons.
+  url String
+
+  /// Which service holds the object. ⚠️ Present from day one so a PARTIALLY migrated bucket
+  /// is representable — without it the move to R2 would be all-or-nothing with a broken
+  /// window in between, since objects cannot be copied instantaneously.
+  provider String @default("vercel-blob")
+
+  /// Dimensions and size after the server re-encodes. Stored so the admin's Image
+  /// Management screen (K-5b) can show them without fetching every object.
+  width  Int
+  height Int
+  bytes  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Ordered newest-first in the admin; indexed because that listing is the common read.
+  @@index([createdAt])
 }
