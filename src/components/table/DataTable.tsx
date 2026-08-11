@@ -47,6 +47,11 @@ import { DataTablePagination } from './DataTablePagination';
 import { DataTableViewOptions } from './DataTableViewOptions';
 import { DataTableFacetedFilter } from './DataTableFacetedFilter';
 import type { TableSchema, TableData, ColumnType } from '@/types/table';
+import {
+  assignBadgeColors,
+  badgeClassFor,
+  type BadgeColor,
+} from '@/lib/badge-colors';
 import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff } from "lucide-react"
 
 /**
@@ -85,6 +90,32 @@ export function DataTable({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [globalFilter, setGlobalFilter] = useState('');
   // const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
+
+  /**
+   * ⚠️ BADGE COLOURS ARE ASSIGNED PER COLUMN, ONCE — NOT PER CELL (K-1).
+   * ===================================================================
+   *
+   * The old rule could be computed inside the cell renderer because it only looked at the
+   * one value in front of it: `charCodeAt(0) % 5`. That is precisely why it was broken — a
+   * cell cannot know what the *other* values in its column are, so it cannot avoid
+   * colliding with them.
+   *
+   * Assigning by position needs the whole column at once. Doing that here rather than in
+   * the renderer also means it runs once per column instead of once per cell: a 40-row
+   * table with two badge columns goes from 80 computations to 2, on every sort, filter and
+   * page change.
+   *
+   * Keyed by column id, so a table with several badge columns keeps their palettes
+   * independent — each column starts again at `emerald`.
+   */
+  const badgeAssignments: Record<string, Record<string, BadgeColor>> = React.useMemo(() => {
+    const out: Record<string, Record<string, BadgeColor>> = {};
+    for (const col of schema.columns) {
+      if (col.type !== 'badge') continue;
+      out[col.id] = assignBadgeColors(data.rows.map((row) => row[col.id]));
+    }
+    return out;
+  }, [schema.columns, data.rows]);
 
   // Generate TanStack Table columns from schema
   const columns: ColumnDef<any>[] = React.useMemo(() => {
@@ -125,7 +156,12 @@ export function DataTable({
         // every render, sort, filter and pagination — 25 rows with a description
         // column meant 25 console writes per interaction, and console output is
         // genuinely slow in browsers with devtools open.
-        return formatCellValue(value, col.type, row.original, col.name);
+        return formatCellValue(value, col.type, row.original, col.name, {
+          // Only badge cells use these; passing them unconditionally keeps the call
+          // site uniform and costs nothing — both are already-computed references.
+          badgeAssignment: badgeAssignments[col.id],
+          storedBadgeColors: col.meta?.badgeColors,
+        });
       },
       enableSorting: col.sortable,
       enableColumnFilter: col.filterable,
@@ -349,8 +385,27 @@ export function DataTable({
 }
 
 
+/**
+ * Per-cell rendering options.
+ *
+ * Badge colouring cannot be derived from the cell alone — it needs the whole column — so the
+ * decision is made in the component and handed down. See `src/lib/badge-colors.ts`.
+ */
+type CellOptions = {
+  /** value -> colour for this column, computed once from every row (K-1). */
+  badgeAssignment?: Record<string, BadgeColor>;
+  /** Admin overrides from `col.meta.badgeColors`. Wins over the computed assignment. */
+  storedBadgeColors?: Record<string, string> | null;
+};
+
 // Enhanced cell value formatting with interactive elements
-function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?: string): React.JSX.Element {
+function formatCellValue(
+  value: any,
+  type: ColumnType,
+  rowData: any,
+  columnName?: string,
+  options: CellOptions = {},
+): React.JSX.Element {
   if (value === null || value === undefined || value === '') {
     return <span className="text-muted-foreground">-</span>;
   }
@@ -386,17 +441,37 @@ function formatCellValue(value: any, type: ColumnType, rowData: any, columnName?
       );
     
     case 'badge':
-      const badgeColors = [
-        'bg-blue-600 text-blue-100',
-        'bg-green-600 text-green-100', 
-        'bg-yellow-600 text-yellow-100',
-        'bg-purple-600 text-purple-100',
-        'bg-red-600 text-red-100'
-      ];
-      const colorIndex = String(value).toLowerCase().charCodeAt(0) % badgeColors.length;
-      
+      /*
+        ⚠️ THIS USED TO BE `charCodeAt(0) % 5` — the FIRST LETTER of the text picked the
+        colour, so "Free Course" and "Paid Course" were both yellow. 75 columns rendered
+        entirely in one colour. Full explanation and the measurements in
+        `src/lib/badge-colors.ts`.
+
+        The colour now comes from the column-wide assignment computed in the component,
+        because a cell cannot see its siblings and therefore cannot avoid colliding with
+        them. `options.badgeAssignment` is missing only if a caller renders a badge cell
+        without going through `DataTable`; `resolveBadgeColor` degrades to neutral rather
+        than rendering an unstyled badge.
+      */
       return (
-        <Badge className={`${badgeColors[colorIndex]} hover:opacity-80 transition-opacity rounded-sm text-sm`}>
+        <Badge
+          // `variant="outline"` so the vendored Badge contributes a border and NOT its
+          // default `bg-primary`. tailwind-merge would strip the background anyway, but
+          // asking for the right variant is clearer than relying on merge order.
+          variant="outline"
+          /*
+            Only the DELTAS from the vendored Badge's base are listed here — it already
+            supplies `border`, `font-medium` and `inline-flex`, and `cn()` runs the result
+            through tailwind-merge, so each of these replaces its counterpart cleanly rather
+            than fighting it.
+
+              rounded-md  -> rounded-sm    6px to 4px: squarer, closer to Notion's chips
+              px-2 py-0.5 -> px-2.5 py-1   a touch more room around the text
+              text-xs     -> text-[13px]   12px to 13px; text-sm (14px) read too large
+                                           beside the 14px cell text it sits next to
+          */
+          className={`${badgeClassFor(value, options.badgeAssignment ?? {}, options.storedBadgeColors)} rounded-sm px-2.5 py-1 text-[13px]`}
+        >
           {String(value)}
         </Badge>
       );
