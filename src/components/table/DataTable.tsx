@@ -49,6 +49,7 @@ import {
   type BadgeColor,
 } from '@/lib/badge-colors';
 import { DENSITY_ROW_PADDING, resolveTableSettings } from '@/lib/table-utils';
+import { tableFilterFn } from '@/lib/table-filters';
 import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff } from "lucide-react"
 
 /**
@@ -365,16 +366,19 @@ export function DataTable({
       // size: col.type === 'description' ? 280 : col.type === 'link' ? 200 : 150,
       // minSize: 120,
       // maxSize: col.type === 'description' ? 350 : 400,
-      filterFn: col.type === 'badge' 
-        ? (row, id, value) => {
-            // Custom filter for badge columns - supports multiple selection
-            if (!value || value.length === 0) return true;
-            const cellValue = String(row.getValue(id));
-            return value.includes(cellValue);
-          }
-        : col.type === 'text' || col.type === 'description' 
-          ? 'includesString' 
-          : 'auto',
+      /*
+        ⚠️ ONE PREDICATE FOR EVERY COLUMN (K-4c).
+
+        This used to be three branches: a hand-rolled array check for badges, TanStack's
+        built-in `includesString` for text and description, and `'auto'` for the rest — so
+        a `link` column's filter behaviour was whatever `auto` inferred, which is why only
+        badge columns were ever filterable in practice.
+
+        `tableFilterFn` reads the `{ op, value }` envelope the Filter panel writes, and
+        still tolerates the two older shapes so nothing breaks mid-render. The operator
+        logic lives in `src/lib/table-filters.ts` where it can be tested without a browser.
+      */
+      filterFn: tableFilterFn,
     }));
   }, [schema.columns]);
 

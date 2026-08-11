@@ -10,6 +10,34 @@ intended.
 
 ---
 
+## ⚠️ STANDING RULE — data-dependent changes run on BOTH branches
+
+**Adopted 11 Aug 2026, after K-4b shipped code that depended on a migration run only on
+development.** The result: production tables striped and the Sort panel refused a second rule,
+while local was correct and every test passed.
+
+The tests passed because they read `DATABASE_URL` from `.env`, which points at development by
+design. **A migration verified only where it was run proves nothing about anywhere else.**
+
+So, for any change where code depends on stored data:
+
+1. The step's record **names the data change explicitly** and lists which branches need it.
+2. The script is **committed under `scripts/`**, not left in a scratch directory — it has to
+   be runnable per branch, more than once, by the user.
+3. It is **idempotent** and reports which branch it is pointed at before touching anything.
+4. **Both branches are run before the code merges to production**, and the record states the
+   row counts for each.
+5. ⚠️ `.env` goes back to development **immediately** after a production run.
+
+Neon branches are independent databases. Nothing about deploying code moves data between them.
+
+⚠️ **A data-only fix needs no deploy.** Both the live site and preview deployments read the
+production database, so a corrected value reaches whatever code is already running within
+`CACHE_DURATIONS.MEDIUM` (60s). Verifying it *before* the next merge isolates the data fix from
+whatever that merge contains.
+
+---
+
 ## 🔴 #29 — The public table is a good engine with the wiring left unfinished
 
 **Raised by the user, 10 Aug 2026:** *"Tables are a very big part of our website. A lot of pages
@@ -990,18 +1018,149 @@ is.
 **Generalisable: a bulk script that writes settings directly is invisible for up to a minute.**
 Any admin edit fires `invalidatePages()` and clears it immediately, if the wait matters.
 
+###### 🔴 I MIGRATED DEVELOPMENT AND SHIPPED CODE THAT DEPENDED ON IT
+
+**Found by the user on the deployed site, 11 Aug 2026.** Symptom: *"after clicking Add Sort
+the first time it works, then the Add sort button greys out — but sometimes it works."*
+Correct locally, wrong on Vercel.
+
+Measured, read-only, across both Neon branches:
+
+```
+development   654 tables   multiSort:true = 654   alternatingRows:false = 654
+PRODUCTION    652 tables   multiSort:true =   0   alternatingRows:false =   0
+```
+
+⚠️ **Both data migrations ran on development only.** `resolveTableSettings` merges the stored
+blob *over* the code defaults, so the stored value always wins — changing a default is only
+half the change.
+
+Two live consequences on production, from one mistake:
+
+| Field | Production held | Effect |
+| --- | --- | --- |
+| `sorting.multiSort` | `false` | **"Add sort" disabled after one rule** — the reported bug |
+| `ui.alternatingRows` | `true` | ⚠️ **Tables striped on production**, since K-2 shipped the implementation — a visual regression nobody had reported yet |
+
+The intermittency was the 60-second cache TTL straddling the local migration.
+
+**Generalisable: a code change that depends on a data change is not done until every branch
+has it.** The verification for K-2 and K-4b both asserted against the development database and
+passed — they were measuring the environment the migration had run in. **A migration
+verified only where it was run proves nothing about anywhere else.**
+
+⚠️ It also survived the tests because both suites read `DATABASE_URL` from `.env`, which points
+at development by design. Nothing in the process compared branches until this bug forced it.
+
+**Fixed by** `scripts/align-table-settings.mjs` — one idempotent script covering both fields,
+committed rather than left in a scratch directory precisely so it can be run per branch and
+re-run safely. It reports which branch it is pointed at, only selects rows that still
+disagree, spreads every level explicitly, and verifies afterwards that all 20 settings paths
+survive.
+
 ###### Verification
 
 | Check | Result |
 | --- | --- |
 | `tsc`, `next build` | clean |
 | `/courses`, `/tools`, `/ytube` | 200 ×3 |
-| 654/654 tables hold `multiSort: true` | confirmed |
-| `multiSort` reaches the client | confirmed after the TTL |
+| development: 654/654 hold `multiSort: true` | confirmed |
+| `multiSort` reaches the client | confirmed after the 60s TTL |
 | All 20 settings paths intact after the update | confirmed |
+| Script re-run on development | **0 rows to touch** — idempotent |
+| **PRODUCTION** — script run by the user, 11 Aug | **652 updated**, 20 paths intact, all fields uniform |
+| **PRODUCTION** — re-run to confirm | **0 rows to touch** — idempotent on both branches |
+
+⚠️ **The data fix needed no deploy.** Both the live site and the preview read the same
+production database, so each picked the corrected settings up within the 60-second TTL on
+whatever code it was already running — the stripes stopped on `atno.io` (K-2 code) and
+"Add sort" started working on the preview (K-4b code), with no merge involved.
+
+That separation is worth keeping in mind: **when a bug comes from data rather than code, the
+fix ships without a release** — and verifying it before merging isolates the data mistake from
+whatever the next merge contains.
 
 ⚠️ **The panel's interactions cannot be tested here** — no headless browser, and the table is not
 server-rendered (#30). Drag, precedence and the direction menus are the user's to check.
+
+##### ✅ K-4c DONE — 11 Aug 2026 (the Filter panel)
+
+`src/lib/table-filters.ts` (219 lines) + `DataTableFilterPanel.tsx` (353). The badge chips are
+gone and the left side of the toolbar is now the search box alone.
+
+###### What was actually broken
+
+The faceted chips could only filter **badge** columns — 296 of 2,675. **Everything else on
+every table was unfilterable**, and the reason was buried in a three-way ternary:
+
+```ts
+filterFn: col.type === 'badge' ? (hand-rolled array check)
+        : col.type === 'text' || col.type === 'description' ? 'includesString'
+        : 'auto'
+```
+
+A `link` column got whatever `'auto'` inferred, and no UI ever set a filter on one anyway.
+Now every column is filterable, with operators chosen for its type — `link` gets
+*contains / does not contain / is empty*, but not *starts with*, which on a URL asks about the
+protocol rather than the content.
+
+###### ⚠️ Conditions combine with AND. The And/Or selector was NOT built
+
+The design note sketched one. Deliberately skipped:
+
+- TanStack applies `columnFilters` with AND and gives no hook to change it. OR would mean
+  bypassing `columnFilters` entirely and reimplementing the filter engine on `globalFilter` —
+  a large change to the one part of the table that already works.
+- **OR within a column already exists, and is where it is wanted:** `is any of` matches
+  several badge values at once. Across *different* columns it is rare — nobody asks a 40-row
+  table for "Pricing is Free OR Name contains adobe".
+
+So the panel prints fixed **"Where" / "And"** labels rather than a dropdown. ⚠️ **A UI must not
+offer a choice that does not exist**, which is what a disabled or single-option selector would
+have done.
+
+Known limit, stated rather than hidden: **one condition per column**, because `columnFilters`
+is keyed by column id. "Name contains a AND Name contains b" is inexpressible. Supporting it
+costs the same as OR — filter state outside the table — for a rarer case.
+
+###### ⚠️ The predicate lives outside React, on purpose
+
+`matchesCondition` is in `src/lib/table-filters.ts`, not in the component. The panel cannot be
+tested here at all — no headless browser, table not server-rendered (#30) — and **the predicate
+is the part that can be silently wrong**. An operator that quietly matches empty cells looks
+like working software until someone notices rows missing.
+
+Two judgements worth keeping:
+
+- ⚠️ **`does not contain` KEEPS empty cells.** The other reading — a blank cell cannot be
+  judged — silently drops every row with a gap in that column, the opposite of what someone
+  excluding a term expects.
+- ⚠️ **An incomplete condition matches everything.** Adding a condition is two steps, pick the
+  column then type; emptying the table in between would read as a bug.
+
+`tableFilterFn` also tolerates the two older filter shapes — a bare `string[]` from the chips
+and a bare `string` from `includesString` — so a filter carried across a render degrades
+instead of throwing on `undefined.op`.
+
+###### TEST CASES — 44/44
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1–8 | Text operators, case-insensitive, whitespace-trimmed | correct |
+| 9–12 | **`notContains` keeps empty and null cells** | correct |
+| 13–18 | `isEmpty` / `isNotEmpty`, including whitespace-only and null | correct |
+| 19–23 | `isAnyOf` / `isNoneOf`, **exact not substring** | correct |
+| 24–27 | **Incomplete conditions hide nothing** | correct |
+| 28–33 | Back-compatible with both older filter shapes | correct |
+| 34–41 | Operator tables, defaults, `describeCondition` | correct |
+| 42–44 | **15,911 column/operator combinations against the real 654 tables** — no filter returned more rows than exist, no incomplete condition hid a row, `isEmpty`+`isNotEmpty` partition every column exactly | correct |
+| — | `tsc`, `next build`, 3 pages 200 | clean |
+
+**Deleted:** `DataTableFacetedFilter.tsx`, 154 lines, now imported by nothing. ⚠️ Verified with
+an unfiltered `grep` this time — the K-2 `export-table.ts` mistake was an exclusion pattern
+that also matched the import lines it was looking for.
+
+⚠️ **The panel's interactions are the user's to test** — same limitation as K-4b.
 
 ### K-5a — Storage adapter, Vercel Blob, upload endpoint
 

@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { DataTableFacetedFilter } from './DataTableFacetedFilter';
+import { DataTableFilterPanel } from './DataTableFilterPanel';
 import { DataTableSortPanel } from './DataTableSortPanel';
 import { DataTableViewOptions } from './DataTableViewOptions';
 import type { TableData, TableSchema, TableSettings } from '@/types/table';
@@ -38,9 +38,8 @@ type Density = TableSettings['ui']['density'];
  * at on demo.port.io, and it holds as controls are added in K-4b…K-4d: the left side stays
  * one input no matter how many panels exist, so the row never becomes a jumble.
  *
- * ⚠️ The badge chips are still on the left, beside the search, and that is deliberate for
- * one step only — **K-4c replaces them with the Filter panel** and the left side becomes
- * search alone. Moving them right now would mean building the right-hand group twice.
+ * As of K-4c the left side is the search box alone: the badge chips that used to sit beside
+ * it became the Filter panel, which filters every column rather than only the 296 badge ones.
  *
  * ── Why `gap-2` and not `space-x-2` ────────────────────────────────────────────
  * `space-x-*` adds a left margin to siblings, which breaks the moment the row wraps — and
@@ -92,37 +91,6 @@ export function DataTableToolbar({
   showSort = true,
   allowMultiSort = true,
 }: DataTableToolbarProps) {
-  /**
-   * Faceted filter options for every badge column, built from the data rather than from a
-   * configured list — so a value that exists in a row can always be filtered on, and one
-   * that does not is never offered.
-   *
-   * ⚠️ `col.filterable` is honoured here. It was not before: `getBadgeColumnFilters` offered
-   * a chip for every badge column regardless, so a column explicitly marked unfilterable
-   * still got one.
-   */
-  const badgeFilters = React.useMemo(() => {
-    return schema.columns
-      .filter((col) => col.type === 'badge' && col.filterable !== false)
-      .map((col) => {
-        const values = new Set<string>();
-        for (const row of data.rows) {
-          const v = row[col.id];
-          if (v !== null && v !== undefined && v !== '') values.add(String(v));
-        }
-        return {
-          id: col.id,
-          title: col.name,
-          // Sorted so the chip's list does not depend on row order — the same reasoning as
-          // the badge colour assignment in `badge-colors.ts`.
-          options: [...values]
-            .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-            .map((value) => ({ label: value, value })),
-        };
-      })
-      .filter((f) => f.options.length > 0 && table.getColumn(f.id));
-  }, [schema.columns, data.rows, table]);
-
   const activeColumnFilters = table.getState().columnFilters.length;
   const hasAnyFilter = activeColumnFilters > 0 || globalFilter.length > 0;
 
@@ -142,16 +110,6 @@ export function DataTableToolbar({
             aria-label="Search all columns"
           />
         )}
-
-        {showColumnFilters &&
-          badgeFilters.map((filter) => (
-            <DataTableFacetedFilter
-              key={filter.id}
-              column={table.getColumn(filter.id)}
-              title={filter.title}
-              options={filter.options}
-            />
-          ))}
 
         {/*
           Only rendered once something is actually filtered, which is why its height was
@@ -174,6 +132,9 @@ export function DataTableToolbar({
 
       {/* ── Right: the controls ────────────────────────────────────────────── */}
       <div className="flex items-center gap-2">
+        {/* Filter (K-4c) — replaces the badge chips that used to sit beside the search. */}
+        {showColumnFilters && <DataTableFilterPanel table={table} schema={schema} data={data} />}
+
         {/* Sort (K-4b). The header click is still the fast path — see the panel's header. */}
         {showSort && <DataTableSortPanel table={table} schema={schema} allowMultiple={allowMultiSort} />}
 

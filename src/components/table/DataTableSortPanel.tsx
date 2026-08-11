@@ -139,7 +139,7 @@ export function DataTableSortPanel({ table, schema, allowMultiple = true }: Data
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-[min(26rem,calc(100vw-2rem))] p-3">
+      <PopoverContent align="end" className="w-[min(30rem,calc(100vw-2rem))] p-3">
         <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
           Sort by
         </p>
@@ -157,28 +157,35 @@ export function DataTableSortPanel({ table, schema, allowMultiple = true }: Data
                 onDragStart={() => (dragIndex.current = index)}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleDrop(index)}
-                className="flex items-center gap-2"
+                /*
+                  Same grid as the Filter panel, so the two read as one system: the column
+                  and direction menus line up down the list and the ✕ always sits hard right,
+                  regardless of how long a column name is.
+
+                  ⚠️ The grip's track stays in the layout even when `allowMultiple` is false
+                  and no grip renders — otherwise a single-rule panel would sit 24px left of
+                  where the same panel sits with two rules.
+                */
+                className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_minmax(0,8.5rem)_2rem]"
               >
-                {allowMultiple && (
-                  <span
-                    className="cursor-grab text-muted-foreground active:cursor-grabbing"
-                    aria-hidden="true"
-                  >
-                    <GripVertical className="h-4 w-4" />
-                  </span>
-                )}
+                <span
+                  className={`text-muted-foreground ${allowMultiple ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                  aria-hidden="true"
+                >
+                  {allowMultiple && <GripVertical className="h-4 w-4" />}
+                </span>
 
                 {/*
                   ⚠️ The FIRST rule reads "Sort by", the rest read "then by". Precedence is
                   the whole point of this panel and a list of identical rows does not
                   convey it — someone would reasonably read them as independent sorts.
                 */}
-                <span className="w-14 shrink-0 text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {index === 0 ? 'Sort by' : 'then by'}
                 </span>
 
                 <Select value={rule.id} onValueChange={(v) => changeColumn(index, v)}>
-                  <SelectTrigger className="h-8 flex-1">
+                  <SelectTrigger className="h-8 w-full">
                     {/* Radix renders a blank trigger server-side without explicit children
                         — the G-3c trap. The label is passed rather than inferred. */}
                     <SelectValue>{nameOf(rule.id)}</SelectValue>
@@ -200,7 +207,7 @@ export function DataTableSortPanel({ table, schema, allowMultiple = true }: Data
                   value={rule.desc ? 'desc' : 'asc'}
                   onValueChange={(v) => changeDirection(index, v === 'desc')}
                 >
-                  <SelectTrigger className="h-8 w-[7.5rem]">
+                  <SelectTrigger className="h-8 w-full">
                     <SelectValue>{rule.desc ? 'Descending' : 'Ascending'}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -212,7 +219,7 @@ export function DataTableSortPanel({ table, schema, allowMultiple = true }: Data
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                  className="h-8 w-8 shrink-0 justify-self-end text-muted-foreground hover:text-foreground"
                   onClick={() => removeSort(rule.id)}
                   aria-label={`Remove sort on ${nameOf(rule.id)}`}
                 >
