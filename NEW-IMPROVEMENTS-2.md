@@ -450,7 +450,7 @@ Ordered so the most visible fix lands first and nothing depends on anything late
 | **K-1** ✅ | Badge colour system — positional assignment, 10-colour tinted palette | `col.meta.badgeColors` (existing field, first use) | **Large** — 75 broken columns fixed. **DONE 11 Aug, 23/23 + CSS proof. Record below.** |
 | **K-2** ✅ | Read the settings already stored — density, sticky header, page size, alternating rows. Delete dead code | none | Visible: consistent row height. **DONE 11 Aug, 36/36. Record below.** |
 | **K-3** ✅ | `col.align`, `col.width`, working column resize | none | Visible: column resizing. **DONE 11 Aug. Record below.** |
-| **K-4** | Toolbar — Filter, Sort, Columns panels | none | **Large** — the tool feel |
+| **K-4** ✅ | Toolbar — Filter, Sort, Columns panels | none | **Large** — the tool feel. **DONE 11 Aug in four steps, records below.** |
 | **K-5a** | Storage adapter + Vercel Blob + upload endpoint + `TableImage` model | **`TableImage` table** | none |
 | **K-5b** | Image Management admin section | none | none |
 | **K-5c** | Image rendering in cells, CSV id column, row-editor picker, guide | `col.meta.imageShape` | **Visible** — images appear |
@@ -1161,6 +1161,74 @@ an unfiltered `grep` this time — the K-2 `export-table.ts` mistake was an excl
 that also matched the import lines it was looking for.
 
 ⚠️ **The panel's interactions are the user's to test** — same limitation as K-4b.
+
+##### ✅ K-4d DONE — 11 Aug 2026 (the Columns panel)
+
+`DataTableColumnsPanel.tsx` replaces `DataTableViewOptions.tsx`. Visibility and order in one
+control, because those two questions are asked together: *which columns, in what order*.
+
+###### ⚠️ The old View menu had three faults beyond the missing reorder
+
+- **It closed on every toggle.** Radix's `DropdownMenuCheckboxItem` dismisses the menu on
+  select unless `onSelect` calls `preventDefault()`, which it did not — so hiding three
+  columns meant opening the menu three times. A `Popover` has no such behaviour.
+- **It was `hidden lg:flex`.** ⚠️ Below 1024px there was **no column control at all** — on
+  exactly the screens where hiding a column matters most, because horizontal space is scarce.
+- **Nothing could reorder.** Column ordering was on the user's original list and had no home.
+
+###### Notes
+
+⚠️ **`columnOrder` must list EVERY column.** TanStack treats a partial array as the complete
+order and drops whatever is missing — the columns simply disappear. The handler builds the
+array from the current on-screen order, so it cannot be partial by construction.
+
+⚠️ **Columns that cannot be hidden are still listed**, with a disabled checkbox. They can still
+be *reordered*, and omitting them would make the panel's order disagree with the table's.
+
+**Order is the visitor's and resets on reload** — consistent with column widths (K-3) and
+density (K-4a). Reordering a shared page for everyone is an admin decision, and there is no
+admin surface for it yet.
+
+Smaller: the label is the checkbox's click target, so the row is usable rather than a 16px
+square; *Reset order* and *Show all* are disabled rather than hidden, so the row does not jump
+as you use it.
+
+**Deleted:** `DataTableViewOptions.tsx`. ⚠️ Verified with an unfiltered `grep` — only its own
+file and one comment referenced it.
+
+###### Verification
+
+| Check | Result |
+| --- | --- |
+| `tsc`, `next build` | clean |
+| Grid tracks, `cursor-grab`, `cursor-grabbing` in built CSS | present |
+| `/courses`, `/tools`, `/ytube`, `/domain`, `/sitemap.xml` | 200 ×5 |
+| **All three suites re-run** — K-1 23/23, K-2 36/36, K-4c 44/44 | **103/103** |
+
+⚠️ **Drag and toggle are the user's to test** — no headless browser, table not server-rendered
+(#30).
+
+---
+
+## Phase K so far
+
+| Step | State |
+| --- | --- |
+| K-1 badge colours | ✅ |
+| K-2 stored settings | ✅ |
+| K-3 alignment, widths, resizing | ✅ |
+| K-4a toolbar + density | ✅ |
+| K-4b Sort panel | ✅ |
+| K-4c Filter panel | ✅ |
+| K-4d Columns panel | ✅ |
+| K-5 images | next — the only step adding infrastructure |
+| K-6 admin table editor | after K-5 |
+| K-7 icons on the upload path | deferred |
+| K-8 rows out of JSON | deferred, trigger: a table crossing ~1,000 rows |
+
+**The toolbar is complete.** `DataTable.tsx` is 847 lines with five focused components beside
+it, against 892 lines of one file when Phase K started — while gaining density, resizing,
+multi-sort, a condition builder and column reordering.
 
 ### K-5a — Storage adapter, Vercel Blob, upload endpoint
 

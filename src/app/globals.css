@@ -246,3 +246,57 @@ html {
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ==========================================================================
+   Interactive elements get a pointer cursor
+   ==========================================================================
+   ⚠️ THIS IS APP-WIDE, NOT A TABLE FIX.
+
+   Reported on the table toolbar, but `components/ui/button.tsx` sets no cursor
+   and nothing in the stylesheet targeted `button` — so **every button in the
+   application** showed the default arrow: the admin, dialogs, the sidebar, the
+   pagination controls, all of it.
+
+   Why it is missing at all: a browser's default for `<button>` is
+   `cursor: default`, and Tailwind v4's preflight no longer overrides it the way
+   v3 did. shadcn's components were authored against the older behaviour, so
+   nothing in them compensates.
+
+   ── Inside `@layer base`, deliberately ────────────────────────────────────
+   Base-layer rules lose to utilities, which is required here: the column resize
+   handle sets `cursor-col-resize` and the drag grips set `cursor-grab`. If this
+   block sat outside a layer it would still lose on specificity today, but only
+   by accident — a future `[role="button"]` on a grip would silently win. The
+   layer makes the precedence a rule rather than a coincidence.
+
+   ── What is covered ───────────────────────────────────────────────────────
+   Radix renders its menu, select and command items as `div`s with a role rather
+   than as buttons, so they need naming explicitly — those are the "Add
+   condition", operator and column-name rows the report mentioned.
+
+   ⚠️ Disabled controls are EXCLUDED. A pointer on a control that does nothing
+   promises an action that will not happen. shadcn already sets
+   `disabled:pointer-events-none` on most of them, but not all, and `[data-disabled]`
+   is how Radix marks its own items.
+   ========================================================================== */
+
+@layer base {
+  button:not(:disabled):not([aria-disabled='true']),
+  [role='button']:not([aria-disabled='true']),
+  [role='menuitem']:not([data-disabled]),
+  [role='menuitemcheckbox']:not([data-disabled]),
+  [role='menuitemradio']:not([data-disabled]),
+  [role='option']:not([data-disabled]),
+  [role='tab']:not([data-disabled]),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  /* A control that cannot be used says so, rather than saying nothing. */
+  button:disabled,
+  [aria-disabled='true'],
+  [data-disabled] {
+    cursor: not-allowed;
+  }
+}

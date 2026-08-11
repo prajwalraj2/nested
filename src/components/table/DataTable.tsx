@@ -237,6 +237,15 @@ export function DataTable({
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [globalFilter, setGlobalFilter] = useState('');
+  /**
+   * Column order (K-4d). Empty means "the schema's order", which is what every visitor sees
+   * until they drag something in the Columns panel.
+   *
+   * ⚠️ Visitor state, resetting on reload — consistent with column widths (K-3) and density
+   * (K-4a). Reordering a shared page for everyone is a decision only an admin should make,
+   * and there is no admin surface for it yet.
+   */
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
   // const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
 
   /**
@@ -395,6 +404,7 @@ export function DataTable({
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
     onColumnVisibilityChange: setColumnVisibility,
+    onColumnOrderChange: setColumnOrder,
     onGlobalFilterChange: setGlobalFilter,
     globalFilterFn: 'includesString',
     /*
@@ -411,6 +421,7 @@ export function DataTable({
       sorting,
       columnFilters,
       columnVisibility,
+      columnOrder,
       globalFilter,
     },
     initialState: {
