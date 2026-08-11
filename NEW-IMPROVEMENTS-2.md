@@ -25,6 +25,72 @@ themselves.
 
 ---
 
+## 🔴 #31 — `sharp` fails on Vercel and works locally (#23's class, recurring)
+
+**Found by the user on `atno.io` immediately after K-5b deployed, 11 Aug 2026.** Everything
+worked on localhost.
+
+```
+GET /api/admin/table-images -> 500
+Failed to load external module sharp:
+  Could not load the "sharp" module using the linux-x64 runtime
+  at Context.externalImport (.next/server/chunks/[turbopack]_runtime.js:484:15)
+```
+
+⚠️ **The same Vercel log showed `jsdom` failing identically** for the rich-text editor — same
+message, same Turbopack frame. That is **#23**, diagnosed and fixed in 23.2 and then reverted
+in 23.4 because the fix cost 2.2 minutes of build time to repair a feature that was being
+replaced anyway.
+
+**`sharp` is not that.** It is load-bearing for Phase K, so the same trade does not apply.
+
+### What is actually wrong — not what the error suggests
+
+The error advises installing optional dependencies. That is a red herring here:
+
+| Checked | Result |
+| --- | --- |
+| `@img/sharp-linux-x64` in `package-lock.json` | **present** — Vercel will install it |
+| `.npmrc` / `vercel.json` suppressing optional deps | **none exist** |
+| Native `.node` binaries in the route's trace | ⚠️ **zero** — the only `@img/*` entries traced were the pure-JS `@img/colour` |
+
+**It is file tracing.** sharp resolves its native library through a runtime lookup that static
+analysis cannot follow, so the tracer records sharp's 29 JavaScript files and none of its
+binaries. Vercel uploads what was traced, so the function ships sharp's JavaScript and nothing
+for it to load.
+
+### The fix, and why it is unverified
+
+`serverExternalPackages: ['sharp']` plus `outputFileTracingIncludes` naming
+`@img/sharp-linux-x64` for the two routes that use it.
+
+⚠️ **This cannot be tested locally, and the local trace proves nothing.** Windows loads
+`@img/sharp-win32-x64` and works either way; `node_modules/@img/sharp-linux-x64` does not exist
+here, so the include glob matches nothing and the trace is byte-identical before and after.
+**Only a deploy can answer it** — the same conclusion 23.2 reached, recorded there as "the only
+meaningful test is deploying".
+
+### ⚠️ If it does not work, do NOT reach for webpack
+
+The remaining lever from 23.2 is dropping `--turbopack` from the build script. **It is the
+wrong next step**, and 23.4 already judged that trade: it costs ~2.2 minutes on every future
+deploy, forever.
+
+**Prefer replacing `sharp` with a WASM encoder.** The reasoning is stronger here than it was
+for jsdom:
+
+- Sharp exists to be fast at volume. This resizes **64×64 thumbnails, uploaded by hand, one at
+  a time**. A WASM encoder costing 100 ms instead of 10 ms is invisible in an admin upload.
+- No native binary means **no tracing problem, no platform mismatch, and no recurrence of this
+  entire class** — on Vercel or anywhere else.
+- The security property that matters is **re-encoding**, not the encoder. Any decoder/encoder
+  discards EXIF and appended payloads equally well.
+
+`processUpload` is already isolated in `src/lib/image-processing.ts` with 44 tests against it,
+so swapping the encoder is one file and the suite says whether it still behaves.
+
+---
+
 ## ⚠️ STANDING RULE — data-dependent changes run on BOTH branches
 
 **Adopted 11 Aug 2026, after K-4b shipped code that depended on a migration run only on

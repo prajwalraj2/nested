@@ -10,6 +10,60 @@ const nextConfig: NextConfig = {
   },
 
   /**
+   * ⚠️ `sharp` MUST NOT BE BUNDLED — IT BROKE PRODUCTION AND NOT LOCAL (K-5b).
+   * ==========================================================================
+   *
+   * Symptom on `atno.io`, with `/admin/images` and the upload endpoint working perfectly on
+   * localhost:
+   *
+   *     GET /api/admin/table-images -> 500
+   *     Failed to load external module sharp:
+   *       Could not load the "sharp" module using the linux-x64 runtime
+   *       at Context.externalImport (.next/server/chunks/[turbopack]_runtime.js)
+   *
+   * ⚠️ **This is #23 recurring.** The same Vercel log showed `jsdom` failing identically for
+   * the rich-text editor — same message, same Turbopack frame. #23 was diagnosed, fixed, and
+   * the fix reverted (23.4) because it cost 2.2 minutes of build time to repair a feature that
+   * was being replaced. `sharp` is not that: it is load-bearing for Phase K.
+   *
+   * ── What is actually wrong ─────────────────────────────────────────────────
+   * NOT a missing binary. `@img/sharp-linux-x64` is in `package-lock.json`, so Vercel installs
+   * it. The problem is **file tracing**: sharp resolves its native library through a runtime
+   * lookup that static analysis cannot follow, so the tracer records sharp's 29 JavaScript
+   * files and **none of its `.node` binaries** — verified in the local trace, where the only
+   * `@img/*` entries were the pure-JS `@img/colour`. Vercel uploads what was traced, so the
+   * function ships sharp's JavaScript and nothing for it to load.
+   *
+   * `serverExternalPackages` tells Next to leave the package alone and take it from
+   * `node_modules` at runtime, which is the documented remedy for exactly this class of
+   * native dependency.
+   *
+   * ⚠️ **This cannot be verified locally.** Windows loads `@img/sharp-win32-x64` and works
+   * regardless; the failure only exists on the linux runtime. The same was true of #23, whose
+   * record notes "the only meaningful test is deploying". **Treat this as unverified until a
+   * deploy proves it.**
+   *
+   * If it is still not enough, the remaining lever is dropping `--turbopack` from the build
+   * script — the other half of #23.2's fix, at the same 2.2-minute cost.
+   */
+  serverExternalPackages: ['sharp'],
+
+  /**
+   * Belt and braces for the same problem, scoped to the two routes that use sharp.
+   *
+   * ⚠️ The glob names **linux-x64 explicitly**, because that is the deploy target. It is
+   * intentionally not the local platform: this include exists to fix a build that happens on
+   * Vercel, and a pattern matching whatever the developer's laptop runs would look correct
+   * locally while shipping the wrong binary — the precise shape of the bug it is fixing.
+   *
+   * The path is missing on Windows, where the glob simply matches nothing and costs nothing.
+   */
+  outputFileTracingIncludes: {
+    '/api/admin/table-images': ['./node_modules/@img/sharp-linux-x64/**/*'],
+    '/api/admin/table-images/[id]': ['./node_modules/@img/sharp-linux-x64/**/*'],
+  },
+
+  /**
    * Cache headers for the domain/page icons in `public/icons/`.
    * ==========================================================================
    *
