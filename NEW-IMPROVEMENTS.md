@@ -8947,6 +8947,16 @@ remains.
 
 
 
+### ➡️ Continued in `NEW-IMPROVEMENTS-2.md`
+
+This file passed 8,900 lines during Phase J and became slow to open and search. **Items #1–#28
+and Phases A–J stay here, unchanged.** New work starts at **#29 / Phase K — the public table** in
+`NEW-IMPROVEMENTS-2.md`.
+
+Still-open items below remain owned by *this* file until they are done.
+
+---
+
 ### Still open, outside the phases
 
 | | Item | Owner |
