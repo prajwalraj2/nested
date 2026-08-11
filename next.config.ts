@@ -49,18 +49,29 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['sharp'],
 
   /**
-   * Belt and braces for the same problem, scoped to the two routes that use sharp.
+   * Force sharp's native packages into the two routes that use it.
    *
-   * ⚠️ The glob names **linux-x64 explicitly**, because that is the deploy target. It is
-   * intentionally not the local platform: this include exists to fix a build that happens on
-   * Vercel, and a pattern matching whatever the developer's laptop runs would look correct
-   * locally while shipping the wrong binary — the precise shape of the bug it is fixing.
+   * ⚠️ THE FIRST ATTEMPT NAMED ONLY `@img/sharp-linux-x64` AND GOT HALFWAY:
    *
-   * The path is missing on Windows, where the glob simply matches nothing and costs nothing.
+   *     ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open shared object file
+   *
+   * The binary was found and the *shared library it depends on* was not — because sharp
+   * splits its native code across **two** packages on linux: `@img/sharp-linux-x64` holds the
+   * `.node` addon and `@img/sharp-libvips-linux-x64` holds `libvips-cpp.so`.
+   *
+   * ⚠️ **On Windows there is no such split** — `@img/sharp-win32-x64` contains both, which is
+   * precisely why no amount of local testing could have surfaced this. Confirmed by listing
+   * `node_modules/@img/`: three entries here, and no libvips package at all.
+   *
+   * So the glob names the whole `@img` scope rather than individual packages. It is not
+   * laziness: the split has moved between sharp releases, and a list of package names is a
+   * thing that silently stops matching after an upgrade. **npm only installs the optional
+   * packages for the running platform**, so on Vercel this resolves to the linux set and
+   * nothing else — the scope is self-limiting.
    */
   outputFileTracingIncludes: {
-    '/api/admin/table-images': ['./node_modules/@img/sharp-linux-x64/**/*'],
-    '/api/admin/table-images/[id]': ['./node_modules/@img/sharp-linux-x64/**/*'],
+    '/api/admin/table-images': ['./node_modules/@img/**/*'],
+    '/api/admin/table-images/[id]': ['./node_modules/@img/**/*'],
   },
 
   /**
