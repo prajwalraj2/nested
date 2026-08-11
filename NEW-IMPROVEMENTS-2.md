@@ -419,7 +419,7 @@ Ordered so the most visible fix lands first and nothing depends on anything late
 
 | Step | Scope | Schema change | Public effect |
 | --- | --- | --- | --- |
-| **K-1** | Badge colour system — positional assignment, 10-colour tinted palette | `col.meta.badgeColors` (existing field, first use) | **Large** — 75 broken columns fixed |
+| **K-1** ✅ | Badge colour system — positional assignment, 10-colour tinted palette | `col.meta.badgeColors` (existing field, first use) | **Large** — 75 broken columns fixed. **DONE 11 Aug, 23/23 + CSS proof. Record below.** |
 | **K-2** | Read the settings already stored — density, sticky header, page size, alternating rows. Delete dead code | none | Visible: consistent row height |
 | **K-3** | `col.align`, `col.width`, working column resize | none | Visible: controlled column widths |
 | **K-4** | Toolbar — Filter, Sort, Columns panels | none | **Large** — the tool feel |
@@ -459,6 +459,115 @@ the admin a way to store an assignment.
 | 6 | An 11-value column (synthetic) | wraps, does not crash |
 | 7 | Empty / null cell | renders `-`, not a badge |
 | 8 | Contrast, both themes | AA against the tinted ground |
+
+##### ✅ K-1 DONE — 11 Aug 2026 (badge colours)
+
+**One new file, one function replaced.** `src/lib/badge-colors.ts` (new),
+`src/components/table/DataTable.tsx`. No schema change, no migration, no new dependency.
+
+**The assignment moved from the cell to the column.** The old rule could live inside the cell
+renderer *because* it only looked at the one value in front of it — which is exactly why it was
+broken: a cell cannot see its siblings, so it cannot avoid colliding with them. `badgeAssignments`
+is now a `useMemo` keyed by column id.
+
+⚠️ **This also made it cheaper.** The old rule ran once per cell; a 40-row table with two badge
+columns computed 80 times on every sort, filter and page change. It now computes twice.
+
+⚠️ **`col.meta.badgeColors` is read but not yet written — the fallback is what makes K-1 ship
+alone.** When no assignment is stored, the component computes one from the data. All 296 columns
+are therefore correct *now*, without waiting for K-6 to give the admin a way to save one. Verified
+against the live API: the Courses table returns `meta: undefined`, so the fallback is the path
+actually running in production.
+
+###### ⚠️ Two traps worth keeping
+
+**1. Tailwind cannot see a constructed class name.** The natural way to write the palette —
+
+```ts
+`bg-${color}-100 text-${color}-800`     // ❌ emits NO CSS
+```
+
+— produces nothing, because Tailwind scans source for **literal strings** and never evaluates
+code. The badge would render unstyled, only in production, only for colours not used elsewhere in
+the app. `BADGE_COLOR_CLASSES` is a lookup of complete literals for this reason, and that is why
+it is 10 long lines rather than one clever one.
+
+**Proven, not assumed:** all 20 classes (10 light + 10 dark) are present in the built CSS, and
+`bg-lime-100` — a colour deliberately not in the palette — is absent, so the check discriminates
+rather than matching anything.
+
+**2. `localeCompare` would have been a hydration bug.** Distinct values are sorted with a plain
+`<` comparison, not `localeCompare`, because this renders on the server and hydrates in the
+browser. A locale disagreement about the order of two values is a disagreement about their
+colours — a React hydration mismatch that would appear on some machines and not others. Sorting
+(rather than first-seen order) also means re-importing the same CSV with rows shuffled does not
+repaint the table.
+
+###### TEST CASES — 23/23
+
+⚠️ **The suite runs the shipped `badge-colors.ts` through `ts.transpileModule`**, not a copy of
+the logic. An earlier attempt stripped types with regexes and broke on the first type predicate;
+using the real compiler is both more robust and stops the test drifting from the source.
+
+⚠️ **The old rule is reimplemented as a negative control.** Without it, "0 collisions" could mean
+the fix worked *or* that the data was never broken. The control reproduces **exactly 155 and 75**
+— the numbers from the §29.3 audit — proving the test measures the right thing.
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1 | All 296 badge columns — collisions, **old rule (control)** | **155** — matches the audit |
+| 2 | All 296 badge columns — collisions, **new rule** | **0** |
+| 3 | Columns rendering one colour — **old (control)** | **75** — matches the audit |
+| 4 | Columns rendering one colour — **new** | **0** |
+| 5–6 | The two columns the user reported | all values distinct |
+| 7–8 | Row order / duplicates do not change colours | stable |
+| 9–12 | Empty, blank, null, whitespace-equal values | no badge, or treated as one value |
+| 13–14 | 11 values | wraps, 11th reuses the 1st |
+| 15 | Non-string values coerce | `true` → sky |
+| 16–19 | Stored override wins; **invalid override falls back** rather than throwing | correct |
+| 20–23 | Palette integrity — 10, unique, all have bg/text/border **and a dark variant** | correct |
+| — | Built CSS contains all 20 classes; `bg-lime-100` absent (control) | correct |
+| — | `tsc`, `next build` | clean |
+
+###### ⚠️ Automatic assignment guarantees DISTINCTNESS, not MEANING
+
+Worth stating plainly, because the result is visible immediately:
+
+```
+Courses / Pricing     Free Course    -> emerald
+                      Free to Audit  -> amber
+                      Paid Course    -> sky
+```
+
+Alphabetical order puts *Free to Audit* second, so *Paid Course* lands on sky rather than the
+amber that would read as "costs money". **Every value is distinct, which is the fixed bug** — but
+the semantic pairing free=green / paid=amber is a judgement no algorithm can make. That is
+precisely what `col.meta.badgeColors` and the K-6 editor are for.
+
+###### 🔴 FOUND WHILE VERIFYING — table content is not server-rendered at all
+
+Attempting to check the rendered HTML turned up something larger than the check.
+`curl` of `/domain/gdesign/courses` returns **200 with no table in it** — no column headers, no
+row values, no badges, old palette or new.
+
+`TableLayout` is `'use client'` and fetches its data in a `useEffect`
+(`/api/domain/tables/by-page/{id}`). **The table is never in the server HTML**; it appears only
+after the browser runs JavaScript and completes a second round trip.
+
+That means, across roughly **650 pages whose primary content is a table**:
+
+- the content is absent from the initial HTML, so a crawler must execute JS to see any of it
+- every table page costs an extra round trip after paint
+- ⚠️ it cuts directly against **#8**, which is about getting content indexed
+
+⚠️ **It also means K-1 cannot be verified by fetching a page**, and no headless browser is
+installed. K-1's evidence is therefore: the module's own behaviour against real data (23/23), the
+built CSS (20 classes + control), and confirmation that the API delivers exactly the three values
+with no stored `meta` — i.e. that the tested fallback path is the one that runs. **The final
+visual check is the user's.**
+
+Recorded as **#30**, unscheduled — it is a rendering-architecture change, not part of Phase K, and
+it interacts with K-8.
 
 ### K-2 — Read the settings that already exist
 
@@ -589,6 +698,36 @@ later."*** When taken, `ICON-GUIDE.md` §5 is rewritten.
 
 Per 29.4. **Trigger: a real table crossing ~1,000 rows.** Keeping the render path
 source-agnostic through K-1…K-4 is what keeps this from becoming a rewrite.
+
+---
+
+## 🔴 #30 — Table content is not server-rendered
+
+**Found 11 Aug 2026 while trying to verify K-1 by fetching a page.** Unscheduled — this is a
+rendering-architecture change, not part of Phase K.
+
+`GET /domain/gdesign/courses` returns **200 with no table in the HTML**: no column headers, no row
+values, no badges. `TableLayout` is `'use client'` and fetches its data in a `useEffect` from
+`/api/domain/tables/by-page/{id}`, so the table exists only after the browser runs JavaScript and
+completes a second round trip.
+
+Across roughly **650 pages whose primary content is a table**:
+
+- The content is **absent from the initial HTML** — a crawler must execute JS to see any of it
+- Every table page pays an extra round trip after first paint
+- ⚠️ It cuts directly against **#8**, which is about getting content indexed
+
+⚠️ **It also blocked K-1's end-to-end verification**, and no headless browser is installed —
+`playwright`/`puppeteer` are not dependencies. Any future work needing to assert on rendered table
+markup hits the same wall.
+
+**Not fixed yet, and not trivially fixable:** `TableLayout` fetches per-country
+(`?country=…`) so the response is CDN-cacheable, which is a deliberate design from an earlier
+phase. Server-rendering the table means resolving the country server-side, which is entangled with
+the **#8 / #8-DR** geo decision. **Sequence #8 first.**
+
+Interacts with **K-8** — if rows move out of the JSON blob, this is the moment to reconsider how
+they reach the page.
 
 ---
 
