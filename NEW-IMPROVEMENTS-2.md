@@ -10,6 +10,21 @@ intended.
 
 ---
 
+## ⚠️ OPEN — credentials exposed in chat, awaiting rotation
+
+| Credential | Exposure | Blast radius | Owner |
+| --- | --- | --- | --- |
+| **Neon `npg_…` password** | Appeared in a chat transcript. **Shared across every branch, production included.** | Full read/write on all data | User — recorded in `NEW-IMPROVEMENTS.md` *Still open* |
+| **`BLOB_READ_WRITE_TOKEN`** | Pasted into chat 11 Aug 2026 while setting up K-5a | Write and delete on the `atno-table-images` store. **No database access, no user data** — but arbitrary files could be hosted under the Vercel blob domain, or images deleted | User — rotate in the store's Settings, or disconnect/reconnect the project |
+
+⚠️ **Neither is a code change.** Both are dashboard actions, and both stay open until done.
+
+**Convention going forward:** environment values are reported as `NAME=<set>` rather than pasted.
+Nothing in this workflow needs a secret's value — the test scripts read `.env` from disk
+themselves.
+
+---
+
 ## ⚠️ STANDING RULE — data-dependent changes run on BOTH branches
 
 **Adopted 11 Aug 2026, after K-4b shipped code that depended on a migration run only on
