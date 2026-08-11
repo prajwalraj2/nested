@@ -52,7 +52,7 @@ library behind the shadcn demo the user linked. What is missing is connection, n
 | `col.meta.badgeColors` | 0 columns | Never read |
 | `TableSettings` (density, sticky header, page size, alternating rows) | **654 tables** | `TableLayout` types it `settings?: any` and **drops it** |
 | Page size | 654 tables | Hardcoded `25` in `DataTable` |
-| Export | — | `src/lib/export-table.ts`, 71 lines, **imported by nothing** |
+| Export | — | ⚠️ **This row was WRONG** — see the correction in the K-2 record. `src/lib/export-table.ts` is imported by `TableEditor` and `TablesManager`; the audit grep excluded the very import lines it was looking for. No public surface renders export, which is the part that was right. |
 
 **Generalisable, and the third time this class has appeared in this project:** a type definition
 is not a feature. `tsc` is happy because every one of these fields is optional — the same reason
@@ -257,7 +257,7 @@ Switching becomes changing one env var and uncommenting one file. Full procedure
 
 | Feature | Why not |
 | --- | --- |
-| **Export** | User: *"not planning to have on public pages."* `src/lib/export-table.ts` is already dead — **delete it in K-2**. |
+| **Export** | User: *"not planning to have on public pages."* Already true — no public surface has ever rendered an export control. ⚠️ **NOT deleted:** admin export is real and in use (see the K-2 correction). |
 | Row selection, bulk actions | No action a visitor can take on a row. An admin idea, not a public one. |
 | Inline editing on the public table | Read-only by design; editing lives in the admin. |
 | Row virtualisation | Solves rendering 10,000 rows. The **payload** breaks long before the renderer does (29.4). |
@@ -420,7 +420,7 @@ Ordered so the most visible fix lands first and nothing depends on anything late
 | Step | Scope | Schema change | Public effect |
 | --- | --- | --- | --- |
 | **K-1** ✅ | Badge colour system — positional assignment, 10-colour tinted palette | `col.meta.badgeColors` (existing field, first use) | **Large** — 75 broken columns fixed. **DONE 11 Aug, 23/23 + CSS proof. Record below.** |
-| **K-2** | Read the settings already stored — density, sticky header, page size, alternating rows. Delete dead code | none | Visible: consistent row height |
+| **K-2** ✅ | Read the settings already stored — density, sticky header, page size, alternating rows. Delete dead code | none | Visible: consistent row height. **DONE 11 Aug, 36/36. Record below.** |
 | **K-3** | `col.align`, `col.width`, working column resize | none | Visible: controlled column widths |
 | **K-4** | Toolbar — Filter, Sort, Columns panels | none | **Large** — the tool feel |
 | **K-5a** | Storage adapter + Vercel Blob + upload endpoint + `TableImage` model | **`TableImage` table** | none |
@@ -492,9 +492,24 @@ code. The badge would render unstyled, only in production, only for colours not 
 the app. `BADGE_COLOR_CLASSES` is a lookup of complete literals for this reason, and that is why
 it is 10 long lines rather than one clever one.
 
-**Proven, not assumed:** all 20 classes (10 light + 10 dark) are present in the built CSS, and
-`bg-lime-100` — a colour deliberately not in the palette — is absent, so the check discriminates
-rather than matching anything.
+**Proven, not assumed:** all 20 classes (10 light + 10 dark) are present in the built CSS, and a
+control colour deliberately outside the palette (lime, at the 100 step) is absent, so the check
+discriminates rather than matching anything.
+
+⚠️ **That control sentence originally named the class in full, and naming it CREATED it.**
+Tailwind v4 uses automatic content detection with no config file, and it scans `.md` as readily
+as `.tsx` — so writing the literal into this document compiled the class into the production
+bundle, and a re-run of the control would have failed for a reason unrelated to the code.
+
+**Generalisable: in a Tailwind v4 project, documentation is build input.** A class name written
+anywhere in the repo exists. Controls must therefore be described rather than spelled, or the
+docs excluded from the scan.
+
+Measured before rewriting: **8 colour classes** existed in the CSS because a document mentioned
+them and nothing in `src/` used them — about 500 bytes of 141 KB, so the cost is negligible and
+the correctness point is the real one. Scoping Tailwind with `@source` would remove it; not done,
+because a wrong path there silently produces a site with no CSS at all, which is a poor trade for
+half a kilobyte.
 
 **2. `localeCompare` would have been a hydration bug.** Distinct values are sorted with a plain
 `<` comparison, not `localeCompare`, because this renders on the server and hydrates in the
@@ -526,7 +541,7 @@ the fix worked *or* that the data was never broken. The control reproduces **exa
 | 15 | Non-string values coerce | `true` → sky |
 | 16–19 | Stored override wins; **invalid override falls back** rather than throwing | correct |
 | 20–23 | Palette integrity — 10, unique, all have bg/text/border **and a dark variant** | correct |
-| — | Built CSS contains all 20 classes; `bg-lime-100` absent (control) | correct |
+| — | Built CSS contains all 20 classes; an off-palette control colour absent | correct |
 | — | `tsc`, `next build` | clean |
 
 ###### ⚠️ Automatic assignment guarantees DISTINCTNESS, not MEANING
@@ -584,6 +599,222 @@ it interacts with K-8.
 ⚠️ **Verify against a table whose stored settings differ from the defaults**, or this passes while
 still ignoring the field — the settings blob exists on all 654 tables but has never been read, so
 its contents are unproven.
+
+##### ✅ K-2 DONE — 11 Aug 2026 (reading the stored settings)
+
+**Files:** `src/lib/table-utils.ts`, `DataTable.tsx`, `DataTablePagination.tsx`,
+`TableLayout.tsx`. No schema change. One data update across 654 rows.
+
+###### ⚠️ FIRST: the settings blob was boilerplate, not decisions
+
+Before writing anything, the stored blobs were surveyed. **All 20 fields hold exactly one
+distinct value across all 654 tables.** Nothing has ever been edited, because no screen writes
+them — `TableSchemaEditor` stamps `DEFAULT_TABLE_SETTINGS` at creation and that is the end of it.
+
+The proof is `export.enabled: true` sitting on every table beside a user decision *not* to have
+export on public pages. **These values were never chosen.**
+
+That reframed K-2 from "obey the settings" to "make the settings honest", and produced two
+different answers for two fields that looked identical:
+
+| Field | Stored | Decision |
+| --- | --- | --- |
+| `ui.alternatingRows` | `true`, **never implemented** | Implemented, then **defaulted to `false` and the 654 rows updated to match** — see below |
+| `export.enabled` | `true`, and **genuinely real** | Left `true` — see the correction below |
+
+###### ⚠️ CORRECTION — `export-table.ts` is NOT dead, and §29.2 was wrong about it
+
+§29.2 recorded it as *"71 lines, imported by nothing"* and K-2 planned to delete it. **Both were
+wrong.** `TableEditor` and `TablesManager` each import `downloadTableExport`.
+
+The audit grep was:
+
+```bash
+grep -rn "export-table" src | grep -v "lib/export-table"    # ❌
+```
+
+⚠️ **The exclusion pattern matched the import path itself.** `from '@/lib/export-table'`
+contains `lib/export-table`, so every line that proved the file was used was filtered out by the
+filter meant to exclude the file's own contents. **An exclusion that matches the import path
+cannot find imports.**
+
+Caught by checking before deleting rather than after. Export exists, in the admin, and works;
+the user's decision was that it does not belong on **public** pages, which was already true —
+no public surface has ever rendered an export control.
+
+⚠️ Flipping `export.enabled` to `false` would also have been actively misleading: `TablePreview`
+renders it as an "Enabled / Disabled" badge in the creation wizard, while admin export runs
+unconditionally without consulting it. The badge would have claimed export was off while the
+button beside it kept working.
+
+###### What now works
+
+| Setting | Before | After |
+| --- | --- | --- |
+| `ui.density` | **nothing controlled row height** — content-driven, so a badge or a description popover silently made rows taller (#29.5) | three fixed paddings: `py-1` / `py-2.5` / `py-4` |
+| `ui.stickyHeader` | stored `true`, not implemented | header sticks within a `max-h-[70vh]` scroll container |
+| `ui.showBorders` | stored `true`, not implemented | frame and row rules |
+| `ui.alternatingRows` | stored `true`, not implemented | implemented, **default `false`** |
+| `pagination.pageSize` | **hardcoded `25`** | read from settings; `enabled: false` shows every row |
+| `pagination.showSizeSelector` | always shown | honoured |
+| `pagination.showInfo` | rendered "Page 1 of 2" | **"1–10 of 41 rows"**, which is what the type has always documented it to mean |
+
+⚠️ **`showInfo` counts the FILTERED rows**, and says so when they differ: *"1–10 of 12 rows
+(filtered from 412)"*. Showing the raw total beside a filtered result claims the filter did not
+work.
+
+⚠️ **`resolveTableSettings` is a hand-written deep merge, not a spread.** `{...DEFAULT,
+...stored}` is shallow, so a blob containing only `{ui:{density:'compact'}}` would replace the
+whole `ui` object and drop `showBorders` and `stickyHeader` to `undefined` — read as "off". A
+partial save from the K-6 editor would silently turn features off that nobody touched.
+
+⚠️ **`??` throughout, never `||`** — every field is a boolean or a number, so `false` and `0`
+are legitimate. `stored.showBorders || true` makes `false` unexpressible. Same class as #28.
+
+###### Data change — 654 rows
+
+`ui.alternatingRows` set to `false` on every table, because a default only applies where a
+stored value is absent: leaving the stored `true` would have striped the entire site the moment
+the renderer started obeying it.
+
+Verified after: **20 settings paths still present** (a drop would mean a shallow spread ate
+keys), every other field unchanged, `density`/`stickyHeader`/`showBorders` untouched.
+
+###### 🔴 THE STICKY HEADER DID NOT STICK — a vendored component owned the scroll container
+
+**Found by the user in the browser, immediately after K-2 shipped.** Three tables, three
+different symptoms, which is what made it look random:
+
+| Page | Symptom |
+| --- | --- |
+| `/gdesign/tools` | **No header row at all** |
+| `/gdesign/newsletters` | Header **sliced in half** |
+| `/gdesign/instagrampages` | Header fine |
+
+The pattern is scroll position: correct at the top, degrading as the container scrolls. The
+header was not sticking; it was scrolling away like any other row.
+
+**Cause — `components/ui/table.tsx` renders its own wrapper:**
+
+```jsx
+<div data-slot="table-container" className="relative w-full overflow-x-auto">
+  <table>…</table>
+</div>
+```
+
+`position: sticky` anchors to its **nearest scrolling ancestor**, and that div is one.
+
+⚠️ **`overflow-x: auto` makes an element a scroll box on BOTH axes** — the spec forces the
+other axis away from `visible` — so it qualified as the anchor, while nothing constrained its
+height, so it never actually scrolled. **The header stuck faithfully to the top of a box that
+never moved**, while the real scrolling happened in the `max-h-[70vh]` div one level further
+out.
+
+**Generalisable: a wrapper you did not write can silently become the scroll container.** The
+sticky element and the element that scrolls must be the same box, and `overflow` anywhere
+between them decides which box that is.
+
+**Fixed without editing the vendored file** — the cap is applied to shadcn's own div through
+its `data-slot`:
+
+```
+[&_[data-slot=table-container]]:max-h-[70vh]
+[&_[data-slot=table-container]]:overflow-y-auto
+```
+
+Verified the arbitrary variant actually compiles — it is an unusual selector and a silent miss
+would look exactly like the original bug:
+
+```css
+.[&_[data-slot=table-container]]:max-h-[70vh] [data-slot="table-container"] { max-height: 70vh }
+```
+
+**Two smaller fixes in the same change:**
+
+⚠️ **`relative` and `sticky` were both on the `<th>`.** Both set `position`, so the outcome
+depended on tailwind-merge and CSS source order rather than on intent. `relative` now applies
+only in the non-sticky branch; it is needed for K-3's resize handle, and a sticky element is
+already a positioning context.
+
+⚠️ **A sticky `th` scrolls away from its own border.** Tailwind's preflight sets
+`border-collapse: collapse`, which hands cell borders to the table's grid rather than to the
+cell — so the header would have floated over the rows with nothing separating them. Replaced
+with `shadow-[inset_0_-1px_0_0_var(--border)]`, which belongs to the element and travels with
+it.
+
+###### Scrollbars — thin and themed, app-wide
+
+Giving the table its own scroll container put a default OS scrollbar beside the page's default
+OS scrollbar. Reference for the intended look was `demo.port.io`: a thin rounded thumb, no
+visible track.
+
+⚠️ **shadcn's `ScrollArea` was considered and rejected**, despite being the obvious answer:
+
+- It only styles containers you wrap, so it **could never reach the page's own scrollbar** —
+  the fix would have been half-done by construction, leaving a styled table scrollbar beside a
+  default page one.
+- Its viewport renders children inside `<div style="min-width:100%; display:table">`, and an
+  unexpected wrapper around this exact table is what had *just* broken `position: sticky`.
+- A dependency and a component file, for a visual change.
+
+Two inherited CSS properties on `html` do the whole job — `scrollbar-width` and
+`scrollbar-color` — reaching the page, the table, the sidebar, popovers and the admin at once,
+with no structural change anywhere.
+
+⚠️ **Both syntaxes are declared and they do not conflict.** Chrome uses `::-webkit-scrollbar`
+and ignores the standard properties when pseudo-elements are styled; Firefox does the reverse,
+having never supported them. Each engine takes the one it implements, so no `@supports` guard is
+needed. The pseudo-elements earn their place by providing a **hover state**, which
+`scrollbar-color` cannot express — there is no selector for the thumb.
+
+⚠️ **No dark variant needed** — `--muted-foreground` is already redefined under `.dark`, so the
+thumb follows the theme. The opposite of the `.rich-text-content` rule in the same file, which
+is pinned to a light card and documents why.
+
+Verified in the served CSS: Lightning CSS emitted the fallback pattern by itself — plain
+`var(--muted-foreground)`, then the softened `color-mix` inside
+`@supports (color: color-mix(in lab, red, red))`. Also styles
+`::-webkit-scrollbar-corner`, which otherwise paints an opaque square where a table's two
+scrollbars meet.
+
+`ScrollArea` remains the right call for the **sidebar** (already on the user's board) — no sticky
+children there, and an overlay scrollbar suits a plain list. Separate job.
+
+###### ⚠️ THE H-2 LESSON, HIT A THIRD TIME
+
+The positive control **failed on the first run** — the API returned `normal`/`true`/`25` after
+the test had written `compact`/`false`/`7`.
+
+Cause: `getTableFromDB` is wrapped in `unstable_cache` with tags. The test wrote through Prisma,
+so `revalidateTag` never fired and the public API kept serving the cached old settings. **The
+code was correct; the test was wrong.**
+
+Rewritten to drive `PUT /api/admin/tables/[id]`, which calls `invalidatePages()`. **Mutate
+through the API, always** — this is now three occurrences (H-2, J-3, K-2).
+
+###### TEST CASES — 36/36
+
+⚠️ **Every case uses a NON-DEFAULT value as its control.** All 654 blobs are identical and
+several match the constants the old code hardcoded — `pageSize: 25` most obviously — so "the site
+still looks right" cannot distinguish *reading* the setting from *ignoring* it.
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1–3 | `undefined` / `null` / `{}` → defaults | correct |
+| 4–7 | **Partial blob** — stored field honoured, siblings and other blocks survive | correct |
+| 8–12 | **`false` and `0` preserved**, not treated as absent | correct |
+| 13–17 | Garbage in the Json column (string, number, array, bool, wrong shape) | falls back, never throws |
+| 18–20 | Density map — three keys, distinct, vertical padding only | correct |
+| 21–23 | Defaults changed as decided | correct |
+| 24–28 | All 654 rows updated; **no settings key lost** | correct |
+| 29–36 | **Positive control** — admin PUT of `compact`/`false`/`7` reaches the public API and resolves to `py-1` | correct |
+| — | `tsc`, `next build` | clean |
+
+**Removed as genuinely dead:** the unused `ColumnResizeMode` import (K-3 re-adds it deliberately)
+and `formatDate`, declared once and called never.
+
+⚠️ **Not verifiable by fetching HTML** — see #30. The end-to-end proof stops at the API payload;
+the visual check is the user's.
 
 ### K-3 — Alignment, width, resizing
 

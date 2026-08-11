@@ -16,7 +16,6 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-  ColumnResizeMode,
 } from '@tanstack/react-table';
 
 import { Button } from '@/components/ui/button';
@@ -52,6 +51,7 @@ import {
   badgeClassFor,
   type BadgeColor,
 } from '@/lib/badge-colors';
+import { DENSITY_ROW_PADDING, resolveTableSettings } from '@/lib/table-utils';
 import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff } from "lucide-react"
 
 /**
@@ -75,6 +75,12 @@ type DataTableProps = {
   title?: string;
   description?: string;
   className?: string;
+  /**
+   * Stored per-table settings (K-2). Typed `unknown` because it arrives from a Prisma
+   * `Json` column and nothing has validated it — `resolveTableSettings` narrows it and
+   * fills every gap from the defaults.
+   */
+  settings?: unknown;
 };
 
 export function DataTable({
@@ -82,8 +88,24 @@ export function DataTable({
   data,
   title,
   description,
-  className
+  className,
+  settings,
 }: DataTableProps) {
+  /**
+   * ⚠️ SETTINGS WERE STORED ON ALL 654 TABLES AND READ BY NOTHING (K-2, #29.2).
+   *
+   * `TableLayout` typed this prop `settings?: any` and never passed it on, so density,
+   * sticky header and page size sat in the database being ignored while the page size was
+   * hardcoded to 25 a few lines below.
+   *
+   * ⚠️ Every stored blob is identical — all 20 fields hold exactly one distinct value
+   * across 654 tables, because no screen writes them. **That makes this change impossible
+   * to verify by eye**: reading a setting whose value equals the old hardcoded constant
+   * looks the same as ignoring it. The test therefore writes a NON-DEFAULT value and
+   * asserts the page changes.
+   */
+  const resolved = React.useMemo(() => resolveTableSettings(settings), [settings]);
+  const { ui, pagination } = resolved;
   // Table state
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -209,7 +231,15 @@ export function DataTable({
     },
     initialState: {
       pagination: {
-        pageSize: 25,
+        /*
+          ⚠️ WAS HARDCODED `25` while `settings.pagination.pageSize` sat unread in every
+          stored blob — and happened to also be 25, which is why nobody noticed.
+
+          `pagination.enabled: false` means "show every row": TanStack has no off switch,
+          so the page size becomes the row count. `|| 1` guards an empty table, since a
+          page size of 0 makes it divide by zero and render nothing.
+        */
+        pageSize: pagination.enabled ? pagination.pageSize : (data.rows.length || 1),
       },
     },
   });
@@ -314,19 +344,82 @@ export function DataTable({
       </div>
 
       {/* Table */}
-      <div className="rounded-md border border-border bg-card overflow-auto">
+      {/*
+        ⚠️ THE HEIGHT CAP GOES ON SHADCN'S CONTAINER, NOT ON THIS DIV.
+        ==============================================================
+
+        First attempt put `max-h-[70vh] overflow-auto` here and the header did not stick —
+        it scrolled away on `/tools`, was sliced in half on `/newsletters`, and looked
+        correct only on tables short enough not to scroll at all.
+
+        The vendored `Table` renders its own wrapper:
+
+            <div data-slot="table-container" class="relative w-full overflow-x-auto">
+              <table>…</table>
+            </div>
+
+        `position: sticky` anchors to its **nearest scrolling ancestor**, and that div is
+        one. ⚠️ `overflow-x: auto` makes an element a scroll box on BOTH axes — the spec
+        forces the other axis away from `visible` — so it qualifies, while nothing
+        constrains its height, so it never actually scrolls vertically. The header dutifully
+        stuck to the top of a box that never moved, while the real scrolling happened out
+        here, one level further out.
+
+        `components/ui/*` is vendored and must not be edited, so the cap is applied to that
+        div through its `data-slot` attribute instead. Now the element that scrolls and the
+        element the header sticks inside are the same one.
+
+        `overflow-hidden` here is safe: it sits OUTSIDE the scroll container, not between it
+        and the sticky element, so it cannot break sticky — and it keeps content off the
+        rounded corners.
+      */}
+      <div
+        className={`rounded-md bg-card overflow-hidden ${
+          ui.showBorders ? 'border border-border' : ''
+        } ${
+          ui.stickyHeader
+            ? '[&_[data-slot=table-container]]:max-h-[70vh] [&_[data-slot=table-container]]:overflow-y-auto'
+            : ''
+        }`}
+      >
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow 
+              <TableRow
                 key={headerGroup.id}
                 className="border-border hover:bg-accent"
               >
                 {headerGroup.headers.map((header) => {
                   return (
-                    <TableHead 
+                    <TableHead
                       key={header.id}
-                      className="text-foreground bg-muted/50 relative"
+                      /*
+                        ⚠️ `bg-muted` and not `bg-muted/50` when sticky. A translucent
+                        header lets the rows scrolling underneath show through it, which
+                        reads as a rendering fault rather than a design.
+
+                        `z-10` keeps it above the cells; without it the header paints
+                        first and rows slide over the top of it.
+                      */
+                      className={`text-foreground ${
+                        ui.stickyHeader
+                          ? /*
+                              ⚠️ NO `relative` HERE WHEN STICKY. Both are `position`
+                              utilities, so having them in one class string leaves the
+                              outcome to tailwind-merge and CSS source order rather than to
+                              intent. `relative` is only needed for the K-3 resize handle,
+                              and a sticky element is already a positioning context.
+
+                              ⚠️ The shadow replaces the bottom border. Tailwind's preflight
+                              sets `border-collapse: collapse`, which hands cell borders to
+                              the table's grid rather than the cell — so a sticky `th` scrolls
+                              away from its own border and the header floats over the rows
+                              with nothing separating them. A shadow belongs to the element
+                              and travels with it.
+                            */
+                            'sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_0_var(--border)]'
+                          : 'relative bg-muted/50'
+                      }`}
                     >
                       {header.isPlaceholder
                         ? null
@@ -346,12 +439,27 @@ export function DataTable({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="border-border hover:bg-accent/50 text-foreground"
+                  /*
+                    ⚠️ The stripe uses the ROW INDEX, not `:nth-child`. After a sort or a
+                    filter the DOM order changes but `index` is the position in the
+                    *rendered* page, so the stripes stay alternating instead of doubling up
+                    wherever a hidden row used to be.
+
+                    `alternatingRows` defaults to false (see `table-utils.ts`) — this is
+                    implemented and off, not unimplemented.
+                  */
+                  className={`text-foreground hover:bg-accent/50 ${
+                    ui.showBorders ? 'border-border' : 'border-transparent'
+                  } ${
+                    ui.alternatingRows && row.index % 2 === 1 ? 'bg-muted/30' : ''
+                  }`}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell 
+                    <TableCell
                       key={cell.id}
-                      className="text-foreground relative overflow-hidden"
+                      // Density (#29.5). `p-2` from the vendored TableCell sets the
+                      // horizontal padding; only the vertical half varies.
+                      className={`text-foreground relative overflow-hidden ${DENSITY_ROW_PADDING[ui.density]}`}
                     >
                       <div className="overflow-hidden">
                         {flexRender(
@@ -377,8 +485,17 @@ export function DataTable({
         </Table>
       </div>
 
-      {/* Pagination */}
-      <DataTablePagination table={table} />
+      {/*
+        Pagination — hidden entirely when `pagination.enabled` is false, since the page size
+        was already set to the row count above and the controls would all be inert.
+      */}
+      {pagination.enabled && (
+        <DataTablePagination
+          table={table}
+          showSizeSelector={pagination.showSizeSelector}
+          showInfo={pagination.showInfo}
+        />
+      )}
 
     </div>
   );
@@ -588,17 +705,4 @@ function formatCellValue(
   }
 }
 
-// Helper function to format dates
-function formatDate(dateString?: string): string {
-  if (!dateString) return 'Unknown';
-  
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
-  } catch {
-    return 'Unknown';
-  }
-}
+
