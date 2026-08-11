@@ -19,7 +19,6 @@ import {
 } from '@tanstack/react-table';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -40,11 +39,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { X } from 'lucide-react';
 
 import { DataTablePagination } from './DataTablePagination';
-import { DataTableViewOptions } from './DataTableViewOptions';
-import { DataTableFacetedFilter } from './DataTableFacetedFilter';
+import { DataTableToolbar } from './DataTableToolbar';
 import type { TableSchema, TableData, ColumnType } from '@/types/table';
 import {
   assignBadgeColors,
@@ -151,6 +148,19 @@ export function DataTable({
    * Per the decision in #29.6(c) this is component state only: **a drag is one visitor's,
    * for one visit, and resets on reload.** No schema write, no permission question.
    */
+  /**
+   * ⚠️ DENSITY IS SEEDED FROM THE SETTING, THEN OWNED BY THE VISITOR (K-4a).
+   *
+   * `ui.density` is the table's stored default; the toolbar control overrides it for this
+   * visit only. Same shape as the column widths in K-3, and the same reason — one reader
+   * preferring tighter rows must not change the page for everyone else.
+   *
+   * ⚠️ `useState(ui.density)` seeds ONCE. If a different table were rendered into the same
+   * component instance the seed would be stale — it is not, because `TableLayout` mounts one
+   * table per page, but that is why the initialiser is worth a note rather than a shrug.
+   */
+  const [density, setDensity] = React.useState(ui.density);
+
   const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({});
   const dragRef = React.useRef<{ id: string; startX: number; startWidth: number } | null>(null);
 
@@ -383,6 +393,13 @@ export function DataTable({
     onColumnVisibilityChange: setColumnVisibility,
     onGlobalFilterChange: setGlobalFilter,
     globalFilterFn: 'includesString',
+    /*
+      ⚠️ Governs SHIFT-CLICK on a header, not the Sort panel. The panel writes the `sorting`
+      array directly, which TanStack honours regardless — so this flag exists to keep the two
+      routes consistent: a table that may not be multi-sorted must not become multi-sorted by
+      an accidental shift-click either.
+    */
+    enableMultiSort: resolved.sorting.multiSort,
     // COLUMN RESIZING - COMMENTED OUT FOR NOW
     // columnResizeMode,
     // enableColumnResizing: true,
@@ -407,104 +424,27 @@ export function DataTable({
     },
   });
 
-  // Helper function to detect badge columns and generate filter options
-  const getBadgeColumnFilters = () => {
-    const badgeColumns = schema.columns.filter(col => col.type === 'badge');
-    
-    return badgeColumns.map(col => {
-      // Get unique values from actual data
-      const uniqueValues = new Set();
-      data.rows.forEach(row => {
-        if (row[col.id]) {
-          uniqueValues.add(row[col.id]);
-        }
-      });
-      
-      // Convert to options format
-      const options = Array.from(uniqueValues).map(value => ({
-        label: String(value),
-        value: String(value)
-      }));
-      
-      return {
-        column: table.getColumn(col.id),
-        title: col.name,
-        options
-      };
-    }).filter(filter => filter.column); // Only include if column exists
-  };
-
-  const badgeFilters = getBadgeColumnFilters();
-
   return (
     <div className={`space-y-4 ${className}`}>
-      
-
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0 sm:space-x-2">
-        
-        {/*
-          Search Input + Badge Filters
-
-          ⚠️ `items-center` IS DELIBERATE — without it this row was TOP-aligned, not centred.
-          A flex container defaults to `align-items: stretch`, but stretch does not apply to
-          items with a definite height (the spec falls back to `flex-start`), and every child
-          here has one. So the 32px buttons hung from the top edge of the 36px Input and their
-          bottoms sat 4px high.
-
-          The heights are all 36px now, so this changes nothing today. It is here so that a
-          future control with a different height degrades to "vertically centred" rather than
-          silently reintroducing the bug.
-
-          `gap-2` rather than `space-x-2`: `space-x-*` works by adding left margin to
-          siblings, which breaks on wrap — and this row wraps on a wide table with several
-          faceted filters.
-        */}
-        <div className="flex flex-1 items-center gap-2">
-          <Input
-            placeholder="Search all columns..."
-            value={globalFilter ?? ""}
-            onChange={(event) => setGlobalFilter(String(event.target.value))}
-            className="max-w-sm bg-background border-border text-foreground placeholder:text-muted-foreground"
-          />
-          
-          {/* Badge Column Filters */}
-          {badgeFilters.map((filter) => (
-            <DataTableFacetedFilter
-              key={filter.title}
-              column={filter.column}
-              title={filter.title}
-              options={filter.options}
-            />
-          ))}
-          
-          {/* Reset Filters Button */}
-          {(columnFilters.length > 0 || globalFilter) && (
-            <Button
-              variant="ghost"
-              // 36px, matching the Input and the two other toolbar buttons. Was `size="sm"`
-              // (32px) — invisible in most screenshots because this button only renders once
-              // a filter is active, which is exactly why the misalignment survived here
-              // after being fixed on the filter and View buttons.
-              size="default"
-              onClick={() => {
-                table.resetColumnFilters();
-                setGlobalFilter('');
-              }}
-              className="bg-background border-border text-foreground hover:bg-accent"
-            >
-              Reset <X className="ml-1 h-4 w-4" />
-            </Button>
-          )}
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center space-x-2">
-          {/* Column Visibility */}
-          <DataTableViewOptions table={table} schema={schema} />
-
-        </div>
-      </div>
+      {/*
+        Toolbar extracted to `DataTableToolbar` in K-4a. It also owns the badge-chip
+        options, which used to be built here by `getBadgeColumnFilters` — that helper
+        offered a chip for EVERY badge column, ignoring `col.filterable`; the replacement
+        honours it.
+      */}
+      <DataTableToolbar
+        table={table}
+        schema={schema}
+        data={data}
+        globalFilter={globalFilter}
+        onGlobalFilterChange={setGlobalFilter}
+        density={density}
+        onDensityChange={setDensity}
+        showSearch={resolved.filtering.globalSearch}
+        showColumnFilters={resolved.filtering.columnFilters}
+        showSort={resolved.sorting.enabled}
+        allowMultiSort={resolved.sorting.multiSort}
+      />
 
       {/* Table */}
       {/*
@@ -643,7 +583,7 @@ export function DataTable({
                         Every one currently says `left`, so this changes nothing visible
                         today — it exists so the K-6 editor has something to write to.
                       */
-                      className={`text-foreground relative overflow-hidden ${DENSITY_ROW_PADDING[ui.density]} ${ALIGN_CLASS[schema.columns.find((c) => c.id === cell.column.id)?.align ?? 'left']}`}
+                      className={`text-foreground relative overflow-hidden ${DENSITY_ROW_PADDING[density]} ${ALIGN_CLASS[schema.columns.find((c) => c.id === cell.column.id)?.align ?? 'left']}`}
                     >
                       <div className="overflow-hidden">
                         {flexRender(

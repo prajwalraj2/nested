@@ -915,6 +915,94 @@ and any later URL support are a change of source, not a rewrite.
 express — sort by Pricing, then Name inside it. Replacing header sorting with a panel would make
 the common case slower.
 
+##### ✅ K-4a DONE — 11 Aug 2026 (toolbar shell + density)
+
+`DataTable.tsx` had reached **892 lines** with the toolbar inlined mid-file. Extracted to
+`DataTableToolbar.tsx` (215 lines), which fixes the layout rule for everything that follows:
+**search left, controls right** — so K-4b…K-4d extend a group that already exists instead of
+reshaping the row each time.
+
+**Density control added.** ⚠️ **It is the visitor's, not the table's** — seeded from
+`settings.ui.density`, overriding it for that visit only, resetting on reload. Identical shape
+to the K-3 column widths and for the same reason: one reader preferring tighter rows must not
+change the page for everyone.
+
+⚠️ **A bug fixed in passing:** `getBadgeColumnFilters` offered a chip for **every** badge
+column, ignoring `col.filterable`. A column explicitly marked unfilterable still got one. The
+replacement honours it, and sorts the chip options so the list does not depend on row order.
+
+Sub-text under each density option was removed at the user's request after testing.
+
+##### ✅ K-4b DONE — 11 Aug 2026 (the Sort panel)
+
+`DataTableSortPanel.tsx` — multi-column sort with precedence, drag to reorder, per-rule
+direction.
+
+⚠️ **The header click is untouched and remains the fast path.** The panel exists for what a
+header click *cannot* express: an order of precedence — Pricing first, then Name within each
+pricing group. Replacing header sorting with a panel would make the common case slower to
+serve a rarer one.
+
+**No second source of truth.** TanStack's `sorting` state is already an ordered array whose
+first entry is the primary key; the panel edits that array directly rather than keeping its own
+model, so the two cannot drift.
+
+###### ⚠️ `sorting.multiSort` was `false` on all 654 tables — flipped, as in K-2
+
+Same situation as `ui.alternatingRows`: one distinct value everywhere, stamped once at
+creation, never edited because no screen writes it. Left alone it would have made the Sort
+panel single-rule — **and a sort panel that cannot express "Pricing, then Name" is the header
+click with extra steps.**
+
+Default changed to `true` and **all 654 stored rows updated to match**, because a default only
+applies where a stored value is absent. Verified afterwards: 20 settings paths still present,
+every other field unchanged.
+
+`enableMultiSort` is also passed to the table — it governs **shift-click on a header**, not the
+panel, so setting it keeps the two routes consistent rather than letting an accidental
+shift-click do what the setting forbids.
+
+Smaller decisions:
+- **"Sort by" / "then by" labels.** A list of identical rows does not convey precedence; someone
+  would reasonably read them as independent sorts.
+- **A column already used is removed from the other rules' menus** — two rules on one field
+  have no effect.
+- **"Add sort" is disabled, not hidden**, when every column is used. A control that vanishes
+  leaves the reader wondering whether they imagined it.
+- ⚠️ **`onDragOver` calls `preventDefault()`.** Without it the browser treats the row as an
+  invalid drop target and the drop never fires — the usual reason hand-rolled HTML5 dragging
+  silently does nothing.
+- ⚠️ **`SelectValue` is given explicit children**, the G-3c trap: Radix renders a blank trigger
+  server-side otherwise.
+
+###### ⚠️ THE H-2 LESSON, A FOURTH TIME — this time in a data script, not a test
+
+The verification read `multiSort: false` from the API while the database held `true` on all 654
+rows. The bulk update went through Prisma, so `revalidateTag` never fired and
+`getTableFromDB`'s `unstable_cache` kept serving the old value.
+
+**Bounded, unlike the earlier occurrences:** `CACHE_DURATIONS.MEDIUM` is **60 seconds**, so a
+bulk settings change becomes visible within a minute on its own. Confirmed by re-reading after
+the TTL. It is not indefinite — but ⚠️ the service's own comment notes the Data Cache persists
+**across deployments**, so "it will be fine after deploy" is not the reason it resolves; the TTL
+is.
+
+**Generalisable: a bulk script that writes settings directly is invisible for up to a minute.**
+Any admin edit fires `invalidatePages()` and clears it immediately, if the wait matters.
+
+###### Verification
+
+| Check | Result |
+| --- | --- |
+| `tsc`, `next build` | clean |
+| `/courses`, `/tools`, `/ytube` | 200 ×3 |
+| 654/654 tables hold `multiSort: true` | confirmed |
+| `multiSort` reaches the client | confirmed after the TTL |
+| All 20 settings paths intact after the update | confirmed |
+
+⚠️ **The panel's interactions cannot be tested here** — no headless browser, and the table is not
+server-rendered (#30). Drag, precedence and the direction menus are the user's to check.
+
 ### K-5a — Storage adapter, Vercel Blob, upload endpoint
 
 **Schema:**

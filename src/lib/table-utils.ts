@@ -45,7 +45,22 @@ export const DEFAULT_TABLE_SETTINGS: TableSettings = {
   },
   sorting: {
     enabled: true,
-    multiSort: false,
+    /*
+      ⚠️ WAS `false`, ON ALL 654 TABLES, AND WAS NEVER A DECISION (K-4b).
+
+      Same situation as `ui.alternatingRows` in K-2: one distinct value across every table,
+      stamped once at creation by `DEFAULT_TABLE_SETTINGS`, never edited because no screen
+      writes it. K-2 proved the whole blob is boilerplate.
+
+      Left as `false` it would have made the K-4b Sort panel single-rule — and a sort panel
+      that cannot express "Pricing first, then Name inside it" is the header click with
+      extra steps, since one-column sorting already works by clicking a header.
+
+      The 654 stored rows were updated to match, for the same reason as K-2: a default only
+      applies where a stored value is absent, so leaving `false` in the data would have
+      disabled the feature regardless of what this line says.
+    */
+    multiSort: true,
   },
   filtering: {
     enabled: true,
