@@ -91,6 +91,48 @@ so swapping the encoder is one file and the suite says whether it still behaves.
 
 ---
 
+## 🟡 #32 — One Blob store, two databases
+
+**Noticed by the user, 12 Aug 2026:** an image uploaded from `localhost` does not appear on the
+preview deployment.
+
+**Working as built, and worth understanding.** There is one Blob store, and it is connected to
+Production and Preview while `.env` points local development at the same token. But the *rows*
+that name those objects live in whichever database is configured:
+
+```
+local      -> development Neon branch  ─┐
+preview    -> production Neon branch   ─┼─>  ONE store: atno-table-images
+production -> production Neon branch   ─┘
+```
+
+The file lands in the shared store; the `TableImage` row lands in the local database. The admin
+screen lists **rows**, so preview cannot see it.
+
+⚠️ **Two consequences:**
+
+- **Invisible orphans.** An object uploaded locally has no row in production, so no environment
+  lists it — and the "Unused only" filter, which reads rows, can never surface it. It is
+  unreachable rather than merely unused.
+- **Cross-environment deletes.** Deleting an image on production removes the object. If a
+  development row happened to reference the same content hash, that row's thumbnail breaks.
+
+Neither is urgent: the volume is a few kilobytes of test uploads, and the second requires the
+same bytes in both environments.
+
+**Two ways to fix it when it matters**, neither done yet:
+
+1. **A separate Blob store for development.** Cleanest separation; costs one more store and a
+   second token to manage.
+2. **An environment prefix in the object path** — `dev/table-images/<hash>.webp` versus
+   `prod/…`. One line in the adapter, no extra store. ⚠️ It does forfeit dedup across
+   environments, which is harmless.
+
+⚠️ Whichever is chosen, `BLOB-TO-R2-MIGRATION.md` needs the same treatment — it currently
+assumes one store.
+
+---
+
 ## ⚠️ STANDING RULE — data-dependent changes run on BOTH branches
 
 **Adopted 11 Aug 2026, after K-4b shipped code that depended on a migration run only on

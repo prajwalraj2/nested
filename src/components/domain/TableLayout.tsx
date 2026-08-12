@@ -12,7 +12,7 @@ import { PageHeading } from './PageHeading';
 // from it would either use the wrong country or fire twice. `document.cookie` is
 // synchronous, so the very first request already carries the right value.
 import { getUserCountryFromCookie } from '@/hooks/useUserCountry';
-import type { TableSchema, TableData, ColumnType } from '@/types/table';
+import type { TableSchema, TableData, ColumnType, TableImageMap } from '@/types/table';
 
 /**
  * Build the table-data URL with the visitor's country in the QUERY STRING.
@@ -57,6 +57,8 @@ type TableWithData = {
   name: string;
   schema: TableSchema;
   data: TableData;
+  /** Image key -> URL, resolved server-side for the keys this table references (K-5c). */
+  images?: TableImageMap;
   /*
     ⚠️ THIS FIELD WAS TYPED AND THEN DROPPED (K-2, #29.2).
 
@@ -233,6 +235,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
           schema={tableData.schema}
           data={tableData.data}
           settings={tableData.settings}
+          images={tableData.images}
         />
       </div>
     </div>

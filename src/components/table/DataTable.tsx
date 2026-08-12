@@ -42,7 +42,7 @@ import {
 
 import { DataTablePagination } from './DataTablePagination';
 import { DataTableToolbar } from './DataTableToolbar';
-import type { TableSchema, TableData, ColumnType } from '@/types/table';
+import type { TableSchema, TableData, ColumnType, TableImageMap } from '@/types/table';
 import {
   assignBadgeColors,
   badgeClassFor,
@@ -76,6 +76,27 @@ import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff } from "lucide-react"
  * Every one of the 2,675 stored columns currently says `left`, so wiring this changes
  * nothing visible today. It exists so the K-6 editor has somewhere to write.
  */
+/**
+ * Row-image shapes (K-5c).
+ *
+ * ⚠️ 1:1 ONLY, on the user's instruction. `cover` — a 2:3 portrait for book jackets — is
+ * written below and commented out, because enabling it is not just a class change:
+ *
+ *     a 2:3 cover 32px wide is 48px TALL,
+ *     so a book table sits at `comfortable` row height whether or not that is chosen.
+ *
+ * Shape and density are therefore coupled, which is why it was deferred rather than merely
+ * left unbuilt. Turning it on means uncommenting the entry AND widening `imageShape` in
+ * `types/table.ts`.
+ *
+ * Full literals, as ever: Tailwind scans source for class strings and never evaluates code.
+ */
+const IMAGE_SHAPE_CLASS: Record<'circle' | 'square', string> = {
+  circle: 'rounded-full',
+  square: 'rounded-[4px]',
+  // cover: 'rounded-[3px] aspect-[2/3] h-auto w-6',   // see the note above before enabling
+};
+
 const ALIGN_CLASS: Record<'left' | 'center' | 'right', string> = {
   left: 'text-left',
   center: 'text-center',
@@ -94,6 +115,14 @@ type DataTableProps = {
    * fills every gap from the defaults.
    */
   settings?: unknown;
+  /**
+   * Image key -> URL for the keys this table references (K-5c), resolved server-side.
+   *
+   * ⚠️ A key absent from this map renders NOTHING, not a placeholder or a broken-image box.
+   * On the public site a missing picture must never become visible damage — the same choice
+   * `ItemIcon` made in Phase J. Dangling references are surfaced in the admin instead.
+   */
+  images?: TableImageMap;
 };
 
 export function DataTable({
@@ -103,6 +132,7 @@ export function DataTable({
   description,
   className,
   settings,
+  images,
 }: DataTableProps) {
   /**
    * ⚠️ SETTINGS WERE STORED ON ALL 654 TABLES AND READ BY NOTHING (K-2, #29.2).
@@ -356,6 +386,15 @@ export function DataTable({
           // site uniform and costs nothing — both are already-computed references.
           badgeAssignment: badgeAssignments[col.id],
           storedBadgeColors: col.meta?.badgeColors,
+          /*
+            The image belongs to the ROW, not the column: `meta.imageColumn` names which row
+            field holds the key, and that key is looked up in the map the server resolved.
+            An unknown key yields `undefined`, which renders nothing.
+          */
+          imageUrl: col.meta?.imageColumn
+            ? images?.[String(row.original?.[col.meta.imageColumn] ?? '').trim()]
+            : undefined,
+          imageShape: col.meta?.imageShape ?? 'square',
         });
       },
       enableSorting: col.sortable,
@@ -389,7 +428,17 @@ export function DataTable({
       */
       filterFn: tableFilterFn,
     }));
-  }, [schema.columns]);
+    /*
+      ⚠️ `images` and `badgeAssignments` ARE dependencies, not decoration. The cell renderer
+      closes over both, so omitting them leaves TanStack holding column definitions built from
+      an older map — the classic stale-closure shape, and the exact root cause of G-4a, where a
+      page tree rendered empty because the callback captured a previous fetch's state.
+
+      In practice `TableLayout` sets schema, rows and images from one response, so they change
+      together; that makes this cheap insurance rather than a live fix, which is precisely when
+      it is worth writing down.
+    */
+  }, [schema.columns, badgeAssignments, images]);
 
   // Initialize table
   const table = useReactTable({
@@ -652,6 +701,10 @@ type CellOptions = {
   badgeAssignment?: Record<string, BadgeColor>;
   /** Admin overrides from `col.meta.badgeColors`. Wins over the computed assignment. */
   storedBadgeColors?: Record<string, string> | null;
+  /** Resolved image URL for THIS row, or undefined when there is none (K-5c). */
+  imageUrl?: string;
+  /** Shape for that image. Defaults to `square`. */
+  imageShape?: 'circle' | 'square';
 };
 
 // Enhanced cell value formatting with interactive elements
@@ -663,8 +716,60 @@ function formatCellValue(
   options: CellOptions = {},
 ): React.JSX.Element {
   if (value === null || value === undefined || value === '') {
+    /*
+      ⚠️ Checked BEFORE `withImage` is defined, so an empty cell shows the dash alone even
+      when the row has a picture. A thumbnail floating beside nothing reads as a rendering
+      fault; the row's identity lives in the text, and without text there is nothing to
+      identify.
+    */
     return <span className="text-muted-foreground">-</span>;
   }
+
+  /**
+   * ⚠️ THE IMAGE WRAPS THE CELL, IT IS NOT A CELL TYPE (K-5c).
+   *
+   * §29.6(d): a dedicated image column would be near-empty and need hiding on mobile, so the
+   * thumbnail renders INSIDE the cell it belongs to, before the text. Wrapping here rather
+   * than inside each `case` means it works for any column type — today that is a `text` name
+   * column, but a `link` column could carry one tomorrow with no further change.
+   *
+   * ⚠️ `image` is still a declared `ColumnType` with no branch, and that stays true: nothing
+   * uses it (0 of 2,675 columns) and a column whose only content is a picture is exactly the
+   * shape this design rejected.
+   */
+  const withImage = (content: React.JSX.Element): React.JSX.Element => {
+    if (!options.imageUrl) return content;
+    return (
+      <span className="flex min-w-0 items-center gap-2.5">
+        {/*
+          ⚠️ A DISABLE DIRECTIVE MUST NOT SHARE A COMMENT WITH PROSE. The first version put
+          `eslint-disable-next-line` at the top of this block, and ESLint read every following
+          sentence as a rule name — three "Definition for rule ... was not found" errors that
+          failed the build. The directive lives alone, below.
+
+          Plain `<img>`, matching `ItemIcon` and the admin grid: the object is already a 64px
+          WebP produced by the upload endpoint, so `next/image` would re-encode a finished
+          image and bill a transformation for nothing.
+        */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={options.imageUrl}
+          alt=""
+          width={32}
+          height={32}
+          loading="lazy"
+          decoding="async"
+          /*
+            `shrink-0` so a long name never squeezes the picture, and `object-contain` so a
+            wordmark is fitted rather than cropped — the upload already padded it to a square
+            with transparency, so there is nothing to crop to.
+          */
+          className={`h-8 w-8 shrink-0 object-contain ${IMAGE_SHAPE_CLASS[options.imageShape ?? 'square']}`}
+        />
+        <span className="min-w-0 flex-1">{content}</span>
+      </span>
+    );
+  };
 
   switch (type) {
     case 'link':
@@ -674,10 +779,10 @@ function formatCellValue(
         .replace(/^www\./, '')        // Remove www
         .substring(0, 20) + (linkText.length > 20 ? '...' : ''); // Truncate if too long
       
-      return (
-        <a 
-          href={String(value)} 
-          target="_blank" 
+      return withImage(
+        <a
+          href={String(value)}
+          target="_blank"
           rel="noopener noreferrer"
           className="text-primary hover:text-primary/80 underline hover:underline-offset-4 transition-all duration-200 max-w-xs block"
           title={linkText}
@@ -824,10 +929,10 @@ function formatCellValue(
       const textValue = String(value);
       // Fallback truncation for any long text content
       if (textValue.length > 100) {
-        return (
+        return withImage(
           <div className="max-w-[200px]">
-            <span 
-              className="text-foreground text-sm block truncate cursor-help" 
+            <span
+              className="text-foreground text-sm block truncate cursor-help"
               title={textValue}
             >
               {textValue}
@@ -835,8 +940,8 @@ function formatCellValue(
           </div>
         );
       }
-      
-      return (
+
+      return withImage(
         <span className="text-foreground max-w-xs truncate block" title={textValue}>
           {textValue}
         </span>
