@@ -51,6 +51,7 @@ import {
   TableRow as TableRowUI,
 } from '@/components/ui/table';
 import { generateRowId, TARGET_COUNTRIES_COLUMN_ID } from '@/lib/table-utils';
+import { RowImagePicker } from './RowImagePicker';
 import type { TableColumn, TableData, TableRow, TableSchema } from '@/types/table';
 
 /**
@@ -429,10 +430,39 @@ type RowDialogProps = {
 function RowDialog({ columns, row, onSubmit, onCancel }: RowDialogProps) {
   const isEditMode = row !== null;
 
+  /**
+   * ⚠️ SEEDED FROM THE WHOLE ROW, NOT FROM THE COLUMN LIST.
+   * ==========================================================================
+   *
+   * This used to build `values` by walking `columns`:
+   *
+   *     columns.forEach((column) => {
+   *       initial[column.id] = row?.[column.id] ?? column.defaultValue ?? '';
+   *     });
+   *
+   * — which silently drops every row field that is not a declared column. The row image
+   * lives in exactly such a field (`<columnId>__image`, named by `meta.imageColumn`), so
+   * reopening a row that HAD an image showed "No image": the value was in the database, in
+   * the payload, and on the public page, but never in this form's state.
+   *
+   * ⚠️ **The sixth occurrence of this bug class in this project**, and the second where it
+   * cost a user a testing round. `icon` slipped through five explicit field lists in Phase J
+   * (#27, J-2, J-3), `status` through `buildPageHierarchy` in I-1, and now this. Every time
+   * the shape is identical: a rebuild-by-field-list cannot complain about a field it was
+   * never told about, and TypeScript cannot help because the field is dynamic.
+   *
+   * Starting from the row and only filling GAPS makes the class impossible here — a new
+   * field needs no change to this function, ever.
+   *
+   * ⚠️ Not a data-loss bug, only a display one: `handleSubmit` spreads the existing row
+   * before `values`, so the image survived a save even while invisible here. That is the
+   * same defensive spread, applied on the way out; this is the missing half on the way in.
+   */
   const [values, setValues] = useState<Record<string, unknown>>(() => {
-    const initial: Record<string, unknown> = {};
+    const initial: Record<string, unknown> = { ...(row ?? {}) };
     columns.forEach((column) => {
-      initial[column.id] = row?.[column.id] ?? column.defaultValue ?? '';
+      // `?? ''` so a null in the data still renders as an empty input rather than "null".
+      initial[column.id] = initial[column.id] ?? column.defaultValue ?? '';
     });
     return initial;
   });
@@ -501,6 +531,35 @@ function RowDialog({ columns, row, onSubmit, onCancel }: RowDialogProps) {
                   if (validationError) setValidationError(null);
                 }}
               />
+
+              {/*
+                ── Row image (K-5c) ────────────────────────────────────────────────
+                Rendered only when this column declares `meta.imageColumn`, which the schema
+                editor sets. It writes into a SEPARATE row field named by that metadata — not
+                into the column's own value — so the picture and the text stay independent.
+              */}
+              {column.meta?.imageColumn && (
+                <div className="mt-2 space-y-1.5">
+                  <Label htmlFor={`image-${column.id}`} className="text-xs text-muted-foreground">
+                    Image beside {column.name}
+                  </Label>
+                  <RowImagePicker
+                    id={`image-${column.id}`}
+                    value={String(values[column.meta.imageColumn] ?? '')}
+                    onChange={(key) =>
+                      setValues((prev) => ({
+                        ...prev,
+                        /*
+                          ⚠️ Empty string, not `undefined`. The row is a JSON object written
+                          wholesale; `undefined` disappears on serialisation, so clearing an
+                          image would leave the previous key in the stored row.
+                        */
+                        [column.meta!.imageColumn!]: key,
+                      }))
+                    }
+                  />
+                </div>
+              )}
             </div>
           ))}
         </form>
