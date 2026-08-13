@@ -542,6 +542,83 @@ function ColumnEditor({ column, index, canDelete, onUpdate, onDelete }: ColumnEd
               </div>
             </div>
           </div>
+
+          {/*
+            ── Row image (K-5c) ──────────────────────────────────────────────────────
+            ⚠️ THIS IS A COLUMN OPTION, NOT A COLUMN TYPE.
+
+            §29.6(d): an image is a companion to an existing column — the thumbnail renders
+            inside this column's cell, before its text. A dedicated image column would sit
+            near-empty and need hiding on mobile.
+
+            Ticking this writes `meta.imageColumn`, naming the row field that holds the image
+            KEY. The field id is derived from the column id so it cannot collide with a real
+            data column, and so nothing has to be typed.
+          */}
+          <div className="border-t pt-3">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id={`image-${column.id}`}
+                checked={!!column.meta?.imageColumn}
+                onCheckedChange={(checked) =>
+                  onUpdate({
+                    meta: {
+                      ...column.meta,
+                      /*
+                        ⚠️ `undefined`, not deletion of the key — `updateColumn` merges, so an
+                        absent key would leave the old value in place and the checkbox would
+                        appear to do nothing when unticked.
+                      */
+                      imageColumn: checked ? `${column.id}__image` : undefined,
+                      imageShape: checked ? (column.meta?.imageShape ?? 'square') : undefined,
+                    },
+                  })
+                }
+              />
+              <Label htmlFor={`image-${column.id}`} className="text-sm">
+                Show an image beside this column
+              </Label>
+            </div>
+
+            {column.meta?.imageColumn && (
+              <div className="mt-3 space-y-2 pl-6">
+                <Label className="text-xs text-muted-foreground">Shape</Label>
+                {/*
+                  ⚠️ A NATIVE `<select>`, matching the Data Type dropdown a few lines above.
+
+                  This file has not had its shadcn pass — G-5b converted `TableEditor`, not the
+                  schema editor. Dropping a Radix `Select` in beside a native one would put two
+                  different dropdowns in the same panel, which reads as a bug before it reads
+                  as a migration. Styled identically to its neighbour so the conversion, when it
+                  comes, is one sweep.
+                */}
+                <select
+                  id={`image-shape-${column.id}`}
+                  value={column.meta.imageShape ?? 'square'}
+                  onChange={(e) =>
+                    onUpdate({
+                      meta: {
+                        ...column.meta,
+                        imageShape: e.target.value as 'circle' | 'square',
+                      },
+                    })
+                  }
+                  className="mt-1 block w-full px-3 py-2 border border-input bg-background rounded-md focus:ring-2 focus:ring-ring focus:border-ring"
+                >
+                  <option value="square">Rounded square — apps, tools, logos</option>
+                  <option value="circle">Circle — people, channels</option>
+                  {/*
+                    ⚠️ `cover` (2:3, for book jackets) is implemented and commented out in
+                    `DataTable`. Enabling it forces taller rows — a 2:3 cover 32px wide is 48px
+                    tall — so shape and density are coupled. Deferred, not forgotten.
+                  */}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Pick each row&apos;s image in the Data tab. Rows without one show no picture.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
       </div>

@@ -54,8 +54,30 @@ export type ColumnMeta = {
   linkTemplate?: string;         // URL template: "https://example.com/{id}"
   openInNewTab?: boolean;
   
-  // For image columns
+  /*
+    ── Row images (K-5c) ────────────────────────────────────────────────────────
+    ⚠️ An image is a COMPANION to a column, not a column of its own.
+
+    §29.6(d): a dedicated image column would sit near-empty and need hiding on mobile, so the
+    thumbnail renders INSIDE the name cell, before the text. `imageColumn` names the row field
+    holding the image KEY — e.g. a "Channel Name" column with `imageColumn: 'logo'` renders
+    `row.logo`'s picture beside the channel's name.
+
+    The field holds a `TableImage.key`, never a URL. Reuse (1.68x measured) and provider
+    portability both depend on that indirection — see the `TableImage` model.
+  */
+  /** Row field holding the image key, e.g. `"logo"`. Absent means this column has no image. */
+  imageColumn?: string;
+  /**
+   * ⚠️ 1:1 only, on the user's instruction. `cover` (2:3, for book jackets) is implemented and
+   * commented out in `DataTable` — enabling it forces taller rows, so shape and density are
+   * coupled and it was deferred rather than merely unbuilt.
+   */
+  imageShape?: 'circle' | 'square';
+
+  /** @deprecated Unused — `image` was declared as a column type and never rendered (#29.1). */
   imageSize?: 'small' | 'medium' | 'large';
+  /** @deprecated Unused. A missing image renders nothing, never a placeholder. */
   fallbackImage?: string;
   
   // For number/currency columns
@@ -101,6 +123,17 @@ export type TableRow = {
   id: string;                    // Unique row identifier
   [columnId: string]: unknown;   // Dynamic column data
 };
+
+/**
+ * Image key -> URL, for the keys a single table actually references (K-5c).
+ *
+ * ⚠️ Resolved SERVER-SIDE and sent with the table, rather than letting the browser look each
+ * key up. A table with 40 rows would otherwise make 40 requests to translate names into URLs,
+ * and the renderer would have to handle "not resolved yet" on every cell.
+ *
+ * Only the keys present in this table are included — not the whole library.
+ */
+export type TableImageMap = Record<string, string>;
 
 export type TableData = {
   rows: TableRow[];

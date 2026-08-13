@@ -129,6 +129,9 @@ export async function GET(
           name: tableData.name,
           schema: tableData.schema,
           data: tableData.data,
+          // Image key -> URL for the keys this table uses (K-5c). Resolved server-side so the
+          // browser does not make one request per row to translate names into URLs.
+          images: tableData.images,
           settings: tableData.settings,
           updatedAt: tableData.updatedAt,
           page: tableData.page,
