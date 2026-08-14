@@ -46,17 +46,33 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
           `bg-neutral-100` and `text-neutral-900` are fixed values on purpose — they are
           the one place in the public site that must NOT follow the theme.
 
-          WHY: the stored HTML has colours baked into inline `style` attributes. Measured
-          across all 415 rich-text rows: 395 of them carry inline text colours, 2,519
-          declarations in total, of which **574 are dark colours** — 384 of those pure
-          black (`#000000` ×216, `rgb(0,0,0)` ×168) plus `#292727` ×168 and `#1a1a1a` ×10.
+          WHY: the stored HTML has colours baked into inline `style` attributes, and an
+          inline style beats any stylesheet rule on specificity. On a dark surface a dark
+          `color:` renders near-black text on a near-black background and simply
+          disappears. No CSS in `globals.css` overrides that, short of `!important` — which
+          would then also flatten the 168 deliberate `rgb(255,255,255)` white-text
+          declarations that pair with the rows carrying inline BACKGROUND colours, turning
+          those white-on-white.
 
-          An inline style beats any stylesheet rule on specificity. So on a dark surface
-          those 574 declarations would render near-black text on a near-black background
-          and simply disappear. No CSS we can write in `globals.css` overrides them, short
-          of `!important` — which would then also flatten the 168 deliberate
-          `rgb(255,255,255)` white-text declarations that pair with the 57 rows carrying
-          inline BACKGROUND colours, turning those white-on-colour.
+          ⚠️ THE NUMBER THAT USED TO BE QUOTED HERE WAS WRONG — corrected 14 Aug 2026, see
+          NEW-IMPROVEMENTS-2.md #34. It claimed "395 of 415 rows carry inline text colours,
+          2,519 declarations". Re-measured with the three colour families counted
+          separately:
+
+              color:              58 of 415 rows (14%)   568 declarations, 396 dark
+              background-color:   37 of 415 rows  (9%)   532 declarations
+              border-color:      393 of 415 rows (95%) 1,411 declarations
+
+          The old figure had summed all three and called the total text colour — 393
+          border-colour rows became "395 rows", and 568+532+1,411 = 2,511 became "2,519
+          declarations". Only `color:` can make text vanish; `background-color` paints its
+          own ground, and the 393 `border-color: #dcdada` rules on <hr> elements merely look
+          pale on dark.
+
+          ⚠️ THIS CARD STILL STAYS LIGHT, because those 58 rows are real and would break.
+          What changed is the COST of fixing it: 58 rows to clean rather than 395, and four
+          find-and-replaces cover all but 4 of the 568 declarations. That is a decision for
+          #21.4 / #34, not something to change here.
 
           So the page chrome themes and this content card does not: a light "island" of
           author-styled content inside a dark page. That keeps every one of those 2,519

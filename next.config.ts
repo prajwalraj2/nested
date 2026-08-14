@@ -46,7 +46,37 @@ const nextConfig: NextConfig = {
    * If it is still not enough, the remaining lever is dropping `--turbopack` from the build
    * script — the other half of #23.2's fix, at the same 2.2-minute cost.
    */
-  serverExternalPackages: ['sharp'],
+  /**
+   * ⚠️ AND `isomorphic-dompurify` / `jsdom` — THIS IS #23, FIXED BY #31'S PATTERN (L-1).
+   * ==========================================================================
+   *
+   * Same error, same Turbopack frame, different package:
+   *
+   *     POST /api/admin/rich-text -> 500
+   *     Failed to load external module jsdom
+   *       at Context.externalImport (.next/server/chunks/[turbopack]_runtime.js)
+   *
+   * …which the browser sees as `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`,
+   * because the 500 comes back as Vercel's HTML error page and the client calls `.json()` on it.
+   *
+   * ── WHY ALL THREE PACKAGES ARE NAMED ──────────────────────────────────────
+   * `src/lib/sanitize-html.ts` imports `isomorphic-dompurify`, which requires `dompurify` for
+   * the sanitiser itself and `jsdom` to give it a DOM to work on (there is no `window` on the
+   * server). Naming only the entry package would leave the other two to be bundled, which is
+   * the thing that fails.
+   *
+   * ⚠️ THE FIRST ATTEMPT AT #31 NAMED ONE PACKAGE AND GOT HALFWAY, costing a second deploy
+   * cycle. Listing the whole chain here is that lesson applied rather than relearned.
+   *
+   * ⚠️ UNLIKE sharp, NOTHING HERE IS NATIVE — jsdom is 3.2 MB of plain JavaScript. So the
+   * cause is not un-traceable `.node` binaries; it is jsdom's runtime `require` calls, which
+   * static analysis cannot follow either. Same remedy, different reason.
+   *
+   * ⚠️ **This cannot be verified locally**, exactly as #31 could not. `npm run build`
+   * succeeding proves only that nothing was broken. Treat it as unverified until a deploy
+   * proves it — and check the NEW deployment URL, not a refresh of the old one.
+   */
+  serverExternalPackages: ['sharp', 'isomorphic-dompurify', 'dompurify', 'jsdom'],
 
   /**
    * Force sharp's native packages into the two routes that use it.
@@ -72,6 +102,26 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/admin/table-images': ['./node_modules/@img/**/*'],
     '/api/admin/table-images/[id]': ['./node_modules/@img/**/*'],
+
+    /*
+      The two routes that sanitise HTML, and the only two that import
+      `src/lib/sanitize-html.ts` — verified by grep, not assumed:
+
+        src/app/api/admin/rich-text/route.ts          (a lazy `await import`, see below)
+        src/app/api/admin/rich-text/[pageId]/route.ts (a top-level import)
+
+      ⚠️ THE LAZY IMPORT IS WHY BOTH MUST BE LISTED. `route.ts` defers the import into its POST
+      handler, which was an earlier attempt to keep jsdom out of the module graph. A dynamic
+      import is *harder* for the tracer to follow, not easier — so that route needs the include
+      at least as much as the static one does. Leave the lazy import alone for now; unpicking it
+      is a separate change, and two changes at once make a failed deploy ambiguous.
+
+      ⚠️ Keys are ROUTE paths, not file paths — `[pageId]` stays in brackets, matching the
+      `[id]` entry above. A key that matches no route is silently ignored: no warning, no
+      error, and the deploy fails exactly as if the line were absent.
+    */
+    '/api/admin/rich-text': ['./node_modules/jsdom/**/*', './node_modules/dompurify/**/*'],
+    '/api/admin/rich-text/[pageId]': ['./node_modules/jsdom/**/*', './node_modules/dompurify/**/*'],
   },
 
   /**
