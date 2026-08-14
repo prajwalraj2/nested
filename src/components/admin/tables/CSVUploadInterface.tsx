@@ -21,7 +21,9 @@ import {
   CSVValidationResult,
   CSVImportPreview 
 } from '@/types/table';
-import { transformCsvToTableData, validateColumnValue } from '@/lib/table-utils';
+import { transformCsvToTableData, validateColumnValue,
+  getImportTargets,
+} from '@/lib/table-utils';
 
 /**
  * CSV Upload Interface Component
@@ -143,19 +145,47 @@ export function CSVUploadInterface({
   // Auto-map CSV columns to table columns
   const autoMapColumns = useCallback((csvHeaders: string[], schemaColumns: any[]) => {
     const mapping: Record<string, string> = {};
-    
+
+    /*
+      ⚠️ IMAGE FIELDS ARE MATCHED FIRST, AND ONLY ON AN EXPLICIT WORD.
+
+      Auto-mapping matches loosely — "Course" finds "Course Name" — which is right for
+      columns and wrong for image fields: a CSV header of "Course Name" would otherwise
+      match the image field for that same column as readily as the column itself.
+
+      So an image field is only auto-mapped when the header actually says so, and it is
+      tried before the column pass so the explicit signal wins.
+    */
+    const imageFields = schemaColumns
+      .filter(col => col.meta?.imageColumn)
+      .map(col => ({ id: col.meta.imageColumn as string, columnName: String(col.name) }));
+
     csvHeaders.forEach(csvHeader => {
+      const header = csvHeader.toLowerCase();
+      const saysImage = /(image|logo|icon|picture|photo|thumbnail)/.test(header);
+
+      if (saysImage && imageFields.length > 0) {
+        // With several image fields, prefer the one whose column is also named in the header
+        // ("Course Name Image"); otherwise the only one, if there is only one.
+        const named = imageFields.find(f => header.includes(f.columnName.toLowerCase()));
+        const target = named ?? (imageFields.length === 1 ? imageFields[0] : undefined);
+        if (target) {
+          mapping[csvHeader] = target.id;
+          return;
+        }
+      }
+
       // Find best match based on name similarity
-      const bestMatch = schemaColumns.find(col => 
-        col.name.toLowerCase().includes(csvHeader.toLowerCase()) ||
-        csvHeader.toLowerCase().includes(col.name.toLowerCase())
+      const bestMatch = schemaColumns.find(col =>
+        col.name.toLowerCase().includes(header) ||
+        header.includes(col.name.toLowerCase())
       );
-      
+
       if (bestMatch) {
         mapping[csvHeader] = bestMatch.id;
       }
     });
-    
+
     return mapping;
   }, []);
 
@@ -365,9 +395,17 @@ export function CSVUploadInterface({
                       className="px-3 py-2 border border-input bg-background rounded-md focus:ring-2 focus:ring-ring focus:border-ring"
                     >
                       <option value="">Skip this column</option>
-                      {schema.columns.map(column => (
-                        <option key={column.id} value={column.id}>
-                          {column.name} ({column.type})
+                      {/*
+                        ⚠️ `getImportTargets`, not `schema.columns`. A row image lives in a
+                        field named by `meta.imageColumn`, which is deliberately not a column —
+                        so a list of columns cannot offer it as a destination, and the
+                        transform would drop anything mapped there. One shared list means this
+                        dropdown and `transformCsvToTableData` cannot disagree about what
+                        exists.
+                      */}
+                      {getImportTargets(schema).map(target => (
+                        <option key={target.id} value={target.id}>
+                          {target.label}
                         </option>
                       ))}
                     </select>

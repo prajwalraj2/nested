@@ -415,12 +415,62 @@ function validateRule(value: unknown, rule: ValidationRule, fieldName: string): 
 // Data Transformation Utilities
 // =============================================================================
 
+/**
+ * Everything a CSV column may be mapped onto (K-5c).
+ * ============================================================================
+ *
+ * ⚠️ NOT JUST `schema.columns`. A row image lives in a field named by `meta.imageColumn`,
+ * which is deliberately NOT a column — so a list of columns cannot express "put this CSV
+ * column's values into the image field", and `transformCsvToTableData` would silently drop
+ * a header mapped there.
+ *
+ * That is the same rebuild-by-field-list shape that has now bitten this project six times
+ * (icon through five lists in Phase J, status in I-1, the row dialog in K-5c). Exporting one
+ * list of targets means the import UI and the transform read from the same place and cannot
+ * disagree about what exists.
+ */
+export type ImportTarget = {
+  /** Row field to write into — a column id, or an image field name. */
+  id: string;
+  /** What the person choosing sees. */
+  label: string;
+  kind: 'column' | 'image';
+};
+
+export function getImportTargets(schema: TableSchema): ImportTarget[] {
+  const targets: ImportTarget[] = [];
+
+  for (const column of schema.columns) {
+    targets.push({ id: column.id, label: `${column.name} (${column.type})`, kind: 'column' });
+
+    // Immediately after its column, so the pair reads together in the dropdown.
+    if (column.meta?.imageColumn) {
+      targets.push({
+        id: column.meta.imageColumn,
+        // Says what to put in it. "Course Name image" alone would leave someone guessing
+        // whether it wants a URL, a filename or a key.
+        label: `${column.name} — image key`,
+        kind: 'image',
+      });
+    }
+  }
+
+  return targets;
+}
+
 export function transformCsvToTableData(
   csvData: unknown[][],
   schema: TableSchema,
   headerMapping: Record<string, string>
 ): TableData {
   const [headers, ...rows] = csvData;
+
+  /** Image fields are legitimate targets even though they are not columns — see above. */
+  const imageFields = new Set(
+    schema.columns
+      .map(col => col.meta?.imageColumn)
+      .filter((f): f is string => typeof f === 'string' && f.length > 0)
+  );
   
   // Check if CSV has targetCountries column (case-insensitive)
   const targetCountriesHeaderIndex = headers.findIndex(header => 
@@ -432,15 +482,32 @@ export function transformCsvToTableData(
       id: `row_${index + 1}_${Date.now()}`,
     };
     
-    // Map CSV columns to table columns
+    /*
+      Map CSV columns onto their targets.
+
+      ⚠️ A target is not necessarily a COLUMN. Image fields are valid targets too, and the
+      previous version looked every mapping up in `schema.columns` and skipped what it could
+      not find — so a header mapped to an image field was discarded without a word.
+    */
     headers.forEach((header, colIndex) => {
       const headerStr = String(header);
-      const columnId = headerMapping[headerStr];
-      if (columnId && row[colIndex] !== undefined) {
-        const column = schema.columns.find(col => col.id === columnId);
-        if (column) {
-          tableRow[columnId] = transformValue(row[colIndex], column.type);
-        }
+      const targetId = headerMapping[headerStr];
+      if (!targetId || row[colIndex] === undefined) return;
+
+      const column = schema.columns.find(col => col.id === targetId);
+      if (column) {
+        tableRow[targetId] = transformValue(row[colIndex], column.type);
+        return;
+      }
+
+      if (imageFields.has(targetId)) {
+        /*
+          An image key is stored as a plain trimmed string — never passed through
+          `transformValue`, which types by COLUMN and would have nothing to type this by.
+          An empty cell writes an empty string rather than being skipped, so a CSV can
+          deliberately clear an image the same way the picker's × does.
+        */
+        tableRow[targetId] = String(row[colIndex] ?? '').trim();
       }
     });
     
