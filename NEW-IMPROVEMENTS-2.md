@@ -51,11 +51,11 @@ two screenshots, I said the fix looked uncommitted — it was committed and push
 preview URL is pinned to one deployment**, so refreshing that tab serves the old build forever.
 The observation was right; the conclusion was not.
 
-### ⚠️ The pattern is now proven, and #23 is the same shape
+### ⚠️ The pattern looked like #23's shape. It was only half of it.
 
-`isomorphic-dompurify` → jsdom fails identically for the rich-text editor, in the same log.
-23.2's fix cost 2.2 minutes per build and was reverted for it; **this is the cheaper one**, and
-it is the route to take if #23 is ever picked up.
+`isomorphic-dompurify` → jsdom failed identically in the same log, so applying this pattern was
+the obvious first move for #23 — and it was right, but it fixed only the outer of **two stacked
+faults wearing the same error text**. See #23 below.
 
 <details>
 <summary>Original diagnosis, kept for the reasoning</summary>
@@ -129,6 +129,154 @@ sharp becomes troublesome again, and because the reasoning for *when* to abandon
 approach is worth having written down.
 
 </details>
+
+---
+
+## ✅ #23 — Rich text 500s on Vercel and works locally (L-1, 14 Aug 2026)
+
+**Two independent faults, stacked, producing the same error text.** That is why it survived a
+diagnosis, a fix, a revert, and two more deploy cycles.
+
+The browser symptom was always `Unexpected token '<', "<!DOCTYPE "... is not valid JSON` — the
+client calling `.json()` on Vercel's HTML error page for a 500.
+
+### Fault 1 — the module was never deployed
+
+```
+Failed to load external module jsdom
+  at Context.externalImport (.next/server/chunks/[turbopack]_runtime.js)
+```
+
+Identical in shape to **#31**, and fixed the same way: `serverExternalPackages` plus
+`outputFileTracingIncludes` for the two routes that import `src/lib/sanitize-html.ts`.
+
+⚠️ **Name the whole require chain, not the entry package** — `isomorphic-dompurify`, `dompurify`
+*and* `jsdom`. #31 named one package, got halfway, and cost a second deploy.
+
+### Fault 2 — the module deployed, then refused to load
+
+The next deploy failed differently, and **the difference was the evidence**:
+
+```
+Failed to load external module isomorphic-dompurify:
+  [ERR_REQUIRE_ESM]: require() of ES Module
+  /var/task/node_modules/@exodus/bytes/encoding-lite.js
+  from /var/task/node_modules/html-encoding-sniffer/lib/html-encoding-sniffer.js
+```
+
+A real path inside `/var/task/node_modules/` — somewhere the "not found" failure never got to.
+Fault 1's fix had worked.
+
+The chain:
+
+| | pulls | |
+| --- | --- | --- |
+| `isomorphic-dompurify@3.x` | `jsdom ^28` | |
+| `jsdom@28` | `html-encoding-sniffer@6` | ⚠️ **changed at jsdom 28** — 27 and earlier use `@4` |
+| `html-encoding-sniffer@6` | `@exodus/bytes` | ⚠️ **`"type": "module"`, no CommonJS build** |
+
+`@exodus/bytes` declares `engines: { node: "^20.19.0 || ^22.12.0 || >=24.0.0" }` — precisely the
+versions where `require()` of an ES Module became legal. It knowingly depends on that.
+
+⚠️ **`html-encoding-sniffer@4` depends on `whatwg-encoding`, which is pure CommonJS.** The ESM
+requirement enters the tree at exactly one version boundary.
+
+### ⚠️ Two wrong diagnoses, recorded because the reasoning is the lesson
+
+**Wrong #1 — "Vercel is on Node < 22.12."** Plausible: local is `v22.12.0`, the exact threshold,
+and Vercel's settings showed Project `22.x` against a Production override of `24.x`. **The
+deployment's Runtime Settings said 24.x.** `engines: ">=22.12.0"` in `package.json` was
+overriding the project setting all along — which is what the build log's `Detected "engines"`
+warning meant. Node was never the variable.
+
+**Wrong #2 — "Turbopack's `externalImport` does its own require."** Reading the generated runtime
+settled it — `.next/server/chunks/[turbopack]_runtime.js:475`:
+
+```js
+async function externalImport(id) {
+  let raw;
+  try { raw = await import(id); }
+  catch (err) { throw new Error(`Failed to load external module ${id}: ${err}`); }
+```
+
+It uses `await import(id)`. Both `require()` and `import()` of the whole chain succeed locally, so
+neither the loader nor the Node version discriminates.
+
+⚠️ **What all three failed local reproductions had in common: they tested the wrong thing.** The
+question was never "can this Node load this package" — it was **"which packages are in the tree"**.
+The answer was one `npm view` away and came last instead of first.
+
+### The fix
+
+```jsonc
+"isomorphic-dompurify": "^2.26.0",   // 2.x -> jsdom ^26.1.0 -> sniffer@4 -> whatwg-encoding (CJS)
+"overrides": { "dompurify": "^3.4.13" }
+```
+
+⚠️ **Both fixes are required.** Remove the tracing includes and it goes back to "module not
+found"; un-pin `isomorphic-dompurify` and it goes back to `ERR_REQUIRE_ESM`. Two different error
+messages, one broken feature.
+
+⚠️ **`dompurify` is overridden UP, not down.** `isomorphic-dompurify@2.26.0` asks for `^3.2.6`,
+which npm resolved to **3.4.12** — vulnerable to **GHSA-55q2-fjhq-7xh7** (moderate, *"IN_PLACE
+hook removal leaves a detached subtree executable, causing XSS"*). That is not academic here:
+`sanitize-html.ts` registers an `afterSanitizeAttributes` hook. `3.4.13` satisfies `^3.2.6`, so
+the override forces the patched build without touching the package that asks for it.
+
+⚠️ **Turbopack is kept**, and the `phase14` branch is why we can be sure that is safe.
+
+### The control experiment — `phase14`, which works
+
+The user kept the last branch on which rich text worked on Vercel, redeployed it, and it still
+works. Comparing it against `dev-3.0` isolates the cause to one thing:
+
+| | `phase14` (works) | `dev-3.0` (broke) |
+| --- | --- | --- |
+| build script | `next build --turbopack` | `next build --turbopack` — **identical** |
+| Next.js | 15.5.9 | 15.5.9 — **identical** |
+| `next.config.ts` | bare — no externals, no tracing | externals + tracing |
+| `engines` | not set → Vercel used project setting **22.x** | `>=22.12.0` → Vercel chose **24.x** |
+| `src/lib/sanitize-html.ts` | ⚠️ **does not exist** | exists |
+| `dompurify` / `jsdom` | ⚠️ **not in `package.json` at all** | via `isomorphic-dompurify` |
+| rich-text route imports | `next/server`, `PrismaClient` — nothing else | + the sanitiser, at module scope |
+
+⚠️ **Turbopack was ON in the working branch.** So it was never the variable — it was the constant.
+That kills the tempting reading of 23.2 ("it worked before we used Turbopack") and it means
+dropping `--turbopack` was only ever a workaround for a dependency problem, at ~2.2 minutes per
+build, permanently.
+
+**It worked because the code that fails did not exist.** The sanitiser — and with it jsdom —
+arrived in `872c341` *"feat(security): sanitise rich-text HTML on write (#2)"*. Phase 14 therefore
+offers nothing to copy: there is no earlier working configuration of this dependency, only an
+earlier absence of it.
+
+⚠️ **A related trap the comparison exposed.** `engines: ">=22.12.0"` makes Vercel pick the newest
+major and **silently override the dashboard's Node.js Version setting** — which is what the
+"Node.Js Version Override" badge meant, and what sent one diagnosis down a dead end. Phase 14 has
+no `engines` field, so its dashboard setting is honoured. Worth knowing before trusting that panel
+again.
+
+⚠️ **And it explains why the editor would not even OPEN.** The failing request was a **GET**, not a
+save. `[pageId]/route.ts` imports the sanitiser at **module scope**, so merely loading the route
+pulls jsdom — `route.ts` defers it into the POST handler, `[pageId]/route.ts` does not.
+
+### Verified before pushing
+
+| Check | Result |
+| --- | --- |
+| `@exodus/bytes` present in `node_modules` | **gone** |
+| `jsdom` / `html-encoding-sniffer` | 26.1.0 / **4.0.0** |
+| `dompurify` | **3.4.13** (patched) |
+| `require()` and `import()` of the whole chain | both OK |
+| `addHook('afterSanitizeAttributes')` fires | PASS |
+| `<script>`, `onerror`, `javascript:` href stripped | PASS |
+| `rel="noopener noreferrer"` added to `target="_blank"` | PASS |
+| allowed content and inline `style` survive | PASS |
+| every advisory in `npm audit` traced against jsdom's dependency list | ⚠️ **none of the 20 come from jsdom** — the 12→20 rise is newly published advisories, not this change |
+
+⚠️ **The audit check was the one worth doing.** The count rose right after the downgrade, which
+looks exactly like a regression caused by it. Checking each advisory against jsdom's actual
+dependency list is what separated correlation from cause.
 
 ---
 
@@ -2052,7 +2200,7 @@ become 50 near-duplicate URLs competing with the page they came from. One line i
 
 | Step | What | Ships on its own? |
 | --- | --- | --- |
-| **L-1** | Fix #23 — the sanitiser on Vercel | ✅ and **blocks everything after it** |
+| ✅ **L-1** | Fix #23 — the sanitiser on Vercel | **DONE 14 Aug** — see #23 above |
 | **L-2** | Schema, migration, `contentType`, page form | ✅ invisible but complete |
 | **L-3** | Admin — Roadmap Management list screen | ✅ |
 | **L-4** | Admin — the tree editor (nodes, reorder, icons, badges) | ✅ |

@@ -1,0 +1,946 @@
+<title>ATNO Roadmaps</title>
+
+<style>
+  /* ══════════════════════════════════════════════════════════════════════════
+     TOKENS — light is the bare :root, so it applies in the un-stamped state.
+     Dark is redefined twice: once for prefers-color-scheme (guarded so an
+     explicit light choice still wins), once for the explicit [data-theme]
+     stamp. No colour is ever declared ONLY inside a media/[data-theme] block.
+     ══════════════════════════════════════════════════════════════════════════ */
+  :root {
+    --ground:      #F5F7F5;
+    --surface:     #FFFFFF;
+    --surface-2:   #EDF1EE;
+    --surface-3:   #E3E9E4;
+
+    --ink:         #16211C;
+    --ink-2:       #4E5F57;
+    --ink-3:       #7F9089;
+
+    --line:        #DCE4DE;
+    --rail:        #C8D4CC;
+    --rail-strong: #A9BCB1;
+
+    --accent:      #157A55;
+    --accent-soft: #DDF0E6;
+    --accent-ink:  #0C4A33;
+
+    --focus:       #157A55;
+
+    /* Badge pairs — four hues, deliberately desaturated so they label rather
+       than alarm. Assigned by position, the same way K-1 does it. */
+    --b1-bg: #F3E4D8;  --b1-fg: #7A4726;
+    --b2-bg: #DFE7F1;  --b2-fg: #2E4B72;
+    --b3-bg: #EFE1EC;  --b3-fg: #6B3560;
+    --b4-bg: #F1EAD2;  --b4-fg: #675111;
+
+    --shadow: 0 1px 2px rgba(22,33,28,.05), 0 8px 24px -8px rgba(22,33,28,.12);
+    --shadow-lg: -12px 0 40px -12px rgba(22,33,28,.22);
+
+    --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", sans-serif;
+    --mono: "Cascadia Mono", "Cascadia Code", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0D1411;
+      --surface:     #131C18;
+      --surface-2:   #1A2520;
+      --surface-3:   #22302A;
+
+      --ink:         #E6EDE9;
+      --ink-2:       #9EB0A7;
+      --ink-3:       #6D8179;
+
+      --line:        #24302A;
+      --rail:        #2E3C35;
+      --rail-strong: #445851;
+
+      --accent:      #48C48C;
+      --accent-soft: #123326;
+      --accent-ink:  #A9E9CA;
+
+      --focus:       #48C48C;
+
+      --b1-bg: #33241A;  --b1-fg: #E2B694;
+      --b2-bg: #1A2434;  --b2-fg: #A8C4E9;
+      --b3-bg: #2C1E2A;  --b3-fg: #DDB2D4;
+      --b4-bg: #2B2716;  --b4-fg: #DFCC8D;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -8px rgba(0,0,0,.5);
+      --shadow-lg: -12px 0 40px -12px rgba(0,0,0,.6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0D1411;
+    --surface:     #131C18;
+    --surface-2:   #1A2520;
+    --surface-3:   #22302A;
+
+    --ink:         #E6EDE9;
+    --ink-2:       #9EB0A7;
+    --ink-3:       #6D8179;
+
+    --line:        #24302A;
+    --rail:        #2E3C35;
+    --rail-strong: #445851;
+
+    --accent:      #48C48C;
+    --accent-soft: #123326;
+    --accent-ink:  #A9E9CA;
+
+    --focus:       #48C48C;
+
+    --b1-bg: #33241A;  --b1-fg: #E2B694;
+    --b2-bg: #1A2434;  --b2-fg: #A8C4E9;
+    --b3-bg: #2C1E2A;  --b3-fg: #DDB2D4;
+    --b4-bg: #2B2716;  --b4-fg: #DFCC8D;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -8px rgba(0,0,0,.5);
+    --shadow-lg: -12px 0 40px -12px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :where(a) { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  :where(button, select, a):focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* ── Fake browser chrome — demonstrates the URL design, live ─────────────── */
+  .chrome {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .dots { display: flex; gap: 6px; flex: none; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--rail-strong); }
+  .url {
+    flex: 1; min-width: 0;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--ink-2);
+    background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .url b { color: var(--ink); font-weight: 600; }
+  .url em { color: var(--accent); font-style: normal; font-weight: 600; }
+
+  .ghost {
+    flex: none;
+    font: 600 11px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-2); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 12px; cursor: pointer;
+  }
+  .ghost:hover { color: var(--ink); border-color: var(--rail-strong); }
+
+  /* ── Page ────────────────────────────────────────────────────────────────── */
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-3); margin: 0 0 10px;
+  }
+  .eyebrow a { color: var(--ink-3); text-decoration: none; }
+  .eyebrow a:hover { color: var(--accent); }
+
+  .head {
+    display: flex; flex-wrap: wrap; align-items: flex-end;
+    justify-content: space-between; gap: 24px;
+    padding-bottom: 22px; margin-bottom: 26px;
+    border-bottom: 1px solid var(--line);
+  }
+  .head h1 {
+    margin: 0 0 6px;
+    font-size: clamp(26px, 4vw, 34px); font-weight: 650;
+    letter-spacing: -.022em; line-height: 1.12; text-wrap: balance;
+  }
+  .head p { margin: 0; color: var(--ink-2); font-size: 15px; max-width: 46ch; }
+
+  .controls { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .field { display: grid; gap: 6px; }
+  .field > label {
+    font: 600 10.5px/1 var(--sans); letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  select.role {
+    appearance: none;
+    font: 500 14px/1 var(--sans); color: var(--ink);
+    background: var(--surface);
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%),
+                      linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+    background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 36px 10px 13px;
+    cursor: pointer; min-width: 210px;
+  }
+  select.role:hover { border-color: var(--rail-strong); }
+
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 500 13.5px/1 var(--sans); color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 14px; cursor: pointer; white-space: nowrap;
+  }
+  .toggle:hover { color: var(--ink); border-color: var(--rail-strong); }
+  .toggle svg { width: 14px; height: 14px; }
+
+  /* ── The spine ───────────────────────────────────────────────────────────── */
+  .tree { list-style: none; margin: 0; padding: 0; display: grid; }
+  .tree[data-depth="0"] { gap: 2px; margin-left: 7px; padding-left: 26px; border-left: 2px solid var(--rail-strong); }
+  .tree:not([data-depth="0"]) { gap: 1px; margin-left: 13px; padding-left: 22px; border-left: 2px solid var(--rail); }
+  .tree.hidden { display: none; }
+
+  .row { position: relative; display: flex; align-items: center; gap: 8px; min-height: 34px; }
+  .row::before {
+    content: ''; position: absolute; top: 50%; height: 2px; background: var(--rail);
+  }
+  .tree[data-depth="0"] > li > .row::before { left: -26px; width: 18px; background: var(--rail-strong); }
+  .tree:not([data-depth="0"]) > li > .row::before { left: -22px; width: 15px; }
+
+  /* markers sit ON the rail */
+  .marker { position: absolute; left: -34px; top: 50%; transform: translateY(-50%); flex: none; }
+  .tree:not([data-depth="0"]) .marker { left: -29px; }
+
+  .m-step {
+    width: 13px; height: 13px; border-radius: 3px;
+    background: var(--accent); box-shadow: 0 0 0 4px var(--ground);
+  }
+  .m-topic {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--rail-strong);
+    box-shadow: 0 0 0 4px var(--ground);
+  }
+  .m-topic.rec { background: var(--accent); border-color: var(--accent); }
+
+  .disc {
+    flex: none; width: 22px; height: 22px; display: grid; place-items: center;
+    background: none; border: 0; border-radius: 5px; cursor: pointer; color: var(--ink-3);
+    margin-left: -4px;
+  }
+  .disc:hover { background: var(--surface-3); color: var(--ink); }
+  .disc svg { width: 11px; height: 11px; transition: transform .18s ease; }
+  .disc[aria-expanded="false"] svg { transform: rotate(-90deg); }
+  .disc-spacer { flex: none; width: 22px; margin-left: -4px; }
+
+  .num {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    color: var(--accent); letter-spacing: .02em; flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .topic {
+    display: inline-flex; align-items: center; gap: 9px;
+    font: inherit; text-align: left;
+    background: none; border: 0; padding: 5px 10px 5px 8px; margin-left: -8px;
+    border-radius: 7px; color: var(--ink); cursor: default;
+  }
+  .topic .txt { font-size: 14.5px; }
+  /* Direct-child chain, deliberately: a plain descendant selector would also bold
+     every nested topic inside a step, since they live in the same <li>. */
+  li[data-depth="0"] > .row > .topic .txt { font-weight: 600; font-size: 15px; letter-spacing: -.005em; }
+
+  .topic.has:hover { background: var(--surface-2); }
+  .topic.has { cursor: pointer; }
+  .topic.has .txt { text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color .15s; }
+  .topic.has:hover .txt { text-decoration-color: var(--rail-strong); }
+  .topic.open { background: var(--accent-soft); }
+  .topic.open .txt { color: var(--accent-ink); font-weight: 600; }
+
+  .topic:not(.has) .txt { color: var(--ink-2); }
+
+  .arrow { opacity: 0; color: var(--ink-3); font-size: 12px; transition: opacity .15s; }
+  .topic.has:hover .arrow, .topic.open .arrow { opacity: 1; }
+
+  /* ── Pills ───────────────────────────────────────────────────────────────── */
+  .pill {
+    flex: none;
+    font: 600 10.5px/1 var(--sans); letter-spacing: .025em;
+    padding: 4px 8px; border-radius: 5px; white-space: nowrap;
+  }
+  .b0 { background: var(--b1-bg); color: var(--b1-fg); }
+  .b1 { background: var(--b2-bg); color: var(--b2-fg); }
+  .b2 { background: var(--b3-bg); color: var(--b3-fg); }
+  .b3 { background: var(--b4-bg); color: var(--b4-fg); }
+  .rec-pill {
+    background: var(--accent-soft); color: var(--accent-ink);
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .rec-pill svg { width: 9px; height: 9px; }
+
+  /* ── Sheet ───────────────────────────────────────────────────────────────── */
+  .scrim {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(10,18,15,.42);
+    opacity: 0; pointer-events: none; transition: opacity .25s ease;
+  }
+  .scrim.on { opacity: 1; pointer-events: auto; }
+
+  .sheet {
+    position: fixed; z-index: 60; top: 0; right: 0; bottom: 0;
+    width: min(560px, 100vw);
+    background: var(--surface); color: var(--ink);
+    border-left: 1px solid var(--line);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(101%);
+    transition: transform .28s cubic-bezier(.32,.72,0,1);
+    display: flex; flex-direction: column;
+  }
+  .sheet.on { transform: none; }
+
+  .sheet-head {
+    flex: none; display: flex; align-items: flex-start; gap: 14px;
+    padding: 20px 22px 16px; border-bottom: 1px solid var(--line);
+  }
+  .sheet-head h2 { margin: 0 0 5px; font-size: 20px; font-weight: 640; letter-spacing: -.018em; line-height: 1.2; }
+  .sheet-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .x {
+    flex: none; margin-left: auto; width: 30px; height: 30px;
+    display: grid; place-items: center; cursor: pointer;
+    background: none; border: 1px solid var(--line); border-radius: 7px; color: var(--ink-2);
+  }
+  .x:hover { background: var(--surface-2); color: var(--ink); }
+  .x svg { width: 13px; height: 13px; }
+
+  .sheet-body { flex: 1; overflow-y: auto; padding: 22px; }
+
+  /* Content — themed. This is the whole point of decision (d): no inline
+     colour in the HTML means the body can follow --ink like everything else. */
+  .doc { font-size: 14.5px; line-height: 1.62; color: var(--ink); }
+  .doc > *:first-child { margin-top: 0; }
+  .doc h3 {
+    margin: 26px 0 10px;
+    font: 600 10.5px/1 var(--sans); letter-spacing: .11em; text-transform: uppercase;
+    color: var(--ink-3);
+    padding-bottom: 7px; border-bottom: 1px solid var(--line);
+  }
+  .doc p { margin: 0 0 12px; max-width: 64ch; }
+  .doc ul { margin: 0 0 12px; padding-left: 18px; }
+  .doc li { margin-bottom: 6px; }
+  .doc li::marker { color: var(--rail-strong); }
+  .doc code {
+    font-family: var(--mono); font-size: 12.5px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    padding: 1px 5px; border-radius: 4px;
+  }
+  .doc .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 12px; }
+  .doc .cols h4 {
+    margin: 0 0 7px; font: 600 12.5px/1.3 var(--sans); color: var(--ink);
+  }
+  .doc .cols ul { padding-left: 15px; font-size: 13.5px; }
+  .doc .cols li { margin-bottom: 4px; color: var(--ink-2); }
+
+  .tablewrap { overflow-x: auto; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 9px; }
+  .doc table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 380px; }
+  .doc th {
+    text-align: left; font: 600 10.5px/1 var(--sans); letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-3);
+    padding: 10px 13px; border-bottom: 1px solid var(--line); background: var(--surface-2);
+    white-space: nowrap;
+  }
+  .doc td { padding: 10px 13px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .doc tr:last-child td { border-bottom: 0; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    font: 500 13px/1 var(--sans); color: var(--ink);
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); }
+  .chip span { color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
+  .chip:hover span { color: var(--accent); }
+
+  /* ── Notes ───────────────────────────────────────────────────────────────── */
+  .notes { margin-top: 56px; padding-top: 26px; border-top: 1px solid var(--line); }
+  .notes h2 {
+    margin: 0 0 16px; font: 600 10.5px/1 var(--sans);
+    letter-spacing: .11em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .notes dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px 28px; margin: 0; }
+  .notes dt { font-weight: 620; font-size: 13.5px; margin-bottom: 4px; }
+  .notes dd { margin: 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+  .notes code { font-family: var(--mono); font-size: 12px; color: var(--accent-ink); background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+
+  @media (max-width: 760px) {
+    .wrap { padding: 26px 16px 60px; }
+    .head { flex-direction: column; align-items: stretch; }
+    .controls { justify-content: space-between; }
+    select.role { min-width: 0; width: 100%; }
+    .field { flex: 1; }
+    .doc .cols { grid-template-columns: 1fr; gap: 12px; }
+    .sheet {
+      top: auto; left: 0; right: 0; bottom: 0;
+      width: 100%; height: 86vh;
+      border-left: 0; border-top: 1px solid var(--line);
+      border-radius: 16px 16px 0 0;
+      transform: translateY(101%);
+    }
+    .sheet.on { transform: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+</style>
+
+<div class="chrome">
+  <div class="dots"><i></i><i></i><i></i></div>
+  <div class="url" id="url"></div>
+  <button class="ghost" id="theme" type="button">Theme</button>
+</div>
+
+<div class="wrap">
+  <p class="eyebrow"><a href="#">ATNO</a> / <a href="#">Web Development</a> / Roadmap</p>
+
+  <div class="head">
+    <div>
+      <h1 id="rm-title"></h1>
+      <p id="rm-desc"></p>
+    </div>
+    <div class="controls">
+      <div class="field">
+        <label for="role">Choose your role</label>
+        <select class="role" id="role"></select>
+      </div>
+      <button class="toggle" id="collapse" type="button">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+        <span id="collapse-label">Collapse all</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="tree"></div>
+
+  <div class="notes">
+    <h2>What this prototype is demonstrating</h2>
+    <dl>
+      <dt>The role dropdown navigates</dt>
+      <dd>Each role is its own <code>Page</code> row, so switching changes the URL above — that is what makes one role shareable.</dd>
+
+      <dt>Not every topic is clickable</dt>
+      <dd>Azure, GCP and AKS have no content. They are labels on the spine, and deliberately have no hover state or pointer.</dd>
+
+      <dt>Topics deep-link</dt>
+      <dd>Opening one appends <code>?topic=</code>. On the real site the server renders that sheet already open, so the content is in the HTML and indexable.</dd>
+
+      <dt>Sub-topic chips swap in place</dt>
+      <dd>The sheet stays open and the content changes — moving through a topic rather than bouncing out and back in.</dd>
+
+      <dt>Docker appears twice</dt>
+      <dd>Once under Backend, once under DevOps, as two independent rows. Duplication is the agreed design; shared nodes make ordering ambiguous.</dd>
+
+      <dt>Content follows the theme</dt>
+      <dd>Try the Theme button. This only works because the stored HTML carries no inline colour — which the sanitiser has to enforce, not the editor.</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<aside class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-hidden="true">
+  <div class="sheet-head">
+    <div>
+      <h2 id="sheet-title"></h2>
+      <div class="sheet-meta" id="sheet-meta"></div>
+    </div>
+    <button class="x" id="close" type="button" aria-label="Close">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body"><div class="doc" id="sheet-body"></div></div>
+</aside>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   DATA — shaped exactly like the RoadmapNode model in NEW-IMPROVEMENTS-2 §33.3:
+   { slug, title, badges[], recommended, content, children[] }
+   `content: null` means the topic has no sheet.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const link = (t) => '<a href="#" onclick="return false">' + t + '</a>';
+
+const cols = (groups) => '<div class="cols">' + groups.map(g =>
+  '<div><h4>' + g[0] + '</h4><ul>' + g[1].map(i => '<li>' + i + '</li>').join('') + '</ul></div>'
+).join('') + '</div>';
+
+const tools = (rows) => '<div class="tablewrap"><table><thead><tr>' +
+  '<th>Tool</th><th>Link</th><th>Pricing</th></tr></thead><tbody>' +
+  rows.map(r => '<tr><td>' + r[0] + '</td><td>' + link(r[1]) + '</td>' +
+    '<td><span class="pill ' + r[3] + '">' + r[2] + '</span></td></tr>').join('') +
+  '</tbody></table></div>';
+
+const next = (items) => '<h3>Next pages</h3><div class="chips">' +
+  items.map(i => '<button class="chip" data-goto="' + i[0] + '" type="button">' +
+    i[1] + ' <span>&rarr;</span></button>').join('') + '</div>';
+
+const ROADMAPS = {
+  frontend: {
+    title: 'Frontend Developer',
+    label: 'Frontend Developer',
+    description: 'Everything you need to build for the browser, in the order that actually makes sense.',
+    nodes: [
+      { slug: 'internet', title: 'Internet Fundamentals', children: [
+        { slug: 'how-web-works', title: 'How the web works', content:
+          '<h3>Description</h3><ul>' +
+          '<li>Before any framework, know what happens between typing a URL and seeing pixels. Nearly every hard bug later on is really a misunderstanding of this.</li>' +
+          '<li>Four things move: DNS resolves a name, TCP opens a connection, TLS secures it, HTTP asks for a document.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('MDN — How the web works') + '</li>' +
+          '<li>' + link('High Performance Browser Networking (free online)') + '</li></ul>' +
+          next([['http','HTTP / HTTPS'],['dns','DNS &amp; hosting']]) },
+        { slug: 'http', title: 'HTTP / HTTPS', badges: ['Essential'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>Methods, status codes, headers and caching. The caching headers alone will save you more time than any library you will install this year.</li></ul>' +
+          '<h3>What to cover</h3>' +
+          cols([['Requests',['GET / POST / PUT','Headers','Request body']],
+                ['Responses',['2xx / 3xx / 4xx / 5xx','Content-Type','Set-Cookie']],
+                ['Caching',['Cache-Control','ETag','max-age vs s-maxage']]]) },
+        { slug: 'dns', title: 'DNS &amp; hosting', content: null }
+      ]},
+      { slug: 'html-css', title: 'HTML &amp; CSS', children: [
+        { slug: 'semantic-html', title: 'Semantic HTML', recommended: true, content:
+          '<h3>Description</h3><ul>' +
+          '<li>Using the right element is the cheapest accessibility work available, and it is free. A <code>&lt;button&gt;</code> is focusable, keyboard-operable and announced correctly; a <code>&lt;div onclick&gt;</code> is none of those.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('MDN — HTML element reference') + '</li>' +
+          '<li>' + link('HTML5 Doctor — element flowchart') + '</li></ul>' },
+        { slug: 'flexbox-grid', title: 'Flexbox &amp; Grid', recommended: true, badges: ['Practice heavy'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>Two layout systems, and they are not competitors. Flexbox lays out along one axis; Grid lays out along two. Most real pages use both.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('CSS Tricks — A complete guide to Flexbox') + '</li>' +
+          '<li>' + link('Grid Garden — learn Grid by playing') + '</li></ul>' +
+          '<h3>What to cover</h3>' +
+          cols([['Flex',['flex-direction','grow / shrink / basis','align vs justify']],
+                ['Grid',['template-columns','minmax() and fr','grid-area']],
+                ['Both',['gap over margin','Nesting them','When each wins']]]) },
+        { slug: 'responsive', title: 'Responsive design', content: null }
+      ]},
+      { slug: 'javascript', title: 'JavaScript', children: [
+        { slug: 'js-basics', title: 'Language basics', content: null },
+        { slug: 'dom', title: 'DOM &amp; events', content: null },
+        { slug: 'async', title: 'Async &amp; fetch', badges: ['Trips people up'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>Promises, <code>async/await</code>, and the single fact that explains most confusion: JavaScript is single-threaded, so <em>await</em> yields, it does not block.</li></ul>' }
+      ]},
+      { slug: 'frameworks', title: 'Frameworks', children: [
+        { slug: 'react', title: 'React', recommended: true, badges: ['Most jobs'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>The default choice for new frontend work, and the one with the deepest job market. Learn it after plain JavaScript, not instead of it.</li>' +
+          '<li>Modern React is components plus hooks. Class components still exist in old codebases; you do not need to write new ones.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('react.dev — the official tutorial, genuinely good') + '</li>' +
+          '<li>' + link('Josh Comeau — Why React re-renders') + '</li></ul>' +
+          '<h3>What to cover</h3>' +
+          cols([['Core',['Components &amp; props','useState','Lists and keys']],
+                ['Effects',['useEffect honestly','Cleanup functions','When NOT to use it']],
+                ['Beyond',['Context','Server Components','Suspense']]]) +
+          '<h3>Tools</h3>' +
+          tools([['React DevTools','chrome.google.com/webstore','Free','b1'],
+                 ['Next.js','nextjs.org','Free Plan Available','b0'],
+                 ['TanStack Query','tanstack.com/query','Free','b1']]) +
+          next([['nextjs','Next.js'],['remix','Remix']]) },
+        { slug: 'nextjs', title: 'Next.js', recommended: true, parentOf: 'react', content:
+          '<h3>Description</h3><ul>' +
+          '<li>React with routing, server rendering and a build pipeline already decided for you. The App Router is the current model; the Pages Router is legacy but still everywhere.</li></ul>' +
+          '<h3>Free resources</h3><ul><li>' + link('Learn Next.js — the official course') + '</li></ul>' },
+        { slug: 'remix', title: 'Remix', content: null },
+        { slug: 'vue', title: 'Vue', content: null },
+        { slug: 'svelte', title: 'Svelte', content: null }
+      ]},
+      { slug: 'tooling', title: 'Tooling', children: [
+        { slug: 'typescript', title: 'TypeScript', recommended: true, content:
+          '<h3>Description</h3><ul>' +
+          '<li>Types catch a whole class of bug before the page loads. Start by annotating function boundaries and let inference do the rest — you do not need to type every variable.</li></ul>' },
+        { slug: 'vite', title: 'Vite', recommended: true, content: null }
+      ]}
+    ]
+  },
+
+  backend: {
+    title: 'Backend Developer',
+    label: 'Backend Developer',
+    description: 'Data, APIs and everything that has to still be correct at three in the morning.',
+    nodes: [
+      { slug: 'language', title: 'Pick a language', children: [
+        { slug: 'nodejs', title: 'Node.js', recommended: true, badges: ['Same language as frontend'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>If you already write JavaScript, this is the shortest path to a working backend. One language, one package manager, one mental model.</li></ul>' +
+          '<h3>Free resources</h3><ul><li>' + link('Node.js docs — the guides section') + '</li></ul>' },
+        { slug: 'python', title: 'Python', content: null },
+        { slug: 'go', title: 'Go', badges: ['Fast'], content: null }
+      ]},
+      { slug: 'databases', title: 'Databases', children: [
+        { slug: 'postgresql', title: 'PostgreSQL', recommended: true, content:
+          '<h3>Description</h3><ul>' +
+          '<li>The default answer for relational data, and it has quietly absorbed most of the reasons people used to reach for something else — JSON columns, full-text search, geospatial types.</li>' +
+          '<li>Learn the query planner early. Almost every "the database is slow" problem is one missing index.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('Use The Index, Luke — how indexing actually works') + '</li>' +
+          '<li>' + link('PostgreSQL Exercises') + '</li></ul>' +
+          '<h3>What to cover</h3>' +
+          cols([['Query',['SELECT and JOIN','Aggregates','CTEs']],
+                ['Design',['Normalisation','Foreign keys','Migrations']],
+                ['Speed',['EXPLAIN ANALYZE','B-tree indexes','N+1 queries']]]) +
+          '<h3>Tools</h3>' +
+          tools([['pgAdmin','pgadmin.org','Free','b1'],
+                 ['TablePlus','tableplus.com','Free Plan Available','b0'],
+                 ['Prisma','prisma.io','Free Plan Available','b0'],
+                 ['Neon','neon.tech','Free Plan Available','b0']]) +
+          next([['indexing','Indexing'],['query-planning','Query planning']]) },
+        { slug: 'indexing', title: 'Indexing', content:
+          '<h3>Description</h3><ul>' +
+          '<li>An index is a sorted copy of one or more columns. That single sentence explains why <code>WHERE a = ?</code> uses an index on <code>(a, b)</code> and <code>WHERE b = ?</code> does not.</li></ul>' },
+        { slug: 'query-planning', title: 'Query planning', content: null },
+        { slug: 'redis', title: 'Redis', content: null },
+        { slug: 'mongodb', title: 'MongoDB', content: null }
+      ]},
+      { slug: 'apis', title: 'APIs', children: [
+        { slug: 'rest', title: 'REST', recommended: true, content:
+          '<h3>Description</h3><ul>' +
+          '<li>Resources as URLs, verbs as methods, status codes that mean what they say. Most "REST" APIs are not strictly REST, and that is fine — consistency matters more than orthodoxy.</li></ul>' },
+        { slug: 'graphql', title: 'GraphQL', content: null },
+        { slug: 'auth', title: 'Auth &amp; sessions', badges: ['Get this right'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>Do not roll your own. Hash with bcrypt or argon2, put the session in an httpOnly cookie, and lock accounts after repeated failures rather than rate-limiting by IP — an attacker rotates IPs cheaply.</li></ul>' }
+      ]},
+      { slug: 'deployment', title: 'Deployment', children: [
+        { slug: 'docker-be', title: 'Docker', recommended: true, content:
+          '<h3>Description</h3><ul>' +
+          '<li>Package the app with its dependencies so "works on my machine" stops being a sentence anyone says.</li>' +
+          '<li>This topic exists separately in the DevOps roadmap. Same subject, two independent rows — see the note at the bottom of the page.</li></ul>' },
+        { slug: 'cicd', title: 'CI / CD', content: null }
+      ]}
+    ]
+  },
+
+  devops: {
+    title: 'DevOps Engineer',
+    label: 'DevOps Engineer',
+    description: 'From a shell prompt to a cluster you can sleep through the night with.',
+    nodes: [
+      { slug: 'scripting', title: 'Programming / Scripting', children: [
+        { slug: 'shell-scripting', title: 'Shell scripting', recommended: true, content:
+          '<h3>Description</h3><ul>' +
+          '<li>Shell scripting is how anything on a server gets automated — backups, deploys, log rotation, health checks.</li>' +
+          '<li>Start with <code>bash</code>. It is on every Linux box you will ever touch, so it works without installing anything.</li>' +
+          '<li>Put <code>set -euo pipefail</code> at the top of every script. It turns silent failures into loud ones.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('MIT — The Missing Semester: shell tools') + '</li>' +
+          '<li>' + link('ShellCheck — catches the mistakes you will actually make') + '</li>' +
+          '<li>' + link('Bash Guide for Beginners (TLDP)') + '</li></ul>' +
+          '<h3>What to cover</h3>' +
+          cols([['Basics',['Variables','Quoting rules','Exit codes','Conditionals']],
+                ['Text',['grep','sed','awk','cut &amp; tr']],
+                ['Real work',['Loops','Functions','trap for cleanup','set -euo pipefail']]]) +
+          '<h3>Tools</h3>' +
+          tools([['ShellCheck','shellcheck.net','Free','b1'],
+                 ['explainshell','explainshell.com','Free','b1'],
+                 ['Warp','warp.dev','Free Plan Available','b0']]) +
+          next([['python-scripting','Python scripting']]) },
+        { slug: 'python-scripting', title: 'Python scripting', badges: ['Useful everywhere'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>Where bash stops being reasonable — anything with JSON, HTTP or more than about fifty lines — reach for Python.</li></ul>' +
+          '<h3>Free resources</h3><ul><li>' + link('Automate the Boring Stuff with Python') + '</li></ul>' }
+      ]},
+      { slug: 'networking', title: 'Networking concepts', children: [
+        { slug: 'osi-model', title: 'OSI model', content: null },
+        { slug: 'protocols', title: 'Network protocols', content: null },
+        { slug: 'subnets', title: 'Subnets / CIDR', badges: ['Comes up in interviews'], content:
+          '<h3>Description</h3><ul>' +
+          '<li><code>10.0.0.0/16</code> means the first 16 bits are the network and the remaining 16 identify hosts — 65,534 usable addresses. Every VPC you ever design starts here.</li></ul>' }
+      ]},
+      { slug: 'cloud', title: 'Cloud services', children: [
+        { slug: 'aws', title: 'AWS', recommended: true, badges: ['Largest market share'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>The biggest provider, and the one most job listings name. You do not need all 200 services — about eight of them cover almost everything.</li>' +
+          '<li>Set a billing alarm on day one, before you launch anything.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('AWS Skill Builder — free tier courses') + '</li>' +
+          '<li>' + link('Last Week in AWS — what is actually worth using') + '</li></ul>' +
+          '<h3>What to cover</h3>' +
+          cols([['Compute',['EC2','Lambda','ECS / EKS']],
+                ['Storage',['S3','EBS','RDS']],
+                ['Network',['VPC','Route 53','CloudFront']]]) +
+          '<h3>Tools</h3>' +
+          tools([['AWS CLI','aws.amazon.com/cli','Free','b1'],
+                 ['Terraform','terraform.io','Free Plan Available','b0'],
+                 ['Infracost','infracost.io','Free Plan Available','b0']]) },
+        { slug: 'azure', title: 'Azure', content: null },
+        { slug: 'gcp', title: 'GCP', content: null }
+      ]},
+      { slug: 'containerization', title: 'Containerization', children: [
+        { slug: 'docker', title: 'Docker', recommended: true, content:
+          '<h3>Description</h3><ul>' +
+          '<li>A container is a process with its own filesystem view. That is genuinely most of it — the rest is tooling around that idea.</li>' +
+          '<li>Learn layer caching early. Copying <code>package.json</code> before the rest of the source is the difference between a 4-second and a 4-minute build.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('Docker docs — Get started') + '</li>' +
+          '<li>' + link('Play with Docker — a free browser sandbox') + '</li></ul>' +
+          '<h3>What to cover</h3>' +
+          cols([['Images',['Dockerfile','Layer caching','Multi-stage builds']],
+                ['Running',['Ports and volumes','Environment vars','docker compose']],
+                ['Production',['Small base images','Non-root user','Health checks']]]) +
+          '<h3>Tools</h3>' +
+          tools([['Docker Desktop','docker.com','Free Plan Available','b0'],
+                 ['Dive','github.com/wagoodman/dive','Free','b1'],
+                 ['Trivy','trivy.dev','Free','b1']]) +
+          next([['podman','Podman'],['kubernetes','Kubernetes']]) },
+        { slug: 'podman', title: 'Podman', badges: ['Daemonless'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>Docker-compatible commands without a background daemon, and it runs rootless by default. Worth knowing if your employer is a Red Hat shop.</li></ul>' },
+        { slug: 'containerd', title: 'containerd', content: null },
+        { slug: 'lxc', title: 'LXC / LXD', content: null }
+      ]},
+      { slug: 'orchestration', title: 'Container orchestration', children: [
+        { slug: 'kubernetes', title: 'Kubernetes', recommended: true, badges: ['Steep curve'], content:
+          '<h3>Description</h3><ul>' +
+          '<li>Kubernetes runs containers across many machines and keeps them running. You describe the state you want; the control loop keeps reality matching it.</li>' +
+          '<li>Learn the objects in this order: Pod, Deployment, Service, Ingress. Everything else can wait.</li>' +
+          '<li>Do not start on a managed cluster. Run <code>kind</code> locally and break it for free first.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('Kubernetes docs — Concepts') + '</li>' +
+          '<li>' + link('Killercoda — free interactive scenarios') + '</li>' +
+          '<li>' + link('Learn Kubernetes the Hard Way') + '</li></ul>' +
+          '<h3>What to cover</h3>' +
+          cols([['Workloads',['Pod','Deployment','StatefulSet','Job / CronJob']],
+                ['Networking',['Service','Ingress','NetworkPolicy']],
+                ['Config',['ConfigMap','Secret','Resource limits']]]) +
+          '<h3>Tools</h3>' +
+          tools([['kubectl','kubernetes.io/docs','Free','b1'],
+                 ['k9s','k9scli.io','Free','b1'],
+                 ['Lens','k8slens.dev','Free Plan Available','b0'],
+                 ['Helm','helm.sh','Free','b1']]) +
+          next([['eks','Amazon EKS'],['gke','Google GKE'],['aks','Azure AKS']]) },
+        { slug: 'eks', title: 'Amazon EKS', recommended: true, content:
+          '<h3>Description</h3><ul>' +
+          '<li>Managed Kubernetes on AWS. AWS runs the control plane; you still own the nodes, the networking and the bill.</li>' +
+          '<li>Pair it with the AWS Load Balancer Controller and IRSA for pod-level IAM — those two are what make EKS feel native rather than bolted on.</li></ul>' +
+          '<h3>Free resources</h3><ul>' +
+          '<li>' + link('EKS Workshop — free, hands-on') + '</li></ul>' +
+          '<h3>Tools</h3>' +
+          tools([['eksctl','eksctl.io','Free','b1'],
+                 ['Karpenter','karpenter.sh','Free','b1']]) },
+        { slug: 'gke', title: 'Google GKE', content: null },
+        { slug: 'aks', title: 'Azure AKS', content: null }
+      ]}
+    ]
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   STATE + RENDER
+   ══════════════════════════════════════════════════════════════════════════ */
+
+let role = 'devops';
+let openSlug = null;
+let collapsed = new Set();          // node slugs whose children are hidden
+let allCollapsed = false;
+
+const $ = (id) => document.getElementById(id);
+
+/** Flatten the tree so a slug lookup does not need a recursive walk each time. */
+function index(nodes, map, depth) {
+  nodes.forEach(n => { map.set(n.slug, n); if (n.children) index(n.children, map, depth + 1); });
+  return map;
+}
+let byslug = new Map();
+
+const chev = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
+const star = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1l2 4.5 4.9.5-3.7 3.3 1.1 4.8L8 11.6 3.7 14.1l1.1-4.8L1.1 6l4.9-.5z"/></svg>';
+
+function badgesFor(node, all) {
+  let out = '';
+  if (node.recommended) out += '<span class="pill rec-pill">' + star + 'Recommended</span>';
+  (node.badges || []).forEach(b => {
+    // Colour by POSITION in the roadmap's sorted distinct set — the K-1 rule.
+    const i = all.indexOf(b) % 4;
+    out += '<span class="pill b' + i + '">' + b + '</span>';
+  });
+  return out;
+}
+
+/** Every distinct badge in this roadmap, sorted with plain `<` — never
+    localeCompare, which sorts differently on server and client and produces a
+    React hydration mismatch (the K-1 trap). */
+function distinctBadges(nodes, acc) {
+  nodes.forEach(n => {
+    (n.badges || []).forEach(b => { if (!acc.includes(b)) acc.push(b); });
+    if (n.children) distinctBadges(n.children, acc);
+  });
+  return acc.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+function renderNodes(nodes, depth, allBadges) {
+  return '<ul class="tree" data-depth="' + depth + '">' + nodes.map((n, i) => {
+    const kids = n.children && n.children.length;
+    const isCollapsed = collapsed.has(n.slug);
+    const has = !!n.content;
+
+    let row = '<div class="row">';
+    row += '<span class="marker ' + (depth === 0 ? 'm-step' : 'm-topic' + (n.recommended ? ' rec' : '')) + '"></span>';
+    row += kids
+      ? '<button class="disc" type="button" data-toggle="' + n.slug + '" aria-expanded="' + (!isCollapsed) + '" aria-label="Toggle ' + n.title.replace(/&amp;/g, 'and') + '">' + chev + '</button>'
+      : '<span class="disc-spacer"></span>';
+
+    row += '<button class="topic' + (has ? ' has' : '') + (openSlug === n.slug ? ' open' : '') + '"' +
+           (has ? ' data-open="' + n.slug + '"' : ' tabindex="-1" aria-disabled="true"') + ' type="button">';
+    if (depth === 0) row += '<span class="num">' + String(i + 1).padStart(2, '0') + '</span>';
+    row += '<span class="txt">' + n.title + '</span>';
+    row += badgesFor(n, allBadges);
+    if (has) row += '<span class="arrow">&rarr;</span>';
+    row += '</button></div>';
+
+    return '<li data-depth="' + depth + '">' + row +
+      (kids ? renderNodes(n.children, depth + 1, allBadges) : '') + '</li>';
+  }).join('') + '</ul>';
+}
+
+function render() {
+  const rm = ROADMAPS[role];
+  byslug = index(rm.nodes, new Map(), 0);
+
+  $('rm-title').textContent = rm.title;
+  $('rm-desc').textContent = rm.description;
+
+  const allBadges = distinctBadges(rm.nodes, []);
+  $('tree').innerHTML = renderNodes(rm.nodes, 0, allBadges);
+
+  // Apply collapse state after render (simpler than threading it through the string).
+  collapsed.forEach(slug => {
+    const btn = document.querySelector('[data-toggle="' + slug + '"]');
+    if (btn) {
+      const ul = btn.closest('li').querySelector(':scope > .tree');
+      if (ul) ul.classList.add('hidden');
+    }
+  });
+
+  $('collapse-label').textContent = allCollapsed ? 'Expand all' : 'Collapse all';
+  updateUrl();
+}
+
+function updateUrl() {
+  const base = 'atno.io/domain/webdev/roadmap/';
+  $('url').innerHTML = base + '<b>' + role + '</b>' +
+    (openSlug ? '<em>?topic=' + openSlug + '</em>' : '');
+}
+
+/* ── Role dropdown ───────────────────────────────────────────────────────── */
+$('role').innerHTML = Object.keys(ROADMAPS)
+  .map(k => '<option value="' + k + '"' + (k === role ? ' selected' : '') + '>' + ROADMAPS[k].label + '</option>')
+  .join('');
+
+$('role').addEventListener('change', (e) => {
+  role = e.target.value;
+  closeSheet();          // a topic from the old role has no meaning in the new one
+  collapsed = new Set();
+  allCollapsed = false;
+  render();
+});
+
+/* ── Collapse / expand all — ONE toggle, not two checkboxes ──────────────── */
+$('collapse').addEventListener('click', () => {
+  allCollapsed = !allCollapsed;
+  collapsed = new Set();
+  if (allCollapsed) {
+    const walk = (nodes) => nodes.forEach(n => {
+      if (n.children && n.children.length) { collapsed.add(n.slug); walk(n.children); }
+    });
+    walk(ROADMAPS[role].nodes);
+  }
+  render();
+});
+
+/* ── Tree clicks ─────────────────────────────────────────────────────────── */
+$('tree').addEventListener('click', (e) => {
+  const toggle = e.target.closest('[data-toggle]');
+  if (toggle) {
+    const slug = toggle.dataset.toggle;
+    const ul = toggle.closest('li').querySelector(':scope > .tree');
+    const nowHidden = !ul.classList.contains('hidden');
+    ul.classList.toggle('hidden', nowHidden);
+    toggle.setAttribute('aria-expanded', String(!nowHidden));
+    if (nowHidden) collapsed.add(slug); else collapsed.delete(slug);
+    return;
+  }
+  const open = e.target.closest('[data-open]');
+  if (open) openSheet(open.dataset.open);
+});
+
+/* ── Sheet ───────────────────────────────────────────────────────────────── */
+function openSheet(slug) {
+  const node = byslug.get(slug);
+  if (!node || !node.content) return;
+
+  openSlug = slug;
+  const allBadges = distinctBadges(ROADMAPS[role].nodes, []);
+
+  $('sheet-title').innerHTML = node.title;
+  $('sheet-meta').innerHTML = badgesFor(node, allBadges);
+  $('sheet-body').innerHTML = node.content;
+  // The scroller is the wrapper, not .doc — a chip swap must return to the top.
+  document.querySelector('.sheet-body').scrollTop = 0;
+
+  $('sheet').classList.add('on');
+  $('sheet').setAttribute('aria-hidden', 'false');
+  $('scrim').classList.add('on');
+
+  document.querySelectorAll('.topic.open').forEach(el => el.classList.remove('open'));
+  const el = document.querySelector('[data-open="' + slug + '"]');
+  if (el) el.classList.add('open');
+
+  $('close').focus();
+  updateUrl();
+}
+
+function closeSheet() {
+  openSlug = null;
+  $('sheet').classList.remove('on');
+  $('sheet').setAttribute('aria-hidden', 'true');
+  $('scrim').classList.remove('on');
+  document.querySelectorAll('.topic.open').forEach(el => el.classList.remove('open'));
+  updateUrl();
+}
+
+$('close').addEventListener('click', closeSheet);
+$('scrim').addEventListener('click', closeSheet);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+
+// Sub-topic chips swap the content in place — the sheet never closes.
+$('sheet-body').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-goto]');
+  if (chip) openSheet(chip.dataset.goto);
+});
+
+/* ── Theme — here to prove content follows it, which is decision (d) ─────── */
+$('theme').addEventListener('click', () => {
+  const root = document.documentElement;
+  const dark = root.getAttribute('data-theme') === 'dark' ||
+    (!root.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+  root.setAttribute('data-theme', dark ? 'light' : 'dark');
+});
+
+render();
+</script>

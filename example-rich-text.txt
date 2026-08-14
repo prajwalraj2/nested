@@ -1,0 +1,88 @@
+<div>
+        <h4 style="font-size: 1.25rem; margin-top: 2.5rem; margin-bottom: 0.5rem;">🔍 Facebook | Google | Insta Ads Design</h4>
+        <hr style="border-color: #9ca3af; margin-top: 0; margin-bottom: 0.75rem;">
+        
+        <h4 style="font-size: 1.25rem; margin-top: 2.5rem; margin-bottom: 0.5rem;">🎏 Description</h4>
+        <hr style="border-color: #9ca3af; margin-top: 0; margin-bottom: 0.75rem;">
+        <ul style="list-style-type: disc; padding-left: 1.5rem;">
+            <li style="text-align: justify; margin-bottom: 0.75rem;">We have created some sample service packages that you can either use directly or customize before using.</li>
+            <li style="text-align: justify; margin-bottom: 0.75rem;">Make sure to change/keep the Price, timeline, services included, and deliverables of packages according to:</li>
+            <ul style="list-style-type: disc; padding-left: 2.5rem;">
+                <li style="margin-bottom: 0.75rem;">Client's need</li>
+                <li style="margin-bottom: 0.75rem;">Client's Budget</li>
+                <li style="margin-bottom: 0.75rem;">Client's Industry</li>
+                <li style="margin-bottom: 0.75rem;">Your Expertise & Experience.</li>
+            </ul>
+            <li style="text-align: justify; margin-bottom: 0.75rem;">You can either present your service in a 3 Package Mode (Basic | Standard | Premium) or club everything into one package (it's up to you).</li>
+        </ul>
+
+        <h4 style="font-size: 1.25rem; margin-top: 2.5rem; margin-bottom: 0.5rem;">🏆 Service Packages</h4>
+        <hr style="border-color: #9ca3af; margin-top: 0; margin-bottom: 0.75rem;">
+        
+        <div style="margin-top: 1.5rem;">
+            <h5 style="font-size: 1.1rem; margin-top: 2rem; margin-bottom: 0.5rem;">1. Basic Package</h5>
+            <ul style="list-style-type: disc; padding-left: 1.5rem;">
+                <li style="margin-bottom: 0.75rem;"><strong>Price Range:</strong> $150 - $300 [ May Vary based on Complexity & Features ]</li>
+                <li style="margin-bottom: 0.75rem;"><strong>Service Included:</strong></li>
+                <ul style="list-style-type: disc; padding-left: 2.5rem;">
+                    <li style="margin-bottom: 0.75rem;">5 high-quality Ads graphics</li>
+                    <li style="margin-bottom: 0.75rem;">2 rounds of Revisions</li>
+                    <li style="margin-bottom: 0.75rem;">Incorporation of your brand colors and logo</li>
+                    <li style="margin-bottom: 0.75rem;">Basic image optimization for better ad performance</li>
+                    <li style="margin-bottom: 0.75rem;">Stock photos and illustrations included (if required)</li>
+                    <li style="margin-bottom: 0.75rem;">Editable Source Files (Ai or EPS or PSD)</li>
+                    <li style="margin-bottom: 0.75rem;">High-resolution JPEG / PNG / PDF file formats</li>
+                </ul>
+                <li style="margin-bottom: 0.75rem;"><strong>Timeline:</strong></li>
+                <ul style="list-style-type: disc; padding-left: 2.5rem;">
+                    <li style="margin-bottom: 0.75rem;">Delivery within 5-7 business days</li>
+                    <li style="margin-bottom: 0.75rem;">Revisions: 2 business days per revision</li>
+                </ul>
+            </ul>
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+            <h5 style="font-size: 1.1rem; margin-top: 2rem; margin-bottom: 0.5rem;">2. Standard Package</h5>
+            <ul style="list-style-type: disc; padding-left: 1.5rem;">
+                <li style="margin-bottom: 0.75rem;"><strong>Price Range:</strong> $300 - $600 [ May Vary based on Complexity & Features ]</li>
+                <li style="margin-bottom: 0.75rem;"><strong>Service Included:</strong></li>
+                <ul style="list-style-type: disc; padding-left: 2.5rem;">
+                    <li style="margin-bottom: 0.75rem;">10 professionally designed graphics</li>
+                    <li style="margin-bottom: 0.75rem;">Unlimited Revision</li>
+                    <li style="margin-bottom: 0.75rem;">Inclusion of brand-specific elements and typography</li>
+                    <li style="margin-bottom: 0.75rem;">Editable Source Files (Ai or EPS or PSD)</li>
+                    <li style="margin-bottom: 0.75rem;">High-resolution Print Ready (JPEG + PNG + PDF)</li>
+                    <li style="margin-bottom: 0.75rem;">Stock photos and illustrations included (if required)</li>
+                </ul>
+                <li style="margin-bottom: 0.75rem;"><strong>Timeline:</strong></li>
+                <ul style="list-style-type: disc; padding-left: 2.5rem;">
+                    <li style="margin-bottom: 0.75rem;">Delivery within 8-10 business days</li>
+                    <li style="margin-bottom: 0.75rem;">Revisions: 2 business days per revision</li>
+                </ul>
+            </ul>
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+            <h5 style="font-size: 1.1rem; margin-top: 2rem; margin-bottom: 0.5rem;">3. Premium Package</h5>
+            <ul style="list-style-type: disc; padding-left: 1.5rem;">
+                <li style="margin-bottom: 0.75rem;"><strong>Price Range:</strong> $600 - $1000+ [ May Vary based on Complexity & Features ]</li>
+                <li style="margin-bottom: 0.75rem;"><strong>Service Included:</strong></li>
+                <ul style="list-style-type: disc; padding-left: 2.5rem;">
+                    <li style="margin-bottom: 0.75rem;">15 high-quality Ads graphics</li>
+                    <li style="margin-bottom: 0.75rem;">Unlimited Revision</li>
+                    <li style="margin-bottom: 0.75rem;">Eye-catching animated graphics</li>
+                    <li style="margin-bottom: 0.75rem;">A/B testing of different creatives to identify the most effective ones</li>
+                    <li style="margin-bottom: 0.75rem;">Customized and branded CTA elements for optimal engagement</li>
+                    <li style="margin-bottom: 0.75rem;">Compelling ad copy to accompany graphics</li>
+                    <li style="margin-bottom: 0.75rem;">Editable Vector Source Files (Ai or EPS or PSD)</li>
+                    <li style="margin-bottom: 0.75rem;">High-resolution Print Ready (JPEG + PNG + PDF)</li>
+                    <li style="margin-bottom: 0.75rem;">Exclusive and custom illustrations or photography</li>
+                </ul>
+                <li style="margin-bottom: 0.75rem;"><strong>Timeline:</strong></li>
+                <ul style="list-style-type: disc; padding-left: 2.5rem;">
+                    <li style="margin-bottom: 0.75rem;">Delivery within 10-14 business days</li>
+                    <li style="margin-bottom: 0.75rem;">Revisions: 2 business days per revision</li>
+                </ul>
+            </ul>
+        </div>
+    </div>

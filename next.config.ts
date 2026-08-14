@@ -68,13 +68,20 @@ const nextConfig: NextConfig = {
    * ⚠️ THE FIRST ATTEMPT AT #31 NAMED ONE PACKAGE AND GOT HALFWAY, costing a second deploy
    * cycle. Listing the whole chain here is that lesson applied rather than relearned.
    *
-   * ⚠️ UNLIKE sharp, NOTHING HERE IS NATIVE — jsdom is 3.2 MB of plain JavaScript. So the
-   * cause is not un-traceable `.node` binaries; it is jsdom's runtime `require` calls, which
-   * static analysis cannot follow either. Same remedy, different reason.
+   * ⚠️ UNLIKE sharp, NOTHING HERE IS NATIVE — jsdom is plain JavaScript. So the cause is not
+   * un-traceable `.node` binaries; it is jsdom's runtime `require` calls, which static
+   * analysis cannot follow either. Same remedy, different reason.
    *
-   * ⚠️ **This cannot be verified locally**, exactly as #31 could not. `npm run build`
-   * succeeding proves only that nothing was broken. Treat it as unverified until a deploy
-   * proves it — and check the NEW deployment URL, not a refresh of the old one.
+   * ── ⚠️ THIS FIX IS NECESSARY BUT WAS NOT SUFFICIENT ────────────────────────
+   * It made the module RESOLVE — proven, because the next deploy failed with a completely
+   * different error naming a real path inside `/var/task/node_modules/`, which the previous
+   * "module not found" failure never reached. What it exposed underneath was a second,
+   * unrelated fault: `jsdom@28` depends on an ESM-only package, and Turbopack hands external
+   * packages to Node at runtime, so loading it became a `require()` of an ES Module.
+   *
+   * That second fault is fixed in `package.json` by pinning `isomorphic-dompurify` to 2.x —
+   * see the `_comment_overrides` block there. **Both fixes are required. Removing either
+   * brings the 500 back, with a different error message each time.**
    */
   serverExternalPackages: ['sharp', 'isomorphic-dompurify', 'dompurify', 'jsdom'],
 

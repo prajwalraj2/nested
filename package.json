@@ -61,7 +61,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
     "iron-session": "^8.0.4",
-    "isomorphic-dompurify": "^3.3.0",
+    "isomorphic-dompurify": "^2.26.0",
     "lexical": "^0.34.0",
     "lucide-react": "^0.542.0",
     "next": "15.5.9",
@@ -77,6 +77,21 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1",
     "zod": "^3.25.76"
+  },
+  "_comment_overrides": [
+    "isomorphic-dompurify@2.x is PINNED DELIBERATELY - do not bump to 3.x. See NEW-IMPROVEMENTS-2.md #23/L-1.",
+    "3.x requires jsdom ^28, which requires html-encoding-sniffer ^6, which requires @exodus/bytes - an",
+    "ESM-only package with no CommonJS build. Turbopack leaves external packages for Node to load at",
+    "runtime, so that becomes a require() of an ES Module and throws ERR_REQUIRE_ESM on Vercel while",
+    "working locally. jsdom <=27 uses html-encoding-sniffer@4 -> whatwg-encoding, which is pure CommonJS.",
+    "",
+    "dompurify is overridden UP, not down: isomorphic-dompurify@2.26.0 asks for ^3.2.6, which npm resolved",
+    "to 3.4.12 - vulnerable to GHSA-55q2-fjhq-7xh7 (moderate, XSS via IN_PLACE hook removal). That matters",
+    "here specifically because src/lib/sanitize-html.ts registers an afterSanitizeAttributes hook. 3.4.13",
+    "satisfies ^3.2.6, so this forces the patched build without touching the dependency that asks for it."
+  ],
+  "overrides": {
+    "dompurify": "^3.4.13"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

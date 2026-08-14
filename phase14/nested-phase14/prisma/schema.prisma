@@ -1,0 +1,248 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model DomainCategory {
+  id          String   @id @default(uuid())
+  name        String   // "Design & Creative", "Development & Tech"
+  slug        String   @unique // "design", "development"
+  icon        String?  // "🎨", "💻", "🎬"
+  description String?  // Optional description
+  
+  // Flexible 3-column layout
+  columnPosition Int    @default(1) // 1, 2, or 3 (which column)
+  categoryOrder  Int    @default(0) // 0, 1, 2, 3... (order within column)
+  
+  // Relationships
+  domains     Domain[]
+  
+  // Metadata
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  
+  @@index([columnPosition, categoryOrder])
+}
+
+model Domain {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  
+  // Page type: direct content or hierarchical subcategories
+  pageType  String   @default("direct") // "direct" | "hierarchical"
+  
+  // Category relationship
+  category    DomainCategory? @relation(fields: [categoryId], references: [id])
+  categoryId  String?
+  
+  // Ordering within category
+  orderInCategory Int @default(0)
+  
+  // Publication status
+  isPublished Boolean @default(false)
+  
+  // Geo-targeting: Which countries this domain is visible to
+  // Values: "ALL" (default, visible everywhere), or country codes like "IN", "US", "GB", "AU", "CA"
+  targetCountries String[] @default(["ALL"])
+  
+  pages     Page[]
+  createdAt DateTime @default(now())
+  
+  @@index([categoryId, orderInCategory])
+}
+
+model Page {
+  id        String   @id @default(uuid())
+  title     String
+  slug      String
+
+  // Content type: determines how the page is rendered
+  contentType String @default("narrative") // "narrative" | "section_based" | "subcategory_list" | "table" | "rich_text" | "mixed_content"
+
+  // Section configuration for section_based pages
+  // Stores how child pages are organized into 3-column layout
+  sections   Json?
+
+  domain    Domain   @relation(fields: [domainId], references: [id])
+  domainId  String
+
+  parent     Page?    @relation("PageToSubPages", fields: [parentId], references: [id])
+  parentId   String?
+  subPages   Page[]   @relation("PageToSubPages")
+  content    ContentBlock[]
+  
+  // Table relationship - one page can have one table
+  table      Table?
+  
+  // Rich text relationship - one page can have one rich text content
+  richTextContent RichTextContent?
+
+  // Geo-targeting: Which countries this page is visible to
+  // Values: "ALL" (default, visible everywhere), or country codes like "IN", "US", "GB", "AU", "CA"
+  targetCountries String[] @default(["ALL"])
+
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([domainId, parentId, slug])
+}
+
+model ContentBlock {
+  id             String           @id @default(uuid())
+  page           Page             @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  pageId         String
+
+  type           ContentBlockType
+  content        Json
+  order          Int              @default(0)
+  columnPosition Int              @default(1)
+  isActive       Boolean          @default(true)
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @default(now()) @updatedAt
+}
+
+enum ContentBlockType {
+  HEADING
+  PARAGRAPH
+  BULLETLIST
+  TABLE
+  COLLAPSIBLE
+  COLUMN
+  TEXT
+  LINK_BUTTON
+  NAVIGATION
+  SECTION_DIVIDER
+  IMAGE
+  VIDEO
+  QUOTE
+  
+  // New section-based content types
+  SECTION_HEADER    // For section titles like "Skill Development"
+  SECTION_LINKS     // For lists of links within sections
+  SUBCATEGORY_CARD  // For subcategory selection cards
+  
+  // Table-related content types
+  TABLE_CONTAINER   // For pages that contain tables
+  TABLE_DESCRIPTION // For table descriptions/headers
+  
+  // Rich text related content types
+  RICH_TEXT_CONTAINER   // For pages that contain rich text
+  RICH_TEXT_SECTION     // For rich text sections
+  RICH_TEXT_EDITOR      // For embedded rich text editors
+}
+
+model Table {
+  id        String   @id @default(uuid())
+  name      String   // Table name/title
+  pageId    String   @unique
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  // Table Schema Definition (JSON)
+  // Structure: { columns: [{ id, name, type, sortable, filterable, width, ... }] }
+  schema    Json
+
+  // Table Data (JSON) 
+  // Structure: { rows: [{ id, [columnId]: content, ... }] }
+  data      Json
+
+  // Table Settings (JSON)
+  // Structure: { pagination, sorting, filtering, responsive, ... }
+  settings  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([pageId])
+}
+
+model RichTextContent {
+  id        String   @id @default(uuid())
+  pageId    String   @unique  // One-to-one with Page
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  
+  // Main HTML content storage
+  htmlContent  String   @db.Text  // Raw HTML content
+  
+  // Metadata
+  title        String?   // Optional title for the content
+  wordCount    Int       @default(0)
+  
+  // Auto-generated content for search and SEO
+  plainText    String?   @db.Text  // For search functionality
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([pageId])
+}
+
+// Authentication Models for Auth.js
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String    // Hashed password
+  isAdmin       Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  
+  // Track who created this user (for admin audit)
+  createdBy     String?
+  createdByUser User?     @relation("UserCreatedBy", fields: [createdBy], references: [id])
+  createdUsers  User[]    @relation("UserCreatedBy")
+  
+  // Auth.js required relations
+  accounts      Account[]
+  sessions      Session[]
+  
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([sessionToken])
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}

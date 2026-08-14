@@ -1,0 +1,440 @@
+17:21:09.919 Running build in Washington, D.C., USA (East) – iad1
+17:21:09.920 Build machine configuration: 2 cores, 8 GB
+17:21:09.964 Cloning github.com/prajwalraj2/nested (Branch: dev-3.0, Commit: a39c896)
+17:21:09.966 Skipping build cache, deployment was triggered without cache.
+17:21:10.643 Cloning completed: 677.000ms
+17:21:11.027 Running "vercel build"
+17:21:11.049 Vercel CLI 58.1.0
+17:21:11.294 Warning: Detected "engines": { "node": ">=22.12.0" } in your `package.json` that will automatically upgrade when a new major Node.js Version is released. Learn More: https://vercel.link/node-version
+17:21:11.312 Installing dependencies...
+17:21:35.965 
+17:21:35.966 > nested-app@0.5.1 postinstall
+17:21:35.966 > prisma generate
+17:21:35.966 
+17:21:37.125 Prisma schema loaded from prisma/schema.prisma
+17:21:38.080 ┌─────────────────────────────────────────────────────────┐
+17:21:38.080 │  Update available 6.14.0 -> 7.9.1                       │
+17:21:38.081 │                                                         │
+17:21:38.081 │  This is a major update - please follow the guide at    │
+17:21:38.081 │  https://pris.ly/d/major-version-upgrade                │
+17:21:38.081 │                                                         │
+17:21:38.081 │  Run the following to update                            │
+17:21:38.081 │    npm i --save-dev prisma@latest                       │
+17:21:38.081 │    npm i @prisma/client@latest                          │
+17:21:38.081 └─────────────────────────────────────────────────────────┘
+17:21:38.082 
+17:21:38.082 ✔ Generated Prisma Client (v6.14.0) to ./src/generated/prisma in 149ms
+17:21:38.082 
+17:21:38.082 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+17:21:38.082 
+17:21:38.082 Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+17:21:38.082 
+17:21:38.122 
+17:21:38.122 added 605 packages in 27s
+17:21:38.123 
+17:21:38.123 185 packages are looking for funding
+17:21:38.123   run `npm fund` for details
+17:21:38.179 Detected Next.js version: 15.5.9
+17:21:38.200 Running "npm run build"
+17:21:38.354 
+17:21:38.356 > nested-app@0.5.1 prebuild
+17:21:38.356 > node scripts/generate-icon-manifest.mjs
+17:21:38.356 
+17:21:38.393 ✓ icon manifest: 9 icons (11.2 KB total)
+17:21:38.400 
+17:21:38.401 > nested-app@0.5.1 build
+17:21:38.401 > prisma generate && next build --turbopack
+17:21:38.401 
+17:21:39.598 Prisma schema loaded from prisma/schema.prisma
+17:21:39.882 
+17:21:39.882 ✔ Generated Prisma Client (v6.14.0) to ./src/generated/prisma in 100ms
+17:21:39.882 
+17:21:39.883 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+17:21:39.883 
+17:21:39.883 Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+17:21:39.883 
+17:21:40.753 Attention: Next.js now collects completely anonymous telemetry regarding usage.
+17:21:40.754 This information is used to shape Next.js' roadmap and prioritize features.
+17:21:40.754 You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+17:21:40.754 https://nextjs.org/telemetry
+17:21:40.754 
+17:21:40.842    ▲ Next.js 15.5.9 (Turbopack)
+17:21:40.844 
+17:21:40.893    Creating an optimized production build ...
+17:22:08.204  ✓ Finished writing to disk in 69ms
+17:22:08.257  ✓ Compiled successfully in 26.7s
+17:22:08.272    Linting and checking validity of types ...
+17:22:19.678 
+17:22:19.681 ./src/app/admin/domains/page.tsx
+17:22:19.681 194:76  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.682 194:83  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.682 195:28  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.682 195:41  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.683 219:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.683 
+17:22:19.683 ./src/app/admin/tables/[id]/page.tsx
+17:22:19.684 147:33  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.684 153:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.684 165:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.684 
+17:22:19.684 ./src/app/admin/users/edit/[id]/page.tsx
+17:22:19.685 67:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.686 106:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.687 
+17:22:19.687 ./src/app/admin/users/new/page.tsx
+17:22:19.687 43:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.687 
+17:22:19.688 ./src/app/api/admin/categories/[id]/route.ts
+17:22:19.691 156:23  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.691 409:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.691 409:42  Warning: 'excludeId' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.692 
+17:22:19.692 ./src/app/api/admin/categories/route.ts
+17:22:19.692 245:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.693 
+17:22:19.693 ./src/app/api/admin/domains/[id]/route.ts
+17:22:19.693 155:64  Warning: 'isPublished' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+17:22:19.693 563:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.694 563:40  Warning: 'excludeId' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.694 632:57  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.694 658:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.694 673:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.694 
+17:22:19.695 ./src/app/api/admin/domains/route.ts
+17:22:19.695 41:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.695 163:64  Warning: 'isPublished' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+17:22:19.696 303:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.696 376:57  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.697 402:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.697 412:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.697 
+17:22:19.697 ./src/app/api/admin/pages/[id]/route.ts
+17:22:19.698 527:39  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.698 603:57  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.698 629:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.699 644:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.699 
+17:22:19.699 ./src/app/api/admin/pages/route.ts
+17:22:19.699 306:33  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.699 373:57  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.700 399:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.700 409:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.700 
+17:22:19.700 ./src/app/api/admin/tables/[id]/data/route.ts
+17:22:19.701 78:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.701 
+17:22:19.701 ./src/app/api/admin/tables/[id]/route.ts
+17:22:19.701 125:23  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.703 
+17:22:19.704 ./src/app/api/admin/tables/route.ts
+17:22:19.704 47:24  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.704 94:25  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.705 
+17:22:19.705 ./src/app/api/admin/users/[id]/route.ts
+17:22:19.705 133:23  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.705 
+17:22:19.705 ./src/app/api/admin/users/route.ts
+17:22:19.705 45:18  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.705 
+17:22:19.705 ./src/app/api/auth/logout/route.ts
+17:22:19.705 7:28  Warning: 'request' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.705 12:11  Warning: 'cookieStore' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+17:22:19.706 
+17:22:19.706 ./src/app/domain/layout.tsx
+17:22:19.706 7:10  Warning: 'ShareButton' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.706 
+17:22:19.706 ./src/app/unauthorized/page.tsx
+17:22:19.706 18:20  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+17:22:19.706 
+17:22:19.706 ./src/components/admin/IconPicker.tsx
+17:22:19.706 82:17  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+17:22:19.706 134:21  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+17:22:19.706 
+17:22:19.706 ./src/components/admin/domains/DomainForm.tsx
+17:22:19.706 407:52  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+17:22:19.710 435:54  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.710 435:68  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.710 
+17:22:19.710 ./src/components/admin/domains/DomainsTable.tsx
+17:22:19.710 501:17  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+17:22:19.711 779:36  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.711 779:50  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.711 805:30  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+17:22:19.711 
+17:22:19.711 ./src/components/admin/pages/PageForm.tsx
+17:22:19.711 438:36  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+17:22:19.711 627:42  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.711 627:56  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.711 
+17:22:19.711 ./src/components/admin/pages/PageTree.tsx
+17:22:19.711 216:10  Warning: Elements with the ARIA role "treeitem" must have the following attributes defined: aria-selected  jsx-a11y/role-has-required-aria-props
+17:22:19.711 277:13  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+17:22:19.714 
+17:22:19.714 ./src/components/admin/pages/PagesManager.tsx
+17:22:19.714 587:36  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.714 587:49  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.714 668:40  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.714 
+17:22:19.714 ./src/components/admin/rich-text/HtmlEditor.tsx
+17:22:19.714 69:6  Warning: React Hook useEffect has a missing dependency: 'loadPageData'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.714 90:6  Warning: React Hook useEffect has a missing dependency: 'saveContent'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.714 
+17:22:19.715 ./src/components/admin/rich-text/RichTextManager.tsx
+17:22:19.715 198:45  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.715 198:55  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.715 
+17:22:19.715 ./src/components/admin/sections/DomainPageSelector.tsx
+17:22:19.715 69:14  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.715 
+17:22:19.715 ./src/components/admin/sections/SectionEditor.tsx
+17:22:19.715 58:14  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.715 86:3  Warning: 'domain' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.715 189:44  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.715 189:57  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.715 
+17:22:19.715 ./src/components/admin/sections/SectionsManager.tsx
+17:22:19.715 36:14  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.715 
+17:22:19.715 ./src/components/admin/tables/CSVUploadInterface.tsx
+17:22:19.715 5:33  Warning: 'useMemo' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.715 10:10  Warning: 'Label' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.715 22:3  Warning: 'CSVImportPreview' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.715 91:6  Warning: React Hook useCallback has a missing dependency: 'parseCSVFile'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.715 143:6  Warning: React Hook useCallback has a missing dependency: 'autoMapColumns'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.715 146:76  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.715 224:6  Warning: React Hook useCallback has a missing dependency: 'validateTableData'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.715 228:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.717 229:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.717 483:49  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.717 483:64  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+17:22:19.717 
+17:22:19.718 ./src/components/admin/tables/DomainPageSelector.tsx
+17:22:19.718 131:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.718 
+17:22:19.718 ./src/components/admin/tables/TableCreationWizard.tsx
+17:22:19.719 155:56  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.719 155:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.719 
+17:22:19.719 ./src/components/admin/tables/TableEditor.tsx
+17:22:19.719 46:11  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.720 47:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.720 48:14  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.720 
+17:22:19.724 ./src/components/admin/tables/TablePreview.tsx
+17:22:19.724 9:10  Warning: 'Separator' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.724 365:11  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.725 411:33  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.725 
+17:22:19.725 ./src/components/admin/tables/TableRowsEditor.tsx
+17:22:19.725 126:9  Warning: The 'columns' logical expression could make the dependencies of useMemo Hook (at line 164) change on every render. To fix this, wrap the initialization of 'columns' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+17:22:19.726 
+17:22:19.726 ./src/components/admin/tables/TableSchemaEditor.tsx
+17:22:19.726 12:10  Warning: 'Separator' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.726 
+17:22:19.727 ./src/components/admin/users/UserForm.tsx
+17:22:19.727 34:18  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.727 85:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.728 100:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.728 114:59  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.728 
+17:22:19.728 ./src/components/admin/users/UserManager.tsx
+17:22:19.728 78:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.729 88:6  Warning: React Hook useEffect has a missing dependency: 'fetchUsers'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.729 109:13  Warning: 'result' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+17:22:19.729 113:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.729 148:13  Warning: 'result' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+17:22:19.730 153:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.730 180:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.730 205:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.733 
+17:22:19.733 ./src/components/admin/users/UserTable.tsx
+17:22:19.733 3:10  Warning: 'useState' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.734 
+17:22:19.734 ./src/components/bread/bread.tsx
+17:22:19.734 185:6  Warning: React Hook useMemo has a missing dependency: 'loading'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.734 
+17:22:19.734 ./src/components/domain/ItemIcon.tsx
+17:22:19.734 54:5  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+17:22:19.734 
+17:22:19.734 ./src/components/domain/NarrativeLayout.tsx
+17:22:19.734 11:10  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 19:12  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 20:13  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 34:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 46:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 64:46  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 104:11  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+17:22:19.734 
+17:22:19.734 ./src/components/domain/RichTextLayout.tsx
+17:22:19.734 34:40  Warning: 'domain' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.734 
+17:22:19.734 ./src/components/domain/SectionBasedLayout.tsx
+17:22:19.734 25:14  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 
+17:22:19.734 ./src/components/domain/SubcategorySelector.tsx
+17:22:19.734 27:12  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 28:13  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 
+17:22:19.734 ./src/components/domain/TableLayout.tsx
+17:22:19.734 15:39  Warning: 'ColumnType' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.734 51:12  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 52:13  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 78:37  Warning: 'domain' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.734 218:69  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+17:22:19.734 
+17:22:19.734 ./src/components/header/AppHeader.tsx
+17:22:19.734 84:62  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.734 100:32  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.735 
+17:22:19.735 ./src/components/sidebar/SidebarDomain.tsx
+17:22:19.735 5:37  Warning: 'Home' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.735 26:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.735 34:3  Warning: 'onPageToggle' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.735 35:3  Warning: 'isPageExpanded' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.737 37:3  Warning: 'isPageOrDescendantCurrent' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.737 
+17:22:19.737 ./src/components/sidebar/app-sidebar.tsx
+17:22:19.737 3:10  Warning: 'ChevronUp' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 3:21  Warning: 'User2' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 12:3  Warning: 'SidebarMenuButton' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 14:3  Warning: 'SidebarHeader' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 15:3  Warning: 'SidebarFooter' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 17:10  Warning: 'DropdownMenu' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 17:24  Warning: 'DropdownMenuContent' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 17:45  Warning: 'DropdownMenuItem' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 17:63  Warning: 'DropdownMenuTrigger' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 
+17:22:19.738 ./src/components/table/DataTable.tsx
+17:22:19.738 31:3  Warning: 'DropdownMenu' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 32:3  Warning: 'DropdownMenuCheckboxItem' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 33:3  Warning: 'DropdownMenuContent' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 34:3  Warning: 'DropdownMenuTrigger' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 53:46  Warning: 'EyeOff' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 131:3  Warning: 'title' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 132:3  Warning: 'description' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 308:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.738 441:6  Warning: React Hook React.useMemo has a missing dependency: 'handleResizeStart'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.738 712:10  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.738 714:12  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.738 
+17:22:19.738 ./src/contexts/PageContextProvider.tsx
+17:22:19.738 181:39  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.738 201:5  Warning: 'pathname' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 
+17:22:19.738 ./src/hooks/usePageContext.ts
+17:22:19.738 233:10  Warning: 'createFallbackBreadcrumbs' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.738 468:6  Warning: React Hook useEffect has a missing dependency: 'pathname'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.739 513:6  Warning: React Hook useEffect has missing dependencies: 'fetchPageSidebarData', 'pageSidebar', and 'segments'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.739 585:6  Warning: React Hook useEffect has a missing dependency: 'segments'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+17:22:19.739 
+17:22:19.739 ./src/lib/cache.ts
+17:22:19.739 120:58  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 120:76  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 
+17:22:19.739 ./src/lib/table-utils.ts
+17:22:19.739 808:43  Warning: '_' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+17:22:19.739 
+17:22:19.739 ./src/services/navigation.service.ts
+17:22:19.739 204:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 266:36  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 317:32  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 317:47  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 318:20  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 345:11  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 386:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 405:24  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 424:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 425:13  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 426:11  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 427:16  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.739 463:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.743 
+17:22:19.743 ./src/services/types.ts
+17:22:19.743 12:3  Warning: 'Page' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.743 13:3  Warning: 'ContentBlock' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.743 14:3  Warning: 'Table' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.743 15:3  Warning: 'RichTextContent' is defined but never used.  @typescript-eslint/no-unused-vars
+17:22:19.743 88:14  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.744 122:12  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.744 316:11  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.744 317:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.744 318:13  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+17:22:19.744 
+17:22:19.745 info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+17:22:24.164    Collecting page data ...
+17:22:25.964    Generating static pages (0/24) ...
+17:22:26.796    Generating static pages (6/24) 
+17:22:27.144    Generating static pages (12/24) 
+17:22:28.571    Generating static pages (18/24) 
+17:22:28.571  ✓ Generating static pages (24/24)
+17:22:29.355    Finalizing page optimization ...
+17:22:29.356    Collecting build traces ...
+17:22:32.880 
+17:22:32.900 Route (app)                                 Size  First Load JS  Revalidate  Expire
+17:22:32.900 ┌ ○ /                                        0 B         143 kB
+17:22:32.900 ├ ○ /_not-found                              0 B         143 kB
+17:22:32.900 ├ ƒ /admin                                   0 B         206 kB
+17:22:32.900 ├ ƒ /admin/categories                    15.9 kB         222 kB
+17:22:32.900 ├ ƒ /admin/domains                       12.9 kB         233 kB
+17:22:32.900 ├ ƒ /admin/images                        7.96 kB         214 kB
+17:22:32.900 ├ ƒ /admin/pages                         13.5 kB         233 kB
+17:22:32.900 ├ ○ /admin/rich-text                     10.3 kB         216 kB
+17:22:32.900 ├ ƒ /admin/rich-text/edit/[pageId]       3.64 kB         209 kB
+17:22:32.900 ├ ƒ /admin/sections                      20.2 kB         226 kB
+17:22:32.900 ├ ƒ /admin/tables                        12.6 kB         218 kB
+17:22:32.900 ├ ƒ /admin/tables/[id]                   51.4 kB         257 kB
+17:22:32.900 ├ ƒ /admin/tables/new                    41.1 kB         247 kB
+17:22:32.900 ├ ○ /admin/users                         33.7 kB         239 kB
+17:22:32.900 ├ ƒ /admin/users/edit/[id]               4.07 kB         236 kB
+17:22:32.900 ├ ○ /admin/users/new                     3.71 kB         236 kB
+17:22:32.900 ├ ƒ /api/admin/categories                    0 B            0 B
+17:22:32.900 ├ ƒ /api/admin/categories/[id]               0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/domains                       0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/domains/[id]                  0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/pages                         0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/pages/[id]                    0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/rich-text                     0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/rich-text/[pageId]            0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/sections/[id]                 0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/table-images                  0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/table-images/[id]             0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/tables                        0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/tables/[id]                   0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/tables/[id]/data              0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/users                         0 B            0 B
+17:22:32.901 ├ ƒ /api/admin/users/[id]                    0 B            0 B
+17:22:32.901 ├ ƒ /api/auth/[...nextauth]                  0 B            0 B
+17:22:32.901 ├ ƒ /api/auth/logout                         0 B            0 B
+17:22:32.901 ├ ƒ /api/domain/tables/by-page/[pageId]      0 B            0 B
+17:22:32.901 ├ ƒ /api/page-context                        0 B            0 B
+17:22:32.901 ├ ○ /apple-icon.png                          0 B            0 B
+17:22:32.901 ├ ƒ /domain                              2.94 kB         207 kB
+17:22:32.901 ├ ƒ /domain/[...slug]                    45.6 kB         250 kB
+17:22:32.901 ├ ○ /login                               5.96 kB         158 kB
+17:22:32.901 ├ ○ /robots.txt                              0 B            0 B
+17:22:32.901 ├ ○ /sitemap.xml                             0 B            0 B          1h      1y
+17:22:32.901 └ ○ /unauthorized                            0 B         143 kB
+17:22:32.901 + First Load JS shared by all             163 kB
+17:22:32.901   ├ chunks/0e4889d356df2fcb.js           58.9 kB
+17:22:32.901   ├ chunks/1032c0ce2d1798ae.js           13.2 kB
+17:22:32.901   ├ chunks/5c87a9fc4e0a87ff.js           17.6 kB
+17:22:32.901   ├ chunks/ed22afbc932b7d9e.js           16.2 kB
+17:22:32.901   ├ chunks/2a9e880a169d0a1c.css          23.2 kB
+17:22:32.901   └ other shared chunks (total)          34.2 kB
+17:22:32.901 
+17:22:32.901 
+17:22:32.901 ƒ Middleware                              131 kB
+17:22:32.901 
+17:22:32.901 ○  (Static)   prerendered as static content
+17:22:32.901 ƒ  (Dynamic)  server-rendered on demand
+17:22:32.901 
+17:22:33.234 Traced Next.js server files in: 84.477ms
+17:22:34.521 Created all serverless functions in: 1.287s
+17:22:34.646 Collected static files (public/, static/, .next/static): 5.66ms
+17:22:34.790 Build Completed in /vercel/output [1m]
+17:22:34.816 Deploying outputs...
+17:22:55.071 Deployment completed
+17:22:55.203 Creating build cache...
+17:23:16.985 Created build cache: 22s
+17:23:16.985 Uploading build cache [260.49 MB]
+17:23:21.591 Build cache uploaded: 4.606s
