@@ -25,6 +25,41 @@ themselves.
 
 ---
 
+## ✅ #31 — `sharp` failed on Vercel and worked locally (RESOLVED 12 Aug)
+
+**Fixed in two rounds, deployed, and confirmed on `atno.io`.** `serverExternalPackages: ['sharp']`
+plus `outputFileTracingIncludes` for the two image routes.
+
+⚠️ **Neither round could be reproduced locally, and the second round's cause is why.**
+
+| Round | Change | Result |
+| --- | --- | --- |
+| 1 | Include `@img/sharp-linux-x64` | Got further — `ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3` |
+| 2 | Include the whole `@img` scope | Works |
+
+**Sharp splits its native code differently per platform.** On linux the `.node` addon and
+`libvips-cpp.so` are **two packages**; on Windows `@img/sharp-win32-x64` contains both. Confirmed
+by listing `node_modules/@img/`: three entries here, and **no libvips package at all**. There was
+nothing to forget locally, so no amount of local testing could have surfaced either round.
+
+The glob names the whole scope rather than specific packages because **the split has moved
+between sharp releases** and a list of names silently stops matching after an upgrade. npm only
+installs the running platform's optional packages, so the scope limits itself.
+
+⚠️ **One diagnosis of mine was wrong and cost a round trip.** Seeing the same deployment hash in
+two screenshots, I said the fix looked uncommitted — it was committed and pushed. **A Vercel
+preview URL is pinned to one deployment**, so refreshing that tab serves the old build forever.
+The observation was right; the conclusion was not.
+
+### ⚠️ The pattern is now proven, and #23 is the same shape
+
+`isomorphic-dompurify` → jsdom fails identically for the rich-text editor, in the same log.
+23.2's fix cost 2.2 minutes per build and was reverted for it; **this is the cheaper one**, and
+it is the route to take if #23 is ever picked up.
+
+<details>
+<summary>Original diagnosis, kept for the reasoning</summary>
+
 ## 🔴 #31 — `sharp` fails on Vercel and works locally (#23's class, recurring)
 
 **Found by the user on `atno.io` immediately after K-5b deployed, 11 Aug 2026.** Everything
@@ -88,6 +123,12 @@ for jsdom:
 
 `processUpload` is already isolated in `src/lib/image-processing.ts` with 44 tests against it,
 so swapping the encoder is one file and the suite says whether it still behaves.
+
+**Not needed in the end** — round 2 fixed it. Kept because the escape hatch is still there if
+sharp becomes troublesome again, and because the reasoning for *when* to abandon a patching
+approach is worth having written down.
+
+</details>
 
 ---
 
@@ -574,9 +615,9 @@ Ordered so the most visible fix lands first and nothing depends on anything late
 | **K-2** ✅ | Read the settings already stored — density, sticky header, page size, alternating rows. Delete dead code | none | Visible: consistent row height. **DONE 11 Aug, 36/36. Record below.** |
 | **K-3** ✅ | `col.align`, `col.width`, working column resize | none | Visible: column resizing. **DONE 11 Aug. Record below.** |
 | **K-4** ✅ | Toolbar — Filter, Sort, Columns panels | none | **Large** — the tool feel. **DONE 11 Aug in four steps, records below.** |
-| **K-5a** | Storage adapter + Vercel Blob + upload endpoint + `TableImage` model | **`TableImage` table** | none |
-| **K-5b** | Image Management admin section | none | none |
-| **K-5c** | Image rendering in cells, CSV id column, row-editor picker, guide | `col.meta.imageShape` | **Visible** — images appear |
+| **K-5a** ✅ | Storage adapter + Vercel Blob + upload endpoint + `TableImage` model | **`TableImage` table** | none. **DONE 11 Aug — 30/30 end-to-end + 44/44. Record below.** |
+| **K-5b** ✅ | Image Management admin section | none | none. **DONE 11 Aug — 15/15. Record below.** |
+| **K-5c** ✅ | Image rendering in cells, CSV id column, row-editor picker, guide | `col.meta.imageShape` | **Visible** — images appear. **DONE 12 Aug — 31/31 full chain. Record below.** |
 | **K-6** | Admin table editor: badge colour list, shape dropdown, width defaults | none | none |
 | **K-7** ⏸️ | *Deferred* — icons onto the upload path (J-4 revisited) | — | — |
 | **K-8** ⏸️ | *Deferred* — rows out of the JSON blob | **large** | — |
@@ -1428,10 +1469,268 @@ storage host with a long cache. Running them through the optimiser would add per
 cost for no benefit. ⚠️ This reverses an earlier recommendation of mine that assumed hotlinked
 third-party images — it does not apply to self-hosted, pre-sized objects.
 
+##### ✅ K-5a DONE — 11 Aug 2026 (storage, upload endpoint, `TableImage`)
+
+**Migration `20260811105907_add_table_images`.** Purely additive — a new table, nothing existing
+touched, no backfill possible or needed. ⚠️ Applied to **both branches** before the code
+merged, per the standing rule.
+
+**New:** `src/lib/storage/{index,vercel-blob,cloudflare-r2}.ts`, `src/lib/image-processing.ts`,
+`POST|GET /api/admin/table-images`. **Installed:** `@vercel/blob`, `sharp`.
+
+###### The three decisions the rest of Phase K rests on
+
+**1. Rows store a `key`, never a URL.** Measured reuse is 1.68× (7,602 rows → 4,521 distinct
+things; `pixabay` alone serves 40 rows). Stored as URLs that is 40 writes to change one picture,
+and moving storage provider would mean rewriting thousands of rows inside 654 JSON blobs.
+
+**2. Object names are content hashes.** Different bytes ⇒ different URL, by construction. That
+makes `immutable, max-age=31536000` safe and **removes the "never overwrite, use `-v2`"
+discipline that `ICON-GUIDE.md` §9 needs** for repository-hosted icons. Replacement is a normal
+operation here rather than a procedure.
+
+**3. Nothing outside `src/lib/storage/` may import a provider.** One rule, asserted by a test
+that walks `src/` looking for `@vercel/blob` or the S3 client. It is what keeps
+`BLOB-TO-R2-MIGRATION.md` a short document.
+
+⚠️ `TableImage.provider` exists from day one so a **partially** migrated bucket is
+representable. Without it the R2 move would be all-or-nothing with a broken window in between.
+
+###### Upload security — re-encoding is the defence, the rest are filters
+
+⚠️ **This is the case #27.5's correction was about.** That entry noted stored SVGs are only
+dangerous when uploads are accepted; this endpoint accepts uploads.
+
+Size cap before decode · pixel cap · magic-byte sniffing (never the extension) · SVG rejected
+outright · **then decode to raw pixels and re-encode as 64×64 WebP**.
+
+**Filters can be evaded; re-encoding cannot.** It discards everything that is not image data
+rather than trying to detect it. Proven, not asserted: a PNG carrying EXIF `Copyright: SECRET`
+comes back with no EXIF, and a `<?php …?>` payload appended after the image data does not
+survive. A useful side effect is that GPS coordinates in phone screenshots are destroyed before
+anything is stored.
+
+###### 🔴 Two real bugs, both found by the end-to-end test against the real store
+
+**1. `allowOverwrite` was missing, and uploads failed for identical bytes.**
+
+Vercel Blob throws if the destination pathname exists. Content hashing means **the same image
+under a second key produces the same pathname** — so "upload this logo under another key"
+returned a 500. Not an edge case: the same logo under two keys, and re-adding an image after
+deleting it, both hit it.
+
+⚠️ Overwriting is safe *precisely because* the name is a hash: the only file that can collide is
+byte-identical. The write is idempotent by construction, which is the property the hash was
+chosen for.
+
+**2. Shared objects were deleted out from under each other.**
+
+```
+upload logo.png as "a"  -> object H
+upload logo.png as "b"  -> object H     (same bytes, shared — by design)
+replace "a"'s artwork   -> deleted H    -> "b" now points at nothing
+```
+
+**Dedup requires reference counting**, and the first version had the first without the second.
+Both `PATCH` and `DELETE` now count other rows on that URL before removing the file.
+
+###### ⚠️ And one bug that wasn't — a test that was not idempotent
+
+A run showed a freshly uploaded object 404-ing *and* a deleted one still returning 200 —
+contradictory, so neither could be believed. A direct probe of the Blob API showed the pipeline
+correct throughout (`PUT → exists → 200 → delete → gone → 404`, `x-vercel-cache: MISS`).
+
+The fixtures used **fixed colours**, so every run produced identical bytes, an identical hash and
+therefore **the same URLs** — run 2 was fetching URLs run 1 had created and deleted, and getting
+cached answers. **Generalisable: content-addressed storage makes a test that reuses fixtures
+non-idempotent by construction.** Fixtures now vary per run.
+
+###### Deployment — see #31
+
+The endpoint worked perfectly on localhost and returned 500 on Vercel. Full record at **#31**;
+it took two rounds and neither could be reproduced locally.
+
+###### Verification — 30/30 end-to-end + 44/44 unit
+
+| Check | Result |
+| --- | --- |
+| Auth refused before the body is parsed | correct |
+| Upload → 64×64 WebP, ~200 bytes, content-hashed URL | correct |
+| Served as `image/webp` with `max-age=31536000` | correct |
+| SVG — plain, behind `<?xml`, uppercase, **and named `.png`** | rejected ×4 |
+| GIF, text, empty, oversize | rejected |
+| **EXIF destroyed; appended payload does not survive** | correct |
+| Duplicate key → 409 (conflict, not silent overwrite) | correct |
+| **Shared object survives a replace** | correct |
+| Delete removes the object *and* the row | correct |
+| **Nothing outside `lib/storage` imports a provider** | correct |
+| Blob store left empty afterwards | correct |
+
+##### ✅ K-5b DONE — 11 Aug 2026 (Image Management)
+
+`/admin/images` — grid, usage counts, unused filter, drag-drop upload, rename, replace, delete.
+Plus `src/lib/table-image-usage.ts` and `PATCH|DELETE /api/admin/table-images/[id]`.
+
+Filed under **System**, not Content: an image is a shared resource referenced by rows across
+many tables, not content belonging to a page, and the screen's main job is maintenance.
+
+###### 🔴 The usage lookup took 7.4 SECONDS, and my comment claimed "a few hundred milliseconds"
+
+That figure was a guess written into a code comment. Measuring disproved it — and it mattered
+more than a slow grid, because `getImageUsage()` shares the scan, so **every delete and every
+rename paid it too**.
+
+| Attempt | Approach | Steady state |
+| --- | --- | --- |
+| 1 | Fetch all 654 tables **including `data`**, filter in JS | **7,375 ms** |
+| 2 | Fetch schemas only, filter in JS | **1,648 ms** |
+| 3 | `jsonb_path_exists` — Postgres does the filtering | **271 ms** |
+
+⚠️ **Step 2 looked like the fix and was not.** Dropping `data` removed ~2 MB, but **654 schemas
+still crossed the wire so JavaScript could reject all of them**. Only pushing the predicate into
+the database made it cheap — today it returns zero ids and the second query never runs at all.
+
+**Generalisable: moving less data is not the same as asking a better question.**
+
+###### Two ordering decisions, deliberately opposite
+
+| | Order | Why |
+| --- | --- | --- |
+| **Replace** | new object → update row → *then* delete the old | A failure leaves an orphan (2 KB, visible in the unused filter) rather than a row pointing at nothing |
+| **Delete** | object first → *then* the row | The row is going regardless, so a failed object delete must abort **before** the row is touched, leaving the operation retryable |
+
+⚠️ **Rename is refused while in use.** Rows store the key as plain text in JSON with no foreign
+key, so nothing cascades — renaming a key 40 rows point at would silently blank 40 thumbnails.
+Delete is refused for the same reason, and both refusals name what is in the way.
+
+###### ⚠️ `next/image` → a plain `<img>`, mid-build
+
+Written first with `next/image` and `unoptimized` — which **disables the only thing the component
+provides** while still requiring the blob host in `next.config.ts`. Configuration for a
+deliberately-disabled feature is a trap for whoever reads it next.
+
+These objects are finished 64px WebP; there is nothing to optimise. Matches `ItemIcon` from
+Phase J for the same reason. Bundle **12.9 kB → 7.94 kB**.
+
+**Verification — 15/15:** unauthenticated → 307, page renders, nav lists it, uploads land with
+the key taken from the filename, list is newest-first, every card carries a usage count,
+thumbnails fetch.
+
+##### ✅ K-5c DONE — 12 Aug 2026 (images on the site, admin controls, CSV)
+
+Three parts, each shippable alone.
+
+###### (i) Rendering
+
+`col.meta.imageColumn` names the row field holding the key; the service resolves the keys **that
+table actually uses** into a `TableImageMap` and sends it with the payload.
+
+⚠️ **Resolved server-side.** A 40-row table would otherwise make 40 requests to translate names
+into URLs, and every cell would need a "not resolved yet" state.
+
+⚠️ **Resolved AFTER the country filter.** A row hidden from this visitor must not contribute its
+key, or the response discloses that content exists for other countries — the same reasoning that
+keeps `filterRowsByCountry` outside the cache.
+
+⚠️ **The image wraps the cell rather than being a cell type**, so any column can carry one.
+`image` stays a declared `ColumnType` with no branch: nothing uses it (0 of 2,675) and a column
+whose only content is a picture is exactly what §29.6(d) rejected.
+
+**A dangling key renders nothing** — no placeholder, no broken-image box. The admin surfaces it
+instead.
+
+###### (ii) Admin controls
+
+Schema editor: a per-column **"Show an image beside this column"** checkbox writing
+`meta.imageColumn` (derived as `<columnId>__image`, so it cannot collide with a data column and
+nobody types a field name) plus a shape select. Row editor: `RowImagePicker`, shaped like
+`IconPicker`.
+
+⚠️ **A native `<select>`, matching the file.** `TableSchemaEditor` has not had its shadcn pass —
+G-5b converted `TableEditor`, not this. Two dropdown styles in one panel reads as a bug before it
+reads as a migration.
+
+###### 🔴 THE SIXTH OCCURRENCE OF THE FIELD-LIST BUG — found by the user
+
+Setting a row image saved correctly, rendered on the public table, and showed **"No image"** when
+the row was reopened.
+
+```ts
+columns.forEach((column) => {
+  initial[column.id] = row?.[column.id] ?? …    // ← only DECLARED columns
+});
+```
+
+The image lives in `col_1__image`, a **row field, not a column**, so rebuilding the form's state
+from the column list dropped it.
+
+⚠️ **Sixth time this shape has appeared**: `icon` through five explicit field lists in Phase J,
+`status` through `buildPageHierarchy` in I-1, now this. **A rebuild-by-field-list cannot complain
+about a field it was never told about**, and TypeScript cannot help because the field name is
+dynamic.
+
+**Not data loss** — `handleSubmit` already spread the existing row before `values`, which is the
+same defence on the way *out*. This was the missing half on the way *in*.
+
+Fixed by seeding from the whole row and filling only gaps, which makes the class **impossible
+here** rather than patching one field. ⚠️ The test uses **the old seeding as a negative control**
+and asserts on *what the form would show*, not what the database holds — every earlier occurrence
+passed its database-level test.
+
+###### 🔴 The picker cried wolf — also found by the user
+
+Reopening a row with an image showed **"Missing: thefutur"** in red, about an image that was
+perfectly fine, because the picker fetched only when its popover opened.
+
+⚠️ **"Missing" must mean "this key does not exist", not "I have not checked."** J-2 built that
+state so a dangling reference names itself; firing it routinely would have trained the reader to
+ignore it, and then a genuinely deleted image would scroll past. **A warning that fires when
+nothing is wrong stops being read.**
+
+A row *with* a key now fetches immediately — the URL is the field's content, not an aid. A row
+without one still defers.
+
+###### (iii) CSV import — the SEVENTH occurrence, caught before it shipped
+
+`transformCsvToTableData` looked every mapping up in `schema.columns` and skipped what it could
+not find, so **a header mapped to an image field would have been discarded without a word**.
+
+Fixed with **one shared `getImportTargets(schema)`** that the mapping UI and the transform both
+read, so they cannot disagree about what exists. ⚠️ Auto-mapping matches image fields **only on
+an explicit word** (`image`, `logo`, `icon`…) and tries them first: loose matching is right for
+columns — "Course" finds "Course Name" — but would otherwise let a column's own name claim its
+image field.
+
+**Also added:** `TABLE-IMAGES-GUIDE.md` and `csv-examples/` (three worked files + README).
+⚠️ The examples are **verified importable**, with every key checked against the image library —
+an example that does not work teaches the wrong shape and the reader blames themselves.
+
+###### Verification — 31/31 on the full chain, against real endpoints and a real store
+
+Built from nothing: domain → page → table → CSV import → public page.
+
+| Check | Result |
+| --- | --- |
+| Import screen offers the image field as its own entry | correct |
+| CSV import writes keys; a blank cell means no image | correct |
+| Public payload resolves only the keys used; **a dangling key is absent** | correct |
+| Rows still carry keys, never URLs | correct |
+| Usage counts name the rows | correct |
+| Delete and rename **refused** while in use, saying how many | correct |
+| **Replace ALLOWED while in use — and the public page serves the new picture with no row edited** | correct |
+| Table and images restored; 7 public pages still 200 | correct |
+
+⚠️ **The domain 404'd at first** — created as `DRAFT`, the Phase H default, so correctly invisible.
+Not a bug; the script simply never published it. Publishing went **through the admin API** so
+invalidation fired — the H-2 lesson, now four occurrences.
+
 ### K-6 — Admin table editor
 
 Badge colour list under each `badge` column, pre-filled by `assignBadgeColors` and editable;
 image shape dropdown; width defaults; density selector.
+
+⚠️ **The image shape dropdown and the image checkbox already shipped in K-5c(ii)**, so what
+remains here is the badge colour override and the column/table defaults.
 
 ### ⏸️ K-7 — Icons onto the upload path (deferred)
 
