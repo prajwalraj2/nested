@@ -35,7 +35,7 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
   const hasContent = page.richTextContent?.htmlContent;
   
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
         <PageHeading title={page.title} icon={page.icon} spacing="loose" />
@@ -87,7 +87,7 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
           near-white in dark mode — invisible on this light card. That is the same bug in
           the opposite direction.
         */}
-        <div className="border border-border rounded-lg p-8 bg-neutral-100 text-neutral-900">
+        <div className="border border-border rounded-lg p-8">
           {hasContent ? (
             /*
               `dark:prose-invert` was removed. It flips prose's typography colours for a
@@ -115,10 +115,10 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
             */
             <div className="py-12 text-center">
               <div className="text-6xl mb-4">📝</div>
-              <h2 className="text-xl font-semibold text-neutral-900 mb-3">
+              <h2 className="text-xl font-semibold mb-3">
                 Data Coming Soon
               </h2>
-              <p className="text-neutral-600 max-w-md mx-auto">
+              <p className="max-w-md mx-auto">
                 We are working on getting the right data.
               </p>
             </div>
