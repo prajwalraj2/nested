@@ -35,49 +35,61 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
   const hasContent = page.richTextContent?.htmlContent;
   
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
         <PageHeading title={page.title} icon={page.icon} spacing="loose" />
 
         {/*
-          ⚠️ THIS CARD STAYS LIGHT IN DARK MODE, DELIBERATELY. DO NOT "FIX" IT TO A TOKEN.
+          THIS CARD FOLLOWS THE THEME.
           ==========================================================================
-          `bg-neutral-100` and `text-neutral-900` are fixed values on purpose — they are
-          the one place in the public site that must NOT follow the theme.
+          It was pinned light with a fixed neutral background and text colour until
+          15 Aug 2026; both were removed and the page now themes end to end. See
+          SANITISER-REMOVAL.md step 0 for what changed and what was checked.
 
-          WHY: the stored HTML has colours baked into inline `style` attributes. Measured
-          across all 415 rich-text rows: 395 of them carry inline text colours, 2,519
-          declarations in total, of which **574 are dark colours** — 384 of those pure
-          black (`#000000` ×216, `rgb(0,0,0)` ×168) plus `#292727` ×168 and `#1a1a1a` ×10.
+          ⚠️ WHY IT WAS PINNED — AND WHY THAT REASON WAS MOSTLY WRONG (#34)
+          ==========================================================================
+          An inline `style` beats any stylesheet rule on specificity, so a dark inline
+          `color:` on a dark ground renders near-black on near-black and disappears. That
+          much is true. The pinning rested on a measurement claiming "395 of 415 rows carry
+          inline text colours, 2,519 declarations" — but that figure had summed THREE
+          different colour families and called the total text colour. Re-measured, counting
+          each separately:
 
-          An inline style beats any stylesheet rule on specificity. So on a dark surface
-          those 574 declarations would render near-black text on a near-black background
-          and simply disappear. No CSS we can write in `globals.css` overrides them, short
-          of `!important` — which would then also flatten the 168 deliberate
-          `rgb(255,255,255)` white-text declarations that pair with the 57 rows carrying
-          inline BACKGROUND colours, turning those white-on-colour.
+              color:              58 of 415 rows (14%)   568 declarations
+              background-color:   37 of 415 rows  (9%)   532 declarations
+              border-color:      393 of 415 rows (95%) 1,411 declarations   <- the "395"
 
-          So the page chrome themes and this content card does not: a light "island" of
-          author-styled content inside a dark page. That keeps every one of those 2,519
-          author colours reading exactly as intended, costs nothing, and destroys no data.
+          Only `color:` can make text vanish. `background-color` paints its own ground, so
+          it stays self-consistent either way, and the near-universal `border-color` on
+          <hr> elements merely looks pale on dark.
 
-          The alternative — a migration stripping inline colours from 395 rows so the
-          content becomes themeable — is recorded as option C under finding #21.4. It is
-          irreversible, so it is a product decision, not a styling one.
+          ⚠️ THE RESIDUAL RISK IS REAL, SMALL, AND NAMED
+          ==========================================================================
+          Filtering to colours genuinely too dark to read on the themed ground leaves
+          **26 pages of 416** — and they are only TWO documents duplicated across domains:
 
-          `text-neutral-900` is set explicitly rather than relying on inheritance: without
-          it, any text WITHOUT an inline colour would inherit `--foreground`, which is
-          near-white in dark mode — invisible on this light card. That is the same bug in
-          the opposite direction.
+              /domain/<many>/coldemailing    "Cold Emailing"    rgb(0, 0, 0) x12   14 pages
+              /domain/<many>/facebookgroups  "Facebook Groups"  #000000      x4    12 pages
+
+          390 pages carry no dark text colour and were never at risk here. The two documents
+          are being cleared by hand — one find-and-replace each, not a migration.
+
+          ⚠️ `#767c7c` (x180) sits just above that cut and is NOT among the 26. It lands
+          near 4.4:1 on the dark ground: passes AA for large text, borderline for body.
         */}
-        <div className="border border-border rounded-lg p-8 bg-neutral-100 text-neutral-900">
+        <div className="border border-border rounded-lg p-8">
           {hasContent ? (
             /*
-              `dark:prose-invert` was removed. It flips prose's typography colours for a
-              dark background — correct on a dark surface, wrong here, because this card
-              is now permanently light. Leaving it would have inverted the heading, list
-              and blockquote colours to near-white on a light card.
+              ⚠️ `prose prose-neutral` DOES NOTHING HERE. `@tailwindcss/typography` is not
+              installed — it is absent from `node_modules`, and `globals.css` has no
+              `@plugin` line for it. That is why dropping `dark:prose-invert` alongside the
+              theme change produced no visible difference: none of these classes were ever
+              active.
+
+              Kept because they are harmless and they record the intent, but do NOT reason
+              about typography from them — every type size and margin you see comes from the
+              inline styles inside the stored HTML.
             */
             <div className="prose prose-neutral max-w-none">
               <div
@@ -89,20 +101,22 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
             </div>
           ) : (
             /*
-              Empty state.
+              Empty state. Both lines inherit `--foreground` now, which is correct in either
+              theme. They carried fixed neutral colours only because this block used to sit
+              inside a permanently-light card — on a themed card those pins are what would
+              break it, which is the same trap in the opposite direction.
 
-              ⚠️ Fixed neutrals, NOT `text-foreground` / `text-muted-foreground` — which is
-              what this used before. Those tokens resolve to near-white in dark mode, and
-              this block sits inside the permanently-light card above, so the heading and
-              body text would have been white-on-light and effectively invisible. Exactly
-              the trap described in the comment on the card.
+              ⚠️ The paragraph is a candidate for `text-muted-foreground` rather than plain
+              inheritance — it is secondary text and currently renders at the same weight as
+              the heading's colour. That is a design call, not a bug: the token is redefined
+              per theme, so either choice is legible in both.
             */
             <div className="py-12 text-center">
               <div className="text-6xl mb-4">📝</div>
-              <h2 className="text-xl font-semibold text-neutral-900 mb-3">
+              <h2 className="text-xl font-semibold mb-3">
                 Data Coming Soon
               </h2>
-              <p className="text-neutral-600 max-w-md mx-auto">
+              <p className="max-w-md mx-auto">
                 We are working on getting the right data.
               </p>
             </div>

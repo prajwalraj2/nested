@@ -25,6 +25,41 @@ themselves.
 
 ---
 
+## ✅ #31 — `sharp` failed on Vercel and worked locally (RESOLVED 12 Aug)
+
+**Fixed in two rounds, deployed, and confirmed on `atno.io`.** `serverExternalPackages: ['sharp']`
+plus `outputFileTracingIncludes` for the two image routes.
+
+⚠️ **Neither round could be reproduced locally, and the second round's cause is why.**
+
+| Round | Change | Result |
+| --- | --- | --- |
+| 1 | Include `@img/sharp-linux-x64` | Got further — `ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3` |
+| 2 | Include the whole `@img` scope | Works |
+
+**Sharp splits its native code differently per platform.** On linux the `.node` addon and
+`libvips-cpp.so` are **two packages**; on Windows `@img/sharp-win32-x64` contains both. Confirmed
+by listing `node_modules/@img/`: three entries here, and **no libvips package at all**. There was
+nothing to forget locally, so no amount of local testing could have surfaced either round.
+
+The glob names the whole scope rather than specific packages because **the split has moved
+between sharp releases** and a list of names silently stops matching after an upgrade. npm only
+installs the running platform's optional packages, so the scope limits itself.
+
+⚠️ **One diagnosis of mine was wrong and cost a round trip.** Seeing the same deployment hash in
+two screenshots, I said the fix looked uncommitted — it was committed and pushed. **A Vercel
+preview URL is pinned to one deployment**, so refreshing that tab serves the old build forever.
+The observation was right; the conclusion was not.
+
+### ⚠️ The pattern is now proven, and #23 is the same shape
+
+`isomorphic-dompurify` → jsdom fails identically for the rich-text editor, in the same log.
+23.2's fix cost 2.2 minutes per build and was reverted for it; **this is the cheaper one**, and
+it is the route to take if #23 is ever picked up.
+
+<details>
+<summary>Original diagnosis, kept for the reasoning</summary>
+
 ## 🔴 #31 — `sharp` fails on Vercel and works locally (#23's class, recurring)
 
 **Found by the user on `atno.io` immediately after K-5b deployed, 11 Aug 2026.** Everything
@@ -88,6 +123,12 @@ for jsdom:
 
 `processUpload` is already isolated in `src/lib/image-processing.ts` with 44 tests against it,
 so swapping the encoder is one file and the suite says whether it still behaves.
+
+**Not needed in the end** — round 2 fixed it. Kept because the escape hatch is still there if
+sharp becomes troublesome again, and because the reasoning for *when* to abandon a patching
+approach is worth having written down.
+
+</details>
 
 ---
 
@@ -574,9 +615,9 @@ Ordered so the most visible fix lands first and nothing depends on anything late
 | **K-2** ✅ | Read the settings already stored — density, sticky header, page size, alternating rows. Delete dead code | none | Visible: consistent row height. **DONE 11 Aug, 36/36. Record below.** |
 | **K-3** ✅ | `col.align`, `col.width`, working column resize | none | Visible: column resizing. **DONE 11 Aug. Record below.** |
 | **K-4** ✅ | Toolbar — Filter, Sort, Columns panels | none | **Large** — the tool feel. **DONE 11 Aug in four steps, records below.** |
-| **K-5a** | Storage adapter + Vercel Blob + upload endpoint + `TableImage` model | **`TableImage` table** | none |
-| **K-5b** | Image Management admin section | none | none |
-| **K-5c** | Image rendering in cells, CSV id column, row-editor picker, guide | `col.meta.imageShape` | **Visible** — images appear |
+| **K-5a** ✅ | Storage adapter + Vercel Blob + upload endpoint + `TableImage` model | **`TableImage` table** | none. **DONE 11 Aug — 30/30 end-to-end + 44/44. Record below.** |
+| **K-5b** ✅ | Image Management admin section | none | none. **DONE 11 Aug — 15/15. Record below.** |
+| **K-5c** ✅ | Image rendering in cells, CSV id column, row-editor picker, guide | `col.meta.imageShape` | **Visible** — images appear. **DONE 12 Aug — 31/31 full chain. Record below.** |
 | **K-6** | Admin table editor: badge colour list, shape dropdown, width defaults | none | none |
 | **K-7** ⏸️ | *Deferred* — icons onto the upload path (J-4 revisited) | — | — |
 | **K-8** ⏸️ | *Deferred* — rows out of the JSON blob | **large** | — |
@@ -1428,10 +1469,268 @@ storage host with a long cache. Running them through the optimiser would add per
 cost for no benefit. ⚠️ This reverses an earlier recommendation of mine that assumed hotlinked
 third-party images — it does not apply to self-hosted, pre-sized objects.
 
+##### ✅ K-5a DONE — 11 Aug 2026 (storage, upload endpoint, `TableImage`)
+
+**Migration `20260811105907_add_table_images`.** Purely additive — a new table, nothing existing
+touched, no backfill possible or needed. ⚠️ Applied to **both branches** before the code
+merged, per the standing rule.
+
+**New:** `src/lib/storage/{index,vercel-blob,cloudflare-r2}.ts`, `src/lib/image-processing.ts`,
+`POST|GET /api/admin/table-images`. **Installed:** `@vercel/blob`, `sharp`.
+
+###### The three decisions the rest of Phase K rests on
+
+**1. Rows store a `key`, never a URL.** Measured reuse is 1.68× (7,602 rows → 4,521 distinct
+things; `pixabay` alone serves 40 rows). Stored as URLs that is 40 writes to change one picture,
+and moving storage provider would mean rewriting thousands of rows inside 654 JSON blobs.
+
+**2. Object names are content hashes.** Different bytes ⇒ different URL, by construction. That
+makes `immutable, max-age=31536000` safe and **removes the "never overwrite, use `-v2`"
+discipline that `ICON-GUIDE.md` §9 needs** for repository-hosted icons. Replacement is a normal
+operation here rather than a procedure.
+
+**3. Nothing outside `src/lib/storage/` may import a provider.** One rule, asserted by a test
+that walks `src/` looking for `@vercel/blob` or the S3 client. It is what keeps
+`BLOB-TO-R2-MIGRATION.md` a short document.
+
+⚠️ `TableImage.provider` exists from day one so a **partially** migrated bucket is
+representable. Without it the R2 move would be all-or-nothing with a broken window in between.
+
+###### Upload security — re-encoding is the defence, the rest are filters
+
+⚠️ **This is the case #27.5's correction was about.** That entry noted stored SVGs are only
+dangerous when uploads are accepted; this endpoint accepts uploads.
+
+Size cap before decode · pixel cap · magic-byte sniffing (never the extension) · SVG rejected
+outright · **then decode to raw pixels and re-encode as 64×64 WebP**.
+
+**Filters can be evaded; re-encoding cannot.** It discards everything that is not image data
+rather than trying to detect it. Proven, not asserted: a PNG carrying EXIF `Copyright: SECRET`
+comes back with no EXIF, and a `<?php …?>` payload appended after the image data does not
+survive. A useful side effect is that GPS coordinates in phone screenshots are destroyed before
+anything is stored.
+
+###### 🔴 Two real bugs, both found by the end-to-end test against the real store
+
+**1. `allowOverwrite` was missing, and uploads failed for identical bytes.**
+
+Vercel Blob throws if the destination pathname exists. Content hashing means **the same image
+under a second key produces the same pathname** — so "upload this logo under another key"
+returned a 500. Not an edge case: the same logo under two keys, and re-adding an image after
+deleting it, both hit it.
+
+⚠️ Overwriting is safe *precisely because* the name is a hash: the only file that can collide is
+byte-identical. The write is idempotent by construction, which is the property the hash was
+chosen for.
+
+**2. Shared objects were deleted out from under each other.**
+
+```
+upload logo.png as "a"  -> object H
+upload logo.png as "b"  -> object H     (same bytes, shared — by design)
+replace "a"'s artwork   -> deleted H    -> "b" now points at nothing
+```
+
+**Dedup requires reference counting**, and the first version had the first without the second.
+Both `PATCH` and `DELETE` now count other rows on that URL before removing the file.
+
+###### ⚠️ And one bug that wasn't — a test that was not idempotent
+
+A run showed a freshly uploaded object 404-ing *and* a deleted one still returning 200 —
+contradictory, so neither could be believed. A direct probe of the Blob API showed the pipeline
+correct throughout (`PUT → exists → 200 → delete → gone → 404`, `x-vercel-cache: MISS`).
+
+The fixtures used **fixed colours**, so every run produced identical bytes, an identical hash and
+therefore **the same URLs** — run 2 was fetching URLs run 1 had created and deleted, and getting
+cached answers. **Generalisable: content-addressed storage makes a test that reuses fixtures
+non-idempotent by construction.** Fixtures now vary per run.
+
+###### Deployment — see #31
+
+The endpoint worked perfectly on localhost and returned 500 on Vercel. Full record at **#31**;
+it took two rounds and neither could be reproduced locally.
+
+###### Verification — 30/30 end-to-end + 44/44 unit
+
+| Check | Result |
+| --- | --- |
+| Auth refused before the body is parsed | correct |
+| Upload → 64×64 WebP, ~200 bytes, content-hashed URL | correct |
+| Served as `image/webp` with `max-age=31536000` | correct |
+| SVG — plain, behind `<?xml`, uppercase, **and named `.png`** | rejected ×4 |
+| GIF, text, empty, oversize | rejected |
+| **EXIF destroyed; appended payload does not survive** | correct |
+| Duplicate key → 409 (conflict, not silent overwrite) | correct |
+| **Shared object survives a replace** | correct |
+| Delete removes the object *and* the row | correct |
+| **Nothing outside `lib/storage` imports a provider** | correct |
+| Blob store left empty afterwards | correct |
+
+##### ✅ K-5b DONE — 11 Aug 2026 (Image Management)
+
+`/admin/images` — grid, usage counts, unused filter, drag-drop upload, rename, replace, delete.
+Plus `src/lib/table-image-usage.ts` and `PATCH|DELETE /api/admin/table-images/[id]`.
+
+Filed under **System**, not Content: an image is a shared resource referenced by rows across
+many tables, not content belonging to a page, and the screen's main job is maintenance.
+
+###### 🔴 The usage lookup took 7.4 SECONDS, and my comment claimed "a few hundred milliseconds"
+
+That figure was a guess written into a code comment. Measuring disproved it — and it mattered
+more than a slow grid, because `getImageUsage()` shares the scan, so **every delete and every
+rename paid it too**.
+
+| Attempt | Approach | Steady state |
+| --- | --- | --- |
+| 1 | Fetch all 654 tables **including `data`**, filter in JS | **7,375 ms** |
+| 2 | Fetch schemas only, filter in JS | **1,648 ms** |
+| 3 | `jsonb_path_exists` — Postgres does the filtering | **271 ms** |
+
+⚠️ **Step 2 looked like the fix and was not.** Dropping `data` removed ~2 MB, but **654 schemas
+still crossed the wire so JavaScript could reject all of them**. Only pushing the predicate into
+the database made it cheap — today it returns zero ids and the second query never runs at all.
+
+**Generalisable: moving less data is not the same as asking a better question.**
+
+###### Two ordering decisions, deliberately opposite
+
+| | Order | Why |
+| --- | --- | --- |
+| **Replace** | new object → update row → *then* delete the old | A failure leaves an orphan (2 KB, visible in the unused filter) rather than a row pointing at nothing |
+| **Delete** | object first → *then* the row | The row is going regardless, so a failed object delete must abort **before** the row is touched, leaving the operation retryable |
+
+⚠️ **Rename is refused while in use.** Rows store the key as plain text in JSON with no foreign
+key, so nothing cascades — renaming a key 40 rows point at would silently blank 40 thumbnails.
+Delete is refused for the same reason, and both refusals name what is in the way.
+
+###### ⚠️ `next/image` → a plain `<img>`, mid-build
+
+Written first with `next/image` and `unoptimized` — which **disables the only thing the component
+provides** while still requiring the blob host in `next.config.ts`. Configuration for a
+deliberately-disabled feature is a trap for whoever reads it next.
+
+These objects are finished 64px WebP; there is nothing to optimise. Matches `ItemIcon` from
+Phase J for the same reason. Bundle **12.9 kB → 7.94 kB**.
+
+**Verification — 15/15:** unauthenticated → 307, page renders, nav lists it, uploads land with
+the key taken from the filename, list is newest-first, every card carries a usage count,
+thumbnails fetch.
+
+##### ✅ K-5c DONE — 12 Aug 2026 (images on the site, admin controls, CSV)
+
+Three parts, each shippable alone.
+
+###### (i) Rendering
+
+`col.meta.imageColumn` names the row field holding the key; the service resolves the keys **that
+table actually uses** into a `TableImageMap` and sends it with the payload.
+
+⚠️ **Resolved server-side.** A 40-row table would otherwise make 40 requests to translate names
+into URLs, and every cell would need a "not resolved yet" state.
+
+⚠️ **Resolved AFTER the country filter.** A row hidden from this visitor must not contribute its
+key, or the response discloses that content exists for other countries — the same reasoning that
+keeps `filterRowsByCountry` outside the cache.
+
+⚠️ **The image wraps the cell rather than being a cell type**, so any column can carry one.
+`image` stays a declared `ColumnType` with no branch: nothing uses it (0 of 2,675) and a column
+whose only content is a picture is exactly what §29.6(d) rejected.
+
+**A dangling key renders nothing** — no placeholder, no broken-image box. The admin surfaces it
+instead.
+
+###### (ii) Admin controls
+
+Schema editor: a per-column **"Show an image beside this column"** checkbox writing
+`meta.imageColumn` (derived as `<columnId>__image`, so it cannot collide with a data column and
+nobody types a field name) plus a shape select. Row editor: `RowImagePicker`, shaped like
+`IconPicker`.
+
+⚠️ **A native `<select>`, matching the file.** `TableSchemaEditor` has not had its shadcn pass —
+G-5b converted `TableEditor`, not this. Two dropdown styles in one panel reads as a bug before it
+reads as a migration.
+
+###### 🔴 THE SIXTH OCCURRENCE OF THE FIELD-LIST BUG — found by the user
+
+Setting a row image saved correctly, rendered on the public table, and showed **"No image"** when
+the row was reopened.
+
+```ts
+columns.forEach((column) => {
+  initial[column.id] = row?.[column.id] ?? …    // ← only DECLARED columns
+});
+```
+
+The image lives in `col_1__image`, a **row field, not a column**, so rebuilding the form's state
+from the column list dropped it.
+
+⚠️ **Sixth time this shape has appeared**: `icon` through five explicit field lists in Phase J,
+`status` through `buildPageHierarchy` in I-1, now this. **A rebuild-by-field-list cannot complain
+about a field it was never told about**, and TypeScript cannot help because the field name is
+dynamic.
+
+**Not data loss** — `handleSubmit` already spread the existing row before `values`, which is the
+same defence on the way *out*. This was the missing half on the way *in*.
+
+Fixed by seeding from the whole row and filling only gaps, which makes the class **impossible
+here** rather than patching one field. ⚠️ The test uses **the old seeding as a negative control**
+and asserts on *what the form would show*, not what the database holds — every earlier occurrence
+passed its database-level test.
+
+###### 🔴 The picker cried wolf — also found by the user
+
+Reopening a row with an image showed **"Missing: thefutur"** in red, about an image that was
+perfectly fine, because the picker fetched only when its popover opened.
+
+⚠️ **"Missing" must mean "this key does not exist", not "I have not checked."** J-2 built that
+state so a dangling reference names itself; firing it routinely would have trained the reader to
+ignore it, and then a genuinely deleted image would scroll past. **A warning that fires when
+nothing is wrong stops being read.**
+
+A row *with* a key now fetches immediately — the URL is the field's content, not an aid. A row
+without one still defers.
+
+###### (iii) CSV import — the SEVENTH occurrence, caught before it shipped
+
+`transformCsvToTableData` looked every mapping up in `schema.columns` and skipped what it could
+not find, so **a header mapped to an image field would have been discarded without a word**.
+
+Fixed with **one shared `getImportTargets(schema)`** that the mapping UI and the transform both
+read, so they cannot disagree about what exists. ⚠️ Auto-mapping matches image fields **only on
+an explicit word** (`image`, `logo`, `icon`…) and tries them first: loose matching is right for
+columns — "Course" finds "Course Name" — but would otherwise let a column's own name claim its
+image field.
+
+**Also added:** `TABLE-IMAGES-GUIDE.md` and `csv-examples/` (three worked files + README).
+⚠️ The examples are **verified importable**, with every key checked against the image library —
+an example that does not work teaches the wrong shape and the reader blames themselves.
+
+###### Verification — 31/31 on the full chain, against real endpoints and a real store
+
+Built from nothing: domain → page → table → CSV import → public page.
+
+| Check | Result |
+| --- | --- |
+| Import screen offers the image field as its own entry | correct |
+| CSV import writes keys; a blank cell means no image | correct |
+| Public payload resolves only the keys used; **a dangling key is absent** | correct |
+| Rows still carry keys, never URLs | correct |
+| Usage counts name the rows | correct |
+| Delete and rename **refused** while in use, saying how many | correct |
+| **Replace ALLOWED while in use — and the public page serves the new picture with no row edited** | correct |
+| Table and images restored; 7 public pages still 200 | correct |
+
+⚠️ **The domain 404'd at first** — created as `DRAFT`, the Phase H default, so correctly invisible.
+Not a bug; the script simply never published it. Publishing went **through the admin API** so
+invalidation fired — the H-2 lesson, now four occurrences.
+
 ### K-6 — Admin table editor
 
 Badge colour list under each `badge` column, pre-filled by `assignBadgeColors` and editable;
 image shape dropdown; width defaults; density selector.
+
+⚠️ **The image shape dropdown and the image checkbox already shipped in K-5c(ii)**, so what
+remains here is the badge colour override and the column/table defaults.
 
 ### ⏸️ K-7 — Icons onto the upload path (deferred)
 
@@ -1443,6 +1742,653 @@ later."*** When taken, `ICON-GUIDE.md` §5 is rewritten.
 
 Per 29.4. **Trigger: a real table crossing ~1,000 rows.** Keeping the render path
 source-agnostic through K-1…K-4 is what keeps this from becoming a rewrite.
+
+---
+
+## 🟢 #33 — The Roadmap page type
+
+**Raised 14 Aug 2026.** Not a defect — the first genuinely new *feature* since Phase H. Recorded
+here because the design decisions are worth more than the code, and because two of them
+(role-as-page, colour-free HTML) are the difference between this being cheap and being expensive.
+
+### 33.1 — What was asked for
+
+A **roadmap**: a domain-scoped, ordered learning path made of **topics and sub-topics, nested to
+any depth**. Every topic *may or may not* have content behind it; when it does, clicking it opens
+a **shadcn `Sheet` on the right**. Topics carry **icons** (the same manifest as tables) and
+**badges**. The visitor picks a **role** from a dropdown, and can **collapse or expand** the whole
+tree.
+
+One domain can have several roles, each with a **completely different set of steps**:
+
+| Domain | Roles |
+| --- | --- |
+| Graphic Designing | Beginner · Intermediate · Advanced |
+| Data Science | Data Analyst · Data Engineer · Business Analyst |
+| Web Development | Frontend · Backend · Full-stack |
+| *(some domains)* | **none — one plain roadmap** |
+
+Source material: a Miro spine sketch (Step 1 → 1.1/1.2, down to a third level at
+`Kubernetes → EKS`, with `Recommended` badges) and a Figma "Domain Page (Web)" mockup showing the
+role dropdown, collapse/expand controls, the tree on the left and the Sheet on the right
+containing Description, Free Resources, a three-column list, a tools table and sub-page chips.
+
+---
+
+## 33.2 — Decisions, with the reasoning that produced them
+
+### (a) ⚠️ A role is a `Page`. There is no category model.
+
+This is the decision the whole phase rests on, and it was nearly missed.
+
+The obvious design is a `RoadmapCategory` table holding name, slug, order, icon and status. But
+every one of those columns **already exists on `Page`** — and so does the routing that turns them
+into a URL. Modelling roles as pages means:
+
+```
+Domain: Web Development  (webdev)
+└── Page "Roadmap"          contentType: subcategory_list  →  /domain/webdev/roadmap
+      ├── Page "Frontend"   contentType: roadmap           →  /domain/webdev/roadmap/frontend
+      ├── Page "Backend"    contentType: roadmap           →  /domain/webdev/roadmap/backend
+      └── Page "Full-stack" contentType: roadmap           →  /domain/webdev/roadmap/fullstack
+```
+
+…and the following arrive with **no code written for them at all**:
+
+| Capability | Comes from |
+| --- | --- |
+| A distinct, shareable URL per role | the existing `domain/[...slug]` catch-all |
+| Order in the dropdown | `Page.order` |
+| An icon beside each role | `Page.icon` |
+| DRAFT / PUBLISHED / UPCOMING per role | `Page.status` |
+| Country targeting per role | `Page.targetCountries` |
+| Sitemap entry, canonical, `<title>`, breadcrumb JSON-LD | `sitemap.ts`, `seo.ts`, `structured-data.ts` |
+| Appearing in the public left sidebar | `PageSidebar.tsx` |
+| Nesting under whatever parent suits the domain | `Page.parentId` |
+
+⚠️ **The "Choose Your Role" dropdown is therefore derived, not configured.** It is the answer to
+*"which of my sibling pages have `contentType = 'roadmap'`?"* — there is nothing to keep in sync,
+and a role cannot exist in the dropdown but 404 on click, because it is the same row deciding both.
+
+**A domain with no roles falls out for free:** a single page at `/domain/gdesign/roadmap` with
+`contentType: roadmap` and no parent chooser. Fewer than two siblings ⇒ the dropdown does not
+render.
+
+### (b) Topics get real tables, not JSON
+
+`Table.data` proves a JSON blob works, and a roadmap is only ~30–60 nodes — nowhere near the
+~1,000-row ceiling described in 29.4. So JSON was a serious candidate.
+
+⚠️ **What rules it out is `icon`.** K-5b had to answer *"which tables use this image?"* by scanning
+JSON, which needed `jsonb_path_exists` and a hand-written raw query to get from **7,375ms to
+271ms**. Icons inside a JSON tree would recreate that exact problem in a **second** place —
+`/admin/images`, `scripts/find-icon-usage.mjs`, and any future orphan check. A real column answers
+it with a plain `WHERE` and an index.
+
+Secondary, but real: a roadmap is **edited node by node**, not as a whole document. A JSON blob
+means every single-field save rewrites the entire tree, and two admins editing two topics
+last-write-wins each other's work.
+
+### (c) Sheet content is **HTML**, exactly like rich text — and blocks come later
+
+**User's call, and the right one.** The Figma sheet contains a description, bullet lists, a
+three-column layout, a small table and link chips. That is exactly the "structured page templates"
+model recorded at #23.5 — but designing that block schema *first* would put a month between now
+and the first live roadmap.
+
+So: `htmlContent`, the same editor, the same live preview, the same sanitiser. Content blocks
+become **L-11**, and when they arrive they replace this *and* the 415 rich-text pages together.
+
+### (d) ⚠️ The theme WILL follow — and that is a data rule, not a styling one
+
+The user asked that roadmap content follow the theme, unlike rich text. That is achievable, but
+only for one reason, and it must be enforced in the right place.
+
+`RichTextLayout` pins its card to `bg-neutral-100 text-neutral-900` because inline colour in the
+stored HTML beats any stylesheet on specificity, so on a dark surface that text would disappear
+entirely — and `!important` would flatten the deliberate white-on-colour text instead.
+
+⚠️ **The figure that decision was based on is wrong — see #34 below.** Only **58 of 415 rows (14%)**
+carry inline *text* colour. It does not change what roadmap content should do; it changes how
+expensive fixing rich text is.
+
+Roadmap content is new, so the data can be kept clean. But:
+
+> ⚠️ **A UI convention will not hold this.** Somebody will paste styled HTML out of Word or Google
+> Docs on the first day. The rule has to be enforced server-side: **`sanitizeRoadmapHtml()` strips
+> the `style` attribute outright**, and the editor offers no colour control.
+
+Get this wrong and we rebuild #21.4 from scratch, in a second place, with the same
+irreversibility — because by then the colours are in the database.
+
+### (e) Progress tracking, drag-and-drop and blocks are all **deferred**
+
+**User's call on all three.** Each is a genuine improvement and none is needed for a first live
+roadmap. Recorded as L-9, L-10 and L-11 so the reasoning is not lost.
+
+⚠️ Reorder is therefore **buttons** (↑ ↓ → ←), not drag-and-drop. That is not only a scope
+decision: drag-to-*nest* a tree is where most of the bugs live, it needs a second implementation
+for touch, and it is the hardest part of the editor to make accessible. Buttons are exact,
+keyboard-native, and can be replaced later **without touching the schema**.
+
+---
+
+## 33.3 — The schema
+
+Two new models, one added relation, one new `contentType` string.
+
+```prisma
+/// One roadmap. Sits on a Page exactly the way `Table` and `RichTextContent` do — one row per
+/// page, `pageId @unique`, cascade-deleted with the page.
+///
+/// ⚠️ THIS MODEL IS NOT A "CATEGORY" OR A "ROLE". Frontend / Backend / Full-stack are three
+/// separate PAGES, each owning its own Roadmap row. That is what gives every role a URL, a
+/// status, a sitemap entry and a sidebar entry without any of it being written. See 33.2(a).
+model Roadmap {
+  id     String @id @default(uuid())
+  pageId String @unique
+  page   Page   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  /// Heading above the tree, e.g. "Frontend Developer". Separate from `page.title` for the
+  /// same reason `Table.name` is: the page is "Frontend" in the sidebar and the breadcrumb,
+  /// but the heading on the page itself often wants to be longer.
+  title       String
+  /// One-line intro under the title. Plain text — it also feeds the meta description, which
+  /// is why it is not HTML.
+  description String?
+
+  /// { defaultExpanded: boolean, showProgress: boolean, ... }
+  /// JSON for the same reason `Table.settings` is: display preferences that will grow, each
+  /// of which would otherwise be a migration.
+  /// ⚠️ Read through a resolver using `??` throughout, never `||` — see #28. `defaultExpanded:
+  /// false` and `||` would silently become `true`.
+  settings Json?
+
+  nodes RoadmapNode[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One topic. Self-referencing, so nesting is unlimited.
+model RoadmapNode {
+  id String @id @default(uuid())
+
+  roadmapId String
+  roadmap   Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+
+  /// Self-relation — the same shape as `Page.parentId` / `Page.subPages`, which is already
+  /// proven in this codebase. NULL = a top-level step ("Step 1: Programming / Scripting").
+  ///
+  /// ⚠️ `onDelete: Cascade` on the SELF relation too, so deleting a step takes its sub-topics
+  /// with it rather than orphaning rows that then belong to no visible parent.
+  parentId String?
+  parent   RoadmapNode?  @relation("NodeToChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children RoadmapNode[] @relation("NodeToChildren")
+
+  title String
+
+  /// Deep-link fragment: /domain/webdev/roadmap/frontend?topic=kubernetes
+  ///
+  /// ⚠️ Unique WITHIN one roadmap, not globally — see @@unique below. "docker" exists as an
+  /// independent row in both the Frontend and Backend roadmaps. That duplication is the agreed
+  /// design (shared nodes make ordering, and later progress, ambiguous), and scoping the
+  /// constraint is what permits it.
+  slug String
+
+  /// Icon id from `public/icons/` — the SAME field and manifest as `Page.icon` and
+  /// `Domain.icon`. ⚠️ Validate with `isValidIconId()` before writing: the value reaches an
+  /// `src` attribute, and an unknown id renders a broken image with no error anywhere.
+  icon String?
+
+  order Int @default(0)
+
+  /// The "Recommended" flag — AWS, Docker, Kubernetes, EKS in the Miro sketch.
+  ///
+  /// ⚠️ A boolean rather than just another entry in `badges`, because it changes how the NODE
+  /// is drawn (a filled marker on the spine), not merely what pill sits beside it. As a string
+  /// it would have to be styled by matching the literal text "Recommended", which breaks the
+  /// first time someone types "recommended" or "Recommended ⭐".
+  recommended Boolean @default(false)
+
+  /// Free-text labels: "Free", "Paid", "Beginner". Coloured by `assignBadgeColors` (K-1) over
+  /// the distinct set within ONE roadmap, so a given word is the same colour down the page.
+  /// Free text rather than a fixed list — user's call — so adding a label is never a code change.
+  badges String[] @default([])
+
+  /// The Sheet body. Sanitised HTML — see `sanitizeRoadmapHtml` in L-5.
+  ///
+  /// ⚠️ NULL or empty means the topic has NO sheet: it is a label on the spine, not a link.
+  /// Several nodes in the source mockup are exactly that (OSI Model, GCP, AKS). The renderer
+  /// must not make them look clickable.
+  htmlContent String? @db.Text
+  /// Stripped text, for search and the meta description. Written by the API alongside the HTML
+  /// in the same handler, so the two cannot disagree — the same arrangement as
+  /// `RichTextContent.plainText` / `.wordCount`.
+  plainText   String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One "kubernetes" per roadmap, so `?topic=` is never ambiguous.
+  @@unique([roadmapId, slug])
+  /// The tree read: every node of one roadmap, in order.
+  @@index([roadmapId, parentId, order])
+}
+```
+
+**On `Page`,** one line beside the existing `table` and `richTextContent` relations:
+
+```prisma
+  roadmap Roadmap?
+```
+
+…and `'roadmap'` added to the `contentType` doc comment. ⚠️ `contentType` is a **plain `String`,
+not an enum**, so this is a comment change only — no migration for that part, and nothing
+validates the value at the database level. Validation lives in the API.
+
+### ⚠️ Why `htmlContent` sits on the node instead of a fourth table
+
+Splitting content into `RoadmapNodeContent` would keep the tree query small. It is deliberately
+**not** done, for v1:
+
+- 50 nodes × ~3KB ≈ **150KB** — one query loads the whole tree, **server-rendered**
+- The Sheet opens with **zero latency and no second request**
+- ⚠️ It is therefore **indexable**, which is exactly what table content is *not* today (**#30**).
+  A roadmap ships doing correctly the thing 650 table pages get wrong.
+- Postgres **TOASTs** large `@db.Text` values out of the main row automatically, so if it ever does
+  get heavy, dropping `htmlContent` from the tree `select` fixes it **with no migration**
+
+That escape hatch is what makes the simple choice the safe one.
+
+---
+
+## 33.4 — The whole flow, against the flow that already exists
+
+| | **Section-based (today)** | **Roadmap (new)** |
+| --- | --- | --- |
+| 1 | Admin → **Domains** → create "Web Development" (`webdev`), set PUBLISHED | *identical* |
+| 2 | Admin → **Pages** → pick domain → new page "Courses", type `section_based` | Admin → **Pages** → new page "Roadmap", type **`subcategory_list`** — the role chooser |
+| 3 | — | Admin → **Pages** → new page "Frontend", **parent = Roadmap**, type **`roadmap`**. Repeat per role. |
+| 4 | Admin → **Section Layout** → arrange child pages into 3 columns | Admin → **Roadmap Management** → domain → "Frontend" → build the tree |
+| 5 | Live at `/domain/webdev/courses` | Live at `/domain/webdev/roadmap/frontend` |
+
+⚠️ **Step 2 is skipped entirely when the domain has no roles.** One page, type `roadmap`, and
+`/domain/gdesign/roadmap` is the roadmap itself.
+
+**Why a chooser page rather than auto-opening the first role** *(user's call)*: it gives each role
+somewhere to be described, and landing a visitor on an arbitrary default role is worse than asking
+which one they are. `subcategory_list` already renders exactly this and needs no new code.
+
+---
+
+## 33.5 — The URLs, and why the router barely changes
+
+`src/app/domain/[...slug]/page.tsx` is a catch-all that already resolves arbitrary depth — the
+comment at its metadata branch names `/domain/webdev/withcode/ytube` as a live three-segment
+example. `/domain/webdev/roadmap/frontend` is the identical shape, so **`PageService.getByPath` is
+not touched.**
+
+The entire routing change is one case in the existing `switch (page.contentType)`:
+
+```ts
+case 'roadmap':
+  content = <RoadmapLayout page={page} domain={domain} roadmap={roadmap} />;
+  break;
+```
+
+**Topic deep links ride on a query parameter:** `?topic=kubernetes`. The server reads
+`searchParams`, finds that node, and renders the Sheet **already open with its content in the
+HTML**. Closing it strips the parameter with `history.replaceState`, so the back button is not
+filled with one entry per topic opened.
+
+⚠️ `?topic=` must be **`noindex` when present but canonical to the bare URL** — otherwise 50 topics
+become 50 near-duplicate URLs competing with the page they came from. One line in
+`generateMetadata`.
+
+---
+
+## Phase L — The Roadmap page type (#33) — PLAN (agreed 14 Aug 2026, not started)
+
+| Step | What | Ships on its own? |
+| --- | --- | --- |
+| **L-1** | Fix #23 — the sanitiser on Vercel | ✅ and **blocks everything after it** |
+| **L-2** | Schema, migration, `contentType`, page form | ✅ invisible but complete |
+| **L-3** | Admin — Roadmap Management list screen | ✅ |
+| **L-4** | Admin — the tree editor (nodes, reorder, icons, badges) | ✅ |
+| **L-5** | Admin — the content editor + `sanitizeRoadmapHtml` | ✅ |
+| **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | ✅ first visible result |
+| **L-7** | Public — the Sheet, deep links, sub-topic chips | ✅ |
+| **L-8** | SEO — metadata, sitemap, JSON-LD, canonical | ✅ |
+| ⏸️ **L-9** | Progress tracking (localStorage) | deferred — user's call |
+| ⏸️ **L-10** | Drag-and-drop reordering | deferred |
+| ⏸️ **L-11** | Content blocks, replacing HTML here *and* in rich text | deferred — #23.5 |
+
+---
+
+### L-1 — Fix #23 first. It is a blocker now, not a backlog item.
+
+Roadmap content goes through **the same sanitiser that is currently broken on production**.
+`src/lib/sanitize-html.ts` imports `isomorphic-dompurify`, which pulls **jsdom**, which fails to
+load on Vercel under Turbopack — the `Failed to load external module` error from
+`[turbopack]_runtime.js`.
+
+⚠️ Building L-5 on top of a broken sanitiser means the roadmap editor **fails on production and
+works locally**, exactly as #31 and #23 both did. Fix it before there is any content to lose.
+
+**The fix shape is proven** — it is what resolved #31 two days ago, with `sharp` in place of jsdom:
+
+```ts
+// next.config.ts
+serverExternalPackages: ['sharp', 'isomorphic-dompurify', 'jsdom'],
+outputFileTracingIncludes: {
+  '/api/admin/rich-text':      ['./node_modules/jsdom/**/*'],
+  '/api/admin/rich-text/[pageId]': ['./node_modules/jsdom/**/*'],
+},
+```
+
+⚠️ **Do NOT reach for a webpack config.** Adding one silently opts the whole build out of
+Turbopack; see the note under #31.
+
+⚠️ `src/app/api/admin/rich-text/route.ts` currently imports the sanitiser **lazily, inside the
+POST handler**, as a workaround. Once `serverExternalPackages` is correct, check whether that is
+still needed — but **change one thing at a time**, and not in this step.
+
+**Test before pushing:**
+
+| Test | Expect |
+| --- | --- |
+| Save rich text locally | works (it already does — this is the negative control) |
+| Save rich text on the **dev branch Vercel preview** | works — ⚠️ open the *new* deployment URL, not a refresh of the old one; preview URLs are pinned to one build |
+| Same on production after merge | works |
+| `<script>` in the input | stripped, on both environments |
+| A page that renders existing rich text | byte-identical output to before |
+
+---
+
+### L-2 — Schema, migration, and making `roadmap` selectable
+
+**Migration:** two new tables, one nullable relation. **Purely additive** — nothing existing is
+altered, no backfill is possible or needed.
+
+⚠️ **Applied to BOTH Neon branches before the code merges**, per the standing rule at the top of
+this document. This is the fifth time; the rule exists because migrating dev only and shipping
+code that depends on it produced a live production defect in K-2.
+
+**Files touched:**
+
+| File | Change |
+| --- | --- |
+| `prisma/schema.prisma` | the two models above, `Page.roadmap`, the `contentType` comment |
+| `src/components/admin/pages/PageForm.tsx` | one entry in `CONTENT_TYPE_OPTIONS` |
+| `src/app/api/admin/pages/route.ts` + `[id]/route.ts` | accept `'roadmap'` wherever `contentType` is validated |
+| `src/lib/seo.ts` | a `case 'roadmap'` in `buildPageDescription` |
+
+```ts
+// CONTENT_TYPE_OPTIONS — the list the page-creation dropdown renders from
+{ value: 'roadmap', label: 'Roadmap', description: 'A step-by-step learning path' },
+```
+
+⚠️ **This is finding-class #7 territory** — the rebuild-by-explicit-field-list bug that has now
+occurred **seven times**. `contentType` is validated in more than one place and each site has its
+own list. Grep for every literal `'rich_text'` in `src/` and confirm each one either gains
+`'roadmap'` or provably should not have it. A missing entry does not fail to compile; it silently
+rejects the value at runtime.
+
+**Test before pushing:**
+
+| Test | Expect |
+| --- | --- |
+| `npx prisma migrate status` on **both** branches | up to date, before the merge |
+| Create a page with type Roadmap | saves; `contentType` is `'roadmap'` in the DB |
+| Visit that page | renders the `default:` narrative layout — **not a 500, not a 404** |
+| Edit an existing `table` / `rich_text` page and save | unchanged; the dropdown still shows the right value |
+| `/admin/pages` tree | the new page appears with the others |
+| Sitemap | contains the new URL once published |
+
+---
+
+### L-3 — Roadmap Management
+
+New nav item under **Content**, beside Tables and Rich Text — `/admin/roadmaps`, lucide icon
+`Route` (or `Milestone`).
+
+⚠️ **Content, not System.** The opposite call to Images (K-5b): an image is a shared resource
+referenced from many places, whereas a roadmap belongs to exactly one page. See the note in
+`admin-nav.ts`.
+
+The screen mirrors `/admin/tables` and `/admin/rich-text` exactly — a domain dropdown, then the
+pages in that domain whose `contentType` is `'roadmap'`, each row showing whether a `Roadmap` row
+exists yet, its node count, and **Create** or **Edit**.
+
+⚠️ It must also list roadmap-type pages that have **no `Roadmap` row at all** — that is the normal
+state right after L-2, and a screen that filters them out gives no way to create the first one.
+
+**Test:** a domain with three roles lists three; a domain with none shows an empty state that says
+how to make one; a role page with no `Roadmap` row offers Create; creating one lands on L-4's
+editor; the sidebar highlights **Roadmaps** on `/admin/roadmaps/<id>` (prefix matching in
+`isAdminNavItemActive`); the breadcrumb reads `Admin › Roadmaps › Frontend`, not a raw uuid.
+
+---
+
+### L-4 — The tree editor
+
+`/admin/roadmaps/[pageId]` — two panes.
+
+```
+┌─ Topics ───────────────────┐  ┌─ Editing: Kubernetes ─────────────┐
+│ ▸ Step 1: Programming   ⋮  │  │ Title    [Kubernetes            ] │
+│ ▾ Step 2: Networking    ⋮  │  │ Slug     [kubernetes            ] │
+│     OSI Model           ⋮  │  │ Icon     [ pick from manifest   ] │
+│     Network Protocol    ⋮  │  │ Badges   [Free ×] [+ add        ] │
+│ ▾ Step 3: Cloud         ⋮  │  │ ☑ Recommended                     │
+│     AWS  ★              ⋮  │  ├───────────────────────────────────┤
+│     Azure               ⋮  │  │ Content        [Edit] [Preview]   │
+│ ▾ Step 4: Orchestration ⋮  │  │ ┌───────────────────────────────┐ │
+│   ▾ Kubernetes ★        ⋮  │  │ │ <h3>Description</h3>          │ │
+│       EKS ★             ⋮  │  │ └───────────────────────────────┘ │
+│ [+ Add step]               │  │              [ Save ]             │
+└────────────────────────────┘  └───────────────────────────────────┘
+```
+
+`⋮` → Add child · Move up · Move down · Indent · Outdent · Delete.
+
+**API:**
+
+| Route | Does |
+| --- | --- |
+| `POST /api/admin/roadmaps` | create the `Roadmap` row for a page |
+| `PATCH /api/admin/roadmaps/[id]` | title, description, settings |
+| `POST /api/admin/roadmaps/[id]/nodes` | add a node |
+| `PATCH /api/admin/roadmap-nodes/[id]` | any field, including content |
+| `DELETE /api/admin/roadmap-nodes/[id]` | cascades to children |
+| `POST /api/admin/roadmap-nodes/[id]/move` | `{ direction: 'up'\|'down'\|'in'\|'out' }` |
+
+⚠️ **Reordering must be one transaction.** Moving a node up rewrites `order` on at least two rows;
+a partial write leaves two nodes claiming the same position, and the tree renders in an arbitrary
+order with no error anywhere. Wrap it in `prisma.$transaction`.
+
+⚠️ **Indent has one legal target: the sibling immediately above.** Anything else is ambiguous. If
+there is no sibling above, the button is disabled — not silently ignored.
+
+⚠️ **Outdent at the top level is a no-op**, and the button must be disabled rather than throwing.
+
+⚠️ **`revalidateTag` on every write.** This is the fifth `unstable_cache` trap in this project
+(H-2, J-3, K-2, K-4b). Mutating through Prisma without invalidating means the public page serves
+the old tree for up to `CACHE_DURATIONS.MEDIUM` = 60s — and the Data Cache **survives
+deployments**, so "it will fix itself on the next deploy" is false.
+
+⚠️ **Seed the edit form from the whole node object, then fill gaps** — never rebuild it from an
+explicit field list. That is the bug that has now landed **seven times**, most recently in K-5c's
+`RowDialog`:
+
+```ts
+const [values, setValues] = useState(() => ({ ...node, ...defaultsForMissingKeys(node) }));
+```
+
+**Test:** add a root node, a child, a grandchild — all three persist and re-open correctly; move a
+middle node up and down, and reload — the order holds; indent under the node above; outdent back
+out; delete a parent and confirm its children go too and no orphan rows remain; **set an icon and
+reopen the editor — the icon is still selected** (this is the exact K-5c picker defect); add two
+badges, remove one; a duplicate slug within one roadmap is rejected with a readable message, and
+the same slug in a *different* roadmap is accepted; edit a node, save, then load the public page
+within 5 seconds and see the change (proves invalidation).
+
+---
+
+### L-5 — The content editor, and the rule that keeps the theme working
+
+Reuses the rich-text editor's shape — a textarea of HTML with a live preview beside it — with
+**one difference that matters more than the rest of the step**:
+
+```ts
+/**
+ * ⚠️ STRIPS `style` ENTIRELY. This is not tidiness; it is what makes roadmap content
+ * themeable at all.
+ *
+ * `sanitizeRichTextHtml` permits inline `style` because 415 existing rows depend on it, and
+ * that is precisely why `RichTextLayout` is pinned to a light card: 395 of those rows carry
+ * inline colours (2,519 declarations, 574 dark, 384 pure black). An inline style beats any
+ * stylesheet, so on a dark surface that text vanishes.
+ *
+ * Roadmap content is new, so the data can be kept clean — but only if it is enforced HERE.
+ * A convention in the editor UI will not survive the first paste out of Google Docs.
+ */
+export function sanitizeRoadmapHtml(html: string): string
+```
+
+The editor offers structure — headings, lists, links, tables, columns — and **no colour control**.
+
+⚠️ The preview pane must render inside the **same** container classes the public Sheet uses, and
+must follow the theme. A preview on a fixed white background would look right in the admin and
+wrong on the site, which is worse than no preview.
+
+**Test:** paste HTML containing `style="color:#000"` → saved without the attribute; paste
+`<script>` → stripped; paste a Google Docs fragment → readable, unstyled, structure intact; a link
+gets `rel="noopener noreferrer"`; a table renders; **toggle dark mode in the preview and again on
+the public page — both readable**; `plainText` is populated and matches the HTML.
+
+---
+
+### L-6 — The public roadmap page
+
+`RoadmapLayout` — server component, so the tree is in the HTML.
+
+```
+Frontend Developer                       Choose your role  [ Frontend ▾ ]
+Everything you need, in order.           [ ⊟ Collapse all ]
+
+  ●━━ Step 1: Programming / Scripting
+  ┃    ├─ 1.1  Shell Scripting
+  ┃    └─ 1.2  Python Scripting        [Free]
+  ●━━ Step 2: Networking Concepts
+  ┃    ├─ 2.1  OSI Model
+  ●━━ Step 3: Cloud Services
+  ┃    ├─ AWS               ★ Recommended        ← clickable: it has content
+  ┃    ├─ Azure                                  ← not clickable: it has none
+```
+
+- **A vertical spine, topics branching right.** Chosen over roadmap.sh's 2D flowchart for one
+  concrete reason: **a vertical trunk survives a phone**, and a wide diagram does not.
+- **Role dropdown** = sibling pages with `contentType='roadmap'`, PUBLISHED, geo-visible, by
+  `order`. Fewer than two ⇒ not rendered. Selecting one **navigates**, so the URL changes.
+- **One collapse/expand toggle, not two checkboxes.** Two checkboxes are a single state with two
+  values, and can display a combination ("both ticked") that means nothing.
+- Expand state persists per visitor in `localStorage`, keyed by roadmap slug — the same treatment
+  K-3 gives column widths.
+- `recommended` draws a filled marker on the spine, so the happy path is findable in one pass.
+- Badges use `assignBadgeColors` over the roadmap's distinct labels — ⚠️ compared with plain `<`,
+  **not `localeCompare`**, or the server and client sort differently and React reports a hydration
+  mismatch (K-1).
+- ⚠️ **A node with no content must not look clickable** — no pointer cursor, no hover state.
+
+**Test:** a 3-level roadmap renders all levels; **`curl` the page and grep for a topic title — it
+is in the HTML** (this is the #30 failure, and roadmaps must not repeat it); the dropdown lists
+exactly the published sibling roles; a DRAFT role is absent from the dropdown *and* 404s directly;
+collapse all, reload, still collapsed; a one-role domain shows no dropdown; a domain with no
+`Roadmap` row shows an empty state, not a crash; dark mode; 375px wide.
+
+---
+
+### L-7 — The Sheet
+
+`side="right"`, `w-full sm:max-w-2xl` on desktop; `side="bottom"`, `h-[85vh]` on mobile.
+
+- Opening pushes `?topic=<slug>`; closing removes it via `history.replaceState` so the back button
+  is not filled with one entry per topic.
+- Arriving at a `?topic=` URL renders the Sheet **already open, with content in the HTML**.
+- **Sub-topic chips at the foot swap the content in place** — push the new `?topic=`, keep the
+  Sheet open. It reads as moving *through* a topic rather than bouncing in and out.
+- Content renders through the theme, per L-5.
+
+**Test:** open a topic, copy the URL, open it in a fresh tab → the Sheet is open on the right
+topic; `curl` that URL → the topic's text is in the HTML; close → the parameter is gone and one
+back press leaves the page (not fifteen); an unknown `?topic=` value → the page renders normally
+with the Sheet shut, **not a 404**; a chip swaps content without closing; Escape closes; mobile.
+
+---
+
+### L-8 — SEO
+
+| Concern | Handling |
+| --- | --- |
+| `<title>` | `Frontend Developer · Web Development · ATNO` — via the existing template |
+| Description | `Roadmap.description`, else a `case 'roadmap'` template in `buildPageDescription` |
+| Canonical | the bare page URL — ⚠️ **even when `?topic=` is present** |
+| `?topic=` | `robots: { index: false, follow: true }` — otherwise 50 topics become 50 near-duplicates competing with their own parent |
+| Sitemap | free; role pages are `Page` rows and `sitemap.ts` already emits them |
+| Breadcrumb JSON-LD | free, for the same reason |
+
+⚠️ **Do not add `?topic=` URLs to the sitemap.** They are the same document.
+
+**Test:** `curl -s <url> | grep -i '<title>'`; the canonical on a `?topic=` URL points at the bare
+URL; the sitemap contains the role pages and no `?topic=`; a DRAFT role is in neither.
+
+---
+
+### ⏸️ L-9 — Progress tracking (deferred)
+
+A checkbox per topic in `localStorage`, keyed by roadmap slug; the spine fills in behind you and
+the header reads "12 / 48". **User's call to defer.**
+
+Recorded because the argument for it is strong: it is the single strongest reason a visitor
+*returns* to a learning site, and it costs **no schema, no API and no accounts**. Worth revisiting
+once real roadmaps exist and the shape has settled.
+
+### ⏸️ L-10 — Drag-and-drop reordering (deferred)
+
+Replaces L-4's buttons. **No schema change** — that is the point of choosing buttons first.
+⚠️ Needs a separate touch implementation and a keyboard fallback, which is most of the cost.
+
+### ⏸️ L-11 — Content blocks (deferred — this is #23.5)
+
+The Sheet's content — description, resource lists, multi-column layout, a small table, link chips
+— is exactly the structured-template model recorded at **#23.5** as the intended replacement for
+the 415 rich-text pages.
+
+⚠️ **Building it here first is materially safer than migrating rich text first**: new content, no
+migration, small blast radius. When it lands it retires the HTML path in *both* places, and with it
+`dangerouslySetInnerHTML`, the sanitiser's `style` allowance, and #21.4's permanently-light card.
+
+---
+
+### What Phase L touches that already exists
+
+| Existing thing | Effect |
+| --- | --- |
+| `domain/[...slug]/page.tsx` | **one `case`** in the switch |
+| `PageService.getByPath` | **untouched** |
+| `PageForm.tsx` | one entry in `CONTENT_TYPE_OPTIONS` |
+| `admin-nav.ts` | one item; sidebar + breadcrumb both follow |
+| `seo.ts` | one `case` in `buildPageDescription` |
+| `sanitize-html.ts` | one **new** export; ⚠️ `sanitizeRichTextHtml` unchanged — 415 rows depend on it |
+| `next.config.ts` | L-1's jsdom entries |
+| `sitemap.ts`, `PageSidebar.tsx`, `structured-data.ts` | **no change** — they work on `Page` |
+| `assignBadgeColors`, `IconPicker`, `isValidIconId` | reused as-is |
+
+⚠️ **The one real regression risk is L-1**, because it edits `next.config.ts`, which every route
+depends on. Everything after L-1 is additive: new tables, new routes, new components, one switch
+case. Nothing existing changes shape.
 
 ---
 
@@ -1476,11 +2422,79 @@ they reach the page.
 
 ---
 
+## 🟡 #34 — The measurement behind the permanently-light rich-text card was wrong
+
+**Found 14 Aug 2026,** because the user opened a rich-text page, looked at its HTML and said
+*"I don't think any colour is applied here."* They were right, and checking it properly overturned
+the number that `RichTextLayout.tsx` and #21.4 both rest on.
+
+### What was claimed, and what is actually there
+
+The comment in `RichTextLayout.tsx` says **"395 of 415 rows carry inline text colours — 2,519
+declarations, 574 of them dark"**. Measured directly against the development branch, counting only
+declarations *inside* `style="…"` attributes and anchoring each pattern so the three families
+cannot be confused with one another:
+
+| | rows | declarations |
+| --- | --- | --- |
+| any inline `style` at all | 405 / 415 (98%) | — |
+| **`color:` — actual text colour** | **58 / 415 (14%)** | 568 (396 dark, 168 light) |
+| `background` / `background-color:` | 37 / 415 (9%) | 532 |
+| `border-color:` | **393 / 415 (95%)** | 1,411 |
+| **no text colour whatsoever** | **357 / 415 (86%)** | — |
+
+⚠️ **The original number counted all three families as one.** 393 border-colour rows became "395
+rows"; 568 + 532 + 1,411 = **2,511 ≈ the "2,519 declarations"** that was quoted. The three were
+summed and then described as text colour.
+
+They are not interchangeable, and only one of them can make content unreadable:
+
+- **`color:`** — a dark value on a dark ground **disappears**. This is the only real problem.
+- **`background-color:`** — paints its own ground, so it stays self-consistent in either theme.
+- **`border-color:`** — a rule or divider. On 393 of those rows it is one literal declaration,
+  `border-color: #dcdada` on an `<hr>`, which on a dark surface is merely *pale*, never invisible.
+
+The whole 393 comes from one template that every rich-text page was built from — which is why it
+is near-universal and why it dominated the count.
+
+### Why it matters
+
+The conclusion in #21.4 — *"migrating rich text to be themeable is irreversible product work"* —
+was reasonable against 395 rows. Against **58** it is a different size of job entirely, and the
+two halves are independent:
+
+1. **58 rows** need `color:` removed. Small enough to review by hand, and `#767c7c` ×180,
+   `rgb(0,0,0)` ×168, `#000000` ×48 and `rgb(255,255,255)` ×168 account for **all but four** of
+   the 568 declarations — so it is four find-and-replaces, not 568 judgement calls.
+2. **393 rows** carry `border-color: #dcdada` on `<hr>`. Deleting that one declaration and letting
+   `globals.css` style `<hr>` from a token is mechanical, and is worth doing on its own regardless
+   of the theme question.
+
+⚠️ **Not scheduled, and deliberately not part of Phase L.** It changes no roadmap decision — new
+content must still be colour-free, enforced by `sanitizeRoadmapHtml` (33.2d) — and Phase L should
+not grow a rich-text migration inside it. Recorded so the next person to weigh #21.4 weighs it
+against the right number.
+
+⚠️ **Measured on the development branch.** Production is a separate database (#32) and may differ
+slightly; re-measure before acting. The measuring script is throwaway and was not kept — its logic
+is described above precisely enough to rebuild.
+
+### The lesson, which is the same one as `export-table.ts`
+
+A measurement is only as good as the pattern that produced it. Searching for the string `color`
+matches `background-color` and `border-color`; the fix is anchoring — `(^|;)\s*color\s*:` — and it
+is the identical mistake as the grep whose exclusion pattern matched the very import lines it was
+looking for. ⚠️ **A number in a code comment is an assertion, and assertions rot.** This one drove
+a permanent styling decision for two months.
+
+---
+
 ## Related documents
 
 | Document | Contents |
 | --- | --- |
 | [Table redesign design note](https://claude.ai/code/artifact/930079be-3d25-47bb-9d16-5f128abf9135) | Live mockups, both themes; the density control is interactive |
+| [Roadmap page prototype](https://claude.ai/code/artifact/2d080e12-7280-49ae-bac9-d408ffe0d02c) | **#33 / Phase L.** Three working roles, nesting to three levels, the Sheet, deep-link URLs, both themes |
 | `BLOB-TO-R2-MIGRATION.md` | Step-by-step move from Vercel Blob to Cloudflare R2, mid-flight |
 | `TABLE-IMAGES-GUIDE.md` | *(written in K-5c)* — how to add a row image |
 | `ICON-GUIDE.md` | Domain and page icons — the **repository** path, deliberately different |
