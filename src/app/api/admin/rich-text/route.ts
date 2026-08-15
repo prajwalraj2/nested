@@ -14,27 +14,32 @@ import { requireAdmin } from '@/lib/api-auth';
 // reloads reuse one pool. The API surface is identical; only the import changes.
 // An eslint rule now blocks `new PrismaClient()` outside that file.
 import { prisma } from '@/lib/prisma';
-// Finding #2: stored HTML is rendered with dangerouslySetInnerHTML to every public
-// visitor, so it is cleaned before it reaches the database.
-/**
- * ⚠️ `sanitize-html` IS IMPORTED LAZILY, INSIDE THE POST HANDLER — NOT HERE.
- *
- * It pulls `isomorphic-dompurify`, which pulls **jsdom** — a complete DOM implementation,
- * and a heavy transitive tree. A module-level import loads that when the ROUTE FILE is
- * loaded, so every handler in this file pays for it, including the `GET` below which
- * sanitises nothing.
- *
- * That is not theoretical. On 30 Jul the whole screen broke in production with:
- *
- *     Failed to load external module jsdom: [ERR_REQUIRE_ESM]
- *     require() of ES Module @exodus/bytes/encoding-lite.js
- *     from html-encoding-sniffer/lib/html-encoding-sniffer.js not supported
- *
- * The root cause was a Node version mismatch (fixed by pinning `engines.node`), but the
- * reason it took out the *listing* — a read that needs no DOM at all — was this import.
- * Keeping it lazy means a future problem in the sanitiser tree can only break writing,
- * not reading.
- */
+/*
+  ⚠️ HTML IS STORED VERBATIM. IT IS NOT SANITISED. (#35)
+
+  Sanitisation was removed on 15 Aug 2026 — see `SANITISER-REMOVAL.md`. The import below is
+  a plain top-level one again: it used to be a lazy `await import` inside the POST handler,
+  purely to keep jsdom out of this file's module graph. `htmlToPlainText` has no
+  dependencies at all, so there is nothing left to defer.
+
+  ⚠️ THE COMMENT REMOVED FROM HERE HELD THE ANSWER TO #23, AND WAS NOT READ FOR TWO WEEKS.
+
+  It recorded, verbatim and dated 30 Jul, the exact failure that later cost four deploy
+  cycles to rediagnose:
+
+      Failed to load external module jsdom: [ERR_REQUIRE_ESM]
+      require() of ES Module @exodus/bytes/encoding-lite.js
+      from html-encoding-sniffer/lib/html-encoding-sniffer.js not supported
+
+  Every term needed to solve it — the error code, the ESM-only package, the CommonJS
+  package requiring it — was sitting in this repository the whole time. Its stated root
+  cause ("a Node version mismatch, fixed by pinning engines.node") was also wrong, which is
+  its own lesson: a recorded diagnosis is a lead, not a conclusion.
+
+  **Grep the repository for the error string before investigating an error.** Recorded
+  under #23 in NEW-IMPROVEMENTS-2.md.
+*/
+import { htmlToPlainText } from '@/lib/html-text';
 // Finding #22.4 — correct public URLs need the parent chain walked, not two slugs joined.
 import { buildPageUrl, toPageMap } from '@/lib/page-path';
 
@@ -189,44 +194,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    /**
-     * Loaded here rather than at the top of the file — see the note by the imports.
-     *
-     * `await import(...)` inside the handler means jsdom is only pulled in when something
-     * is actually being written. Node caches the module after the first call, so a busy
-     * endpoint pays this once, not per request.
-     */
-    const { sanitizeRichTextHtml, htmlToPlainText } = await import('@/lib/sanitize-html');
+    /*
+      ⚠️ Named `html`, not `safeHtml` — same reasoning as the PUT in ./[pageId]/route.ts.
+      Nothing cleans this. See #35.
+    */
+    const html = htmlContent.trim();
 
-    // ⚠️ Sanitise before storing — same reasoning as the PUT in ./[pageId]/route.ts.
-    // Read paths are cached, so cleaning at render time would let one bad write be
-    // re-served indefinitely. See src/lib/sanitize-html.ts for the allow-list, which
-    // was derived from the 415 rows already in the database.
-    const safeHtml = sanitizeRichTextHtml(htmlContent).trim();
-
-    if (!safeHtml) {
+    if (!html) {
       return NextResponse.json(
-        { error: 'htmlContent contained no safe content after sanitisation' },
+        { error: 'htmlContent cannot be empty' },
         { status: 400 }
       );
     }
 
-    // Derived from the SANITISED html so stripped markup cannot leak into search text.
-    const plainText = htmlToPlainText(safeHtml);
+    // Tag-stripped text for search and the word count. ⚠️ Runs on RAW author HTML now.
+    const plainText = htmlToPlainText(html);
     const wordCount = plainText ? plainText.split(/\s+/).length : 0;
 
     // Create or update rich text content
     const richTextContent = await prisma.richTextContent.upsert({
       where: { pageId: pageId },
       update: {
-        htmlContent: safeHtml,
+        htmlContent: html,
         title: title || null,
         wordCount,
         plainText
       },
       create: {
         pageId,
-        htmlContent: safeHtml,
+        htmlContent: html,
         title: title || null,
         wordCount,
         plainText
