@@ -236,6 +236,17 @@ function buildPageDescription(
       return truncate(
         `${pageTitle} in ${domainName} - a curated, comparable list of options on ATNO.`
       );
+    /*
+      ⚠️ A ROADMAP'S OWN `description` IS BETTER THAN THIS TEMPLATE AND IS NOT READ HERE YET.
+      `Roadmap.description` is a one-line intro written by the author — real prose, exactly the
+      kind of thing branch 1 above prefers over a template. Wiring it up needs the relation
+      added to `pageWithContentSelect` in page.service.ts, which is L-8's job. Until then a
+      roadmap gets this template, which is correct but generic.
+    */
+    case 'roadmap':
+      return truncate(
+        `A step-by-step ${pageTitle} roadmap for ${domainName} - what to learn, in order, on ATNO.`
+      );
     case 'section_based':
     case 'subcategory_list':
       return truncate(

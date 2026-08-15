@@ -339,13 +339,20 @@ function validatePageData(data: any): string | null {
   }
 
   // Validate content type
+  /*
+    ⚠️ THIS LIST IS DUPLICATED IN ../[id]/route.ts AND SEVEN OTHER PLACES.
+    The full inventory is on `Page.contentType` in prisma/schema.prisma. A value missing here
+    is rejected at runtime with no type error anywhere — the page simply cannot be created,
+    and the message names every type except the one you wanted.
+  */
   const validContentTypes = [
-    'narrative', 
-    'section_based', 
-    'subcategory_list', 
-    'table', 
-    'rich_text', 
-    'mixed_content'
+    'narrative',
+    'section_based',
+    'subcategory_list',
+    'table',
+    'rich_text',
+    'mixed_content',
+    'roadmap'
   ];
   
   if (!data.contentType || !validContentTypes.includes(data.contentType)) {

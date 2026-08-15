@@ -2066,9 +2066,9 @@ become 50 near-duplicate URLs competing with the page they came from. One line i
 
 | Step | What | Ships on its own? |
 | --- | --- | --- |
-| **L-1** | Fix #23 — the sanitiser on Vercel | ✅ and **blocks everything after it** |
-| **L-2** | Schema, migration, `contentType`, page form | ✅ invisible but complete |
-| **L-3** | Admin — Roadmap Management list screen | ✅ |
+| ✅ **L-1** | Fix #23 — the sanitiser on Vercel | **DONE 14 Aug**, then removed entirely (#35) |
+| ✅ **L-2** | Schema, migration, `contentType`, page form | **DONE 15 Aug** — invisible but complete |
+| ✅ **L-3** | Admin — Roadmap Management list screen | **DONE 15 Aug** |
 | **L-4** | Admin — the tree editor (nodes, reorder, icons, badges) | ✅ |
 | **L-5** | Admin — the content editor + `sanitizeRoadmapHtml` | ✅ |
 | **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | ✅ first visible result |
@@ -2130,25 +2130,82 @@ altered, no backfill is possible or needed.
 this document. This is the fifth time; the rule exists because migrating dev only and shipping
 code that depends on it produced a live production defect in K-2.
 
-**Files touched:**
+### ⚠️ The plan said four files. There are NINE.
 
-| File | Change |
-| --- | --- |
-| `prisma/schema.prisma` | the two models above, `Page.roadmap`, the `contentType` comment |
-| `src/components/admin/pages/PageForm.tsx` | one entry in `CONTENT_TYPE_OPTIONS` |
-| `src/app/api/admin/pages/route.ts` + `[id]/route.ts` | accept `'roadmap'` wherever `contentType` is validated |
-| `src/lib/seo.ts` | a `case 'roadmap'` in `buildPageDescription` |
+The grep the plan called for was run before touching anything, and it more than doubled the list.
+**This is the eighth occurrence of the rebuild-by-explicit-field-list bug** — except caught before
+it shipped rather than after.
+
+| # | Site | In the plan? | Silent failure if missed |
+| --- | --- | --- | --- |
+| 1 | `prisma/schema.prisma` — models + `Page.roadmap` | ✅ | — |
+| 2 | `PageForm.tsx` `CONTENT_TYPE_OPTIONS` | ✅ | type cannot be chosen |
+| 3 | `PageTree.tsx` `CONTENT_TYPE_ICONS` | ❌ | falls back to a generic icon |
+| 4 | `PageTree.tsx` `formatContentType` | ❌ | shows the raw string `roadmap` |
+| 5 | `SectionEditor.tsx` `PageTypeIcon` | ❌ | different icon from the tree, same page |
+| 6 | `api/admin/pages/route.ts` `validContentTypes` | ✅ | **create rejected at runtime** |
+| 7 | `api/admin/pages/[id]/route.ts` `validContentTypes` | ✅ | **edit rejected at runtime** |
+| 8 | `domain/[...slug]` `buildPageDescription` | ⚠️ plan named the wrong file (`seo.ts`) | generic meta description |
+| 9 | `sitemap.ts` `select` + `pageLastModified()` | ❌ | ⚠️ **stale `lastmod` on every roadmap URL** |
+
+⚠️ **Not one of the five misses would have failed the build**, and each fails differently — a
+missing icon degrades, a missing validator rejects at runtime, a missing sitemap relation is
+invisible until Google stops trusting the whole file. The full inventory now lives as a comment on
+`Page.contentType` in `schema.prisma`, so the next content type starts from a list rather than a
+grep.
+
+⚠️ The render `switch` in `domain/[...slug]` is deliberately **not** touched here — that is L-6.
+Until then a roadmap page renders the narrative layout, which is the correct "complete but
+invisible" state for this step.
+
+### ⚠️ Site 9 had a warning addressed to exactly this moment
+
+`sitemap.ts` carries: *"If a future `contentType` stores its content in a NEW table (the way
+`table` and `rich_text` do), you must add that relation to the `select` and to
+`pageLastModified()`. Otherwise pages of that type silently report a stale `lastmod` — which is how
+this file was wrong the first time."*
+
+**And roadmap is worse than the two before it.** `Table` and `RichTextContent` hold their content
+*in* the row the sitemap reads, so their `updatedAt` moves when the content changes. A roadmap does
+not — the visible content is in `RoadmapNode` rows, and editing a topic leaves `Roadmap.updatedAt`
+untouched.
+
+⚠️ **So L-4's node endpoints MUST touch the parent `Roadmap` row:**
 
 ```ts
-// CONTENT_TYPE_OPTIONS — the list the page-creation dropdown renders from
-{ value: 'roadmap', label: 'Roadmap', description: 'A step-by-step learning path' },
+await tx.roadmap.update({ where: { id: roadmapId }, data: {} })   // bumps @updatedAt
 ```
 
-⚠️ **This is finding-class #7 territory** — the rebuild-by-explicit-field-list bug that has now
-occurred **seven times**. `contentType` is validated in more than one place and each site has its
-own list. Grep for every literal `'rich_text'` in `src/` and confirm each one either gains
-`'roadmap'` or provably should not have it. A missing entry does not fail to compile; it silently
-rejects the value at runtime.
+That is the "more durable alternative" the same file recommends, applied one level down. The
+alternative — `MAX(RoadmapNode.updatedAt)` in the sitemap query — costs a second query per domain
+**and still misses deletions**, since a deleted node leaves no timestamp behind.
+
+### The migration
+
+`20260815065626_add_roadmap` — created with `--create-only`, so it was **written but not applied**,
+then run by hand on **both branches** per the standing rule. Purely additive: two `CREATE TABLE`,
+three indexes, three foreign keys, and **no `ALTER` on anything that already exists**. Nothing to
+backfill, nothing that can fail on existing data.
+
+### ✅ VERIFIED 15 Aug 2026
+
+| Check | Result |
+| --- | --- |
+| Migration applied to development **and** production | ✅ both, before the code shipped |
+| Create a page with type **Roadmap** | ✅ saves, `contentType = 'roadmap'` |
+| Visit it publicly | ✅ renders the narrative layout — not a 500, not a 404 |
+| `/admin/pages` tree | ✅ Route icon, label "Roadmap" |
+| Added to a section via `/admin/sections` | ✅ works, same icon as the tree |
+| `sitemap.xml` | ✅ `/domain/gdesign/roadmap11` present with a `lastmod` |
+
+⚠️ **The sitemap check is the one that proves site 9 mattered.** Had that relation been missed, the
+URL would still have appeared — with a silently wrong date. Nothing about the page would have
+looked broken.
+
+⚠️ **Noted and dismissed:** roadmap pages currently render through `NarrativeLayout`, which is
+pinned light throughout (`bg-white`, `text-slate-*`, `border-slate-*`) and ignores the theme — the
+same island `RichTextLayout` was until #34. **User's call: ignore it, no real pages use that
+layout.** It stops mattering for roadmaps at L-6, which gives them their own renderer.
 
 **Test before pushing:**
 
@@ -2183,6 +2240,38 @@ state right after L-2, and a screen that filters them out gives no way to create
 how to make one; a role page with no `Roadmap` row offers Create; creating one lands on L-4's
 editor; the sidebar highlights **Roadmaps** on `/admin/roadmaps/<id>` (prefix matching in
 `isAdminNavItemActive`); the breadcrumb reads `Admin › Roadmaps › Frontend`, not a raw uuid.
+
+##### ✅ L-3 DONE — 15 Aug 2026
+
+**New:** `src/app/admin/roadmaps/page.tsx`, `src/components/admin/roadmaps/RoadmapsManager.tsx`,
+`GET|POST /api/admin/roadmaps`, one entry in `admin-nav.ts`.
+
+**Three decisions worth keeping:**
+
+**1. ⚠️ Pages with no `Roadmap` row are listed, not filtered out.** That is the normal state
+straight after L-2 — nothing creates the row automatically. A screen showing only pages that
+already have one would be empty *and* offer no way to make the first, the same dead end as
+`/admin/images` hiding unused images. The `Create` / `Edit` split is driven entirely by whether
+`roadmap` is null.
+
+**2. ⚠️ `previewUrl` is resolved server-side, and roadmaps make this worse than rich text did.**
+The naive `/domain/${domainSlug}/${page.slug}` was wrong for **323 of 418 rich-text pages (77.3%)**
+under #22.4. Roadmap roles sit UNDER a `subcategory_list` chooser by design (33.4), so they are
+*always* two levels down — the naive form would be wrong for **every role page in a multi-role
+domain**. The client cannot compute it either: the response holds only roadmap pages, and the
+ancestors are the chooser parents, which are not in the payload.
+
+**3. ⚠️ Built theme-aware from the start.** `RichTextManager` and `TablesManager` both hardcode
+`text-gray-*` / `bg-gray-50` / `bg-red-50`, so they are light islands inside a themed admin — cheap
+to write, and #34 is the record of what a pinned surface costs once content depends on it. This
+screen uses tokens throughout and needs no second pass.
+
+**Also:** the node count comes from Prisma's `_count`, not by loading nodes — otherwise rendering
+one number would pull every `htmlContent` blob in the domain. And `POST` refuses a page whose
+`contentType` is not `roadmap`, because the render switch dispatches on `contentType` rather than
+on which relations exist, so such a row would be editable in the admin and invisible on the site.
+
+⚠️ **`Edit roadmap` links to `/admin/roadmaps/<pageId>`, which does not exist until L-4.** Expected.
 
 ---
 

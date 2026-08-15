@@ -9,6 +9,7 @@ import {
   LayoutList,
   Palette,
   PenLine,
+  Route,
   Table2,
   type LucideIcon,
 } from 'lucide-react';
@@ -565,6 +566,8 @@ function PageTypeIcon({ contentType }: { contentType: string }) {
     section_based: LayoutList,
     narrative: FileText,
     mixed_content: Palette,
+    // ⚠️ Must match PageTree's CONTENT_TYPE_ICONS — that is the point of the note above.
+    roadmap: Route,
   };
 
   const Icon = icons[contentType] ?? FileText;

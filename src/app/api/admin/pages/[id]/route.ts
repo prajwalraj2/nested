@@ -554,13 +554,15 @@ function validatePageUpdateData(data: any): string | null {
   }
 
   // Validate content type
+  // ⚠️ Duplicated from ../route.ts — see the note there and on `Page.contentType`.
   const validContentTypes = [
-    'narrative', 
-    'section_based', 
-    'subcategory_list', 
-    'table', 
-    'rich_text', 
-    'mixed_content'
+    'narrative',
+    'section_based',
+    'subcategory_list',
+    'table',
+    'rich_text',
+    'mixed_content',
+    'roadmap'
   ];
   
   if (!data.contentType || !validContentTypes.includes(data.contentType)) {

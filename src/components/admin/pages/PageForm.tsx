@@ -118,6 +118,7 @@ const CONTENT_TYPE_OPTIONS = [
   { value: 'subcategory_list', label: 'Subcategory list', description: 'Links to its child pages' },
   { value: 'table', label: 'Table', description: 'Structured rows and columns' },
   { value: 'rich_text', label: 'Rich text', description: 'Long-form written content' },
+  { value: 'roadmap', label: 'Roadmap', description: 'A step-by-step learning path' },
   { value: 'narrative', label: 'Narrative', description: 'Story-style flow' },
   { value: 'mixed_content', label: 'Mixed content', description: 'A combination of the above' },
 ];
