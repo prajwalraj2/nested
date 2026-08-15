@@ -15,6 +15,7 @@ import {
   Palette,
   PenLine,
   Plus,
+  Route,
   Table2,
   Trash2,
   type LucideIcon,
@@ -431,6 +432,9 @@ const CONTENT_TYPE_ICONS: Record<string, LucideIcon> = {
   table: Table2,
   rich_text: PenLine,
   mixed_content: Palette,
+  // Phase L. ⚠️ `Route` is also the icon used for Roadmaps in the admin sidebar and in
+  // SectionEditor's PageTypeIcon — one content type, one glyph, everywhere it appears.
+  roadmap: Route,
 };
 
 /** Content type → human label. Falls back to the raw value for anything unmapped. */
@@ -442,6 +446,7 @@ function formatContentType(contentType: string): string {
     table: 'Table',
     rich_text: 'Rich text',
     mixed_content: 'Mixed content',
+    roadmap: 'Roadmap',
   };
   return formatted[contentType] || contentType;
 }

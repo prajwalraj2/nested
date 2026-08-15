@@ -7,6 +7,9 @@ import {
   Columns3,
   Table2,
   FileType2,
+  // ⚠️ Also used for `roadmap` in PageTree's CONTENT_TYPE_ICONS and SectionEditor's
+  // PageTypeIcon — one content type, one glyph, wherever it appears in the admin.
+  Route,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -110,6 +113,20 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         label: 'Rich Text',
         icon: FileType2,
         description: 'Create and edit rich content',
+      },
+      {
+        /*
+          ⚠️ Content, not System — the OPPOSITE call to Images, deliberately.
+
+          Images live under System because one image is referenced by rows across many tables in
+          many domains: a shared resource whose main screen exists for maintenance. A roadmap is
+          the content OF exactly one page. Filing it under System would imply it floats free of
+          the page tree, which is precisely the misunderstanding 33.2(a) exists to prevent.
+        */
+        href: '/admin/roadmaps',
+        label: 'Roadmaps',
+        icon: Route,
+        description: 'Build step-by-step learning paths',
       },
     ],
   },

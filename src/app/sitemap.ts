@@ -63,6 +63,7 @@ type PageNode = {
   updatedAt: Date
   table: { updatedAt: Date } | null
   richTextContent: { updatedAt: Date } | null
+  roadmap: { updatedAt: Date } | null
 }
 
 /**
@@ -106,6 +107,32 @@ function pageLastModified(page: PageNode): Date {
 
   // Rich-text pages: same story via HtmlEditor -> RichTextContent.htmlContent.
   if (page.richTextContent) candidates.push(page.richTextContent.updatedAt)
+
+  /*
+    Roadmap pages (Phase L) — the third content table, added because the note at the foot of
+    this file says to.
+
+    ⚠️ AND IT IS THE FIRST ONE WHERE THIS RELATION ALONE IS NOT ENOUGH.
+
+    `Table` and `RichTextContent` hold their content IN the row we read here, so their
+    `updatedAt` genuinely moves whenever the content changes. A roadmap does not: the visible
+    content lives in `RoadmapNode` rows, and editing a topic writes to a node, leaving
+    `Roadmap.updatedAt` untouched. Reading only this would understate freshness for every edit
+    that is not a change of roadmap title/description/settings — which is almost all of them.
+
+    ⚠️ SO THE NODE WRITE ENDPOINTS MUST TOUCH THE PARENT `Roadmap` ROW (L-4):
+
+        await tx.roadmap.update({ where: { id: roadmapId }, data: {} })   // bumps @updatedAt
+
+    That is deliberately the "more durable alternative" described at the foot of this file,
+    applied one level down. The alternative — aggregating `MAX(RoadmapNode.updatedAt)` here —
+    means a second query per domain and still misses deletions, since a deleted node leaves no
+    timestamp behind at all.
+
+    ⚠️ If roadmap `lastmod` ever looks stale, check that L-4's endpoints still do that bump
+    before suspecting this function.
+  */
+  if (page.roadmap) candidates.push(page.roadmap.updatedAt)
 
   // `section_based` needs nothing extra — its layout lives in Page.sections, on the
   // Page row itself, so Page.updatedAt already moves when it is edited.
@@ -164,6 +191,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
             // as joins, not as a query per page, so this is not an N+1.
             table: { select: { updatedAt: true } },
             richTextContent: { select: { updatedAt: true } },
+            // ⚠️ Only meaningful while L-4's node endpoints touch the Roadmap row —
+            // see the long note in pageLastModified().
+            roadmap: { select: { updatedAt: true } },
           },
         },
       },

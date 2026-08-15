@@ -147,8 +147,32 @@ model Page {
   title String
   slug  String
 
-  // Content type: determines how the page is rendered
-  contentType String @default("narrative") // "narrative" | "section_based" | "subcategory_list" | "table" | "rich_text" | "mixed_content"
+  /// Which layout component renders this page.
+  ///
+  ///   "narrative" | "section_based" | "subcategory_list" | "table" | "rich_text"
+  ///   | "mixed_content" | "roadmap"
+  ///
+  /// ⚠️ A PLAIN `String`, NOT AN ENUM — so the database validates nothing here, and adding a
+  /// value is a comment change rather than a migration. The cost is that the permitted set is
+  /// duplicated across **nine** places in `src/`, none of which fail to compile when one is
+  /// missed. Adding a content type means updating every one of them:
+  ///
+  ///   PageForm.tsx            CONTENT_TYPE_OPTIONS      the creation dropdown
+  ///   PageTree.tsx            CONTENT_TYPE_ICONS        icon in the admin tree
+  ///   PageTree.tsx            formatContentType         its human-readable label
+  ///   SectionEditor.tsx       PageTypeIcon              icon in the section editor
+  ///   api/admin/pages         validContentTypes         POST validation
+  ///   api/admin/pages/[id]    validContentTypes         PUT validation
+  ///   domain/[...slug]        buildPageDescription      the meta description template
+  ///   domain/[...slug]        switch (page.contentType) which layout renders
+  ///   sitemap.ts              select + pageLastModified ⚠️ only if it has its own table
+  ///
+  /// ⚠️ Miss one and it fails SILENTLY and DIFFERENTLY each time: a missing validator entry
+  /// rejects the value at runtime with no type error; a missing icon falls back; a missing
+  /// switch case renders the narrative layout. This is the seventh occurrence of the
+  /// rebuild-by-explicit-field-list bug recorded in NEW-IMPROVEMENTS.md — the pattern is that
+  /// **a list cannot complain about a value it was never told about.**
+  contentType String @default("narrative")
 
   /// Icon id from `public/icons/` — the same field as `Domain.icon`, see the long note there.
   ///
@@ -200,6 +224,13 @@ model Page {
 
   // Rich text relationship - one page can have one rich text content
   richTextContent RichTextContent?
+
+  /// Roadmap relationship — one page can have one roadmap (#33 / Phase L).
+  ///
+  /// ⚠️ THE THIRD CONTENT TABLE. `sitemap.ts` reads every content relation to compute an
+  /// honest `<lastmod>`; adding this one without adding it there makes roadmap pages report a
+  /// stale date. That file carries a warning saying exactly this — heed it.
+  roadmap Roadmap?
 
   // Geo-targeting: Which countries this page is visible to
   // Values: "ALL" (default, visible everywhere), or country codes like "IN", "US", "GB", "AU", "CA"
@@ -302,6 +333,132 @@ model RichTextContent {
   updatedAt DateTime @updatedAt
 
   @@index([pageId])
+}
+
+/// One roadmap — a step-by-step learning path on a page (#33 / Phase L).
+///
+/// Sits on a Page exactly the way `Table` and `RichTextContent` do: one row per page,
+/// `pageId @unique`, cascade-deleted with it.
+///
+/// ⚠️ THIS MODEL IS NOT A "CATEGORY" OR A "ROLE". Frontend / Backend / Full-stack are three
+/// separate PAGES, each owning its own Roadmap row — see 33.2(a). That is what gives every role
+/// a URL, an order, an icon, a status, geo-targeting, a sitemap entry and a sidebar entry
+/// **without any of it being written**, because `Page` already has all of those columns.
+///
+/// The consequence worth knowing: the "Choose your role" dropdown is DERIVED, not configured —
+/// it is the answer to "which of my sibling pages have contentType = 'roadmap'?". There is
+/// nothing to keep in sync, and a role cannot appear in the dropdown but 404 on click, because
+/// the same row decides both.
+model Roadmap {
+  id     String @id @default(uuid())
+  pageId String @unique
+  page   Page   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  /// Heading above the tree, e.g. "Frontend Developer".
+  ///
+  /// Separate from `page.title` for the same reason `Table.name` is: the page is "Frontend" in
+  /// the sidebar and the breadcrumb, where short wins, but the heading on the page itself often
+  /// wants to be longer.
+  title String
+
+  /// One-line intro under the title.
+  ///
+  /// ⚠️ PLAIN TEXT, NOT HTML — it also feeds the meta description, and markup there would be
+  /// rendered as literal characters in search results.
+  description String?
+
+  /// { defaultExpanded: boolean, showProgress: boolean, ... }
+  ///
+  /// JSON for the same reason `Table.settings` is: display preferences that will grow, each of
+  /// which would otherwise be a migration.
+  ///
+  /// ⚠️ READ IT THROUGH A RESOLVER USING `??`, NEVER `||`. `defaultExpanded: false` read with
+  /// `||` silently becomes `true` — that is finding #28 exactly, which detached 74 pages by
+  /// making a row its own parent.
+  settings Json?
+
+  nodes RoadmapNode[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One topic in a roadmap. Self-referencing, so nesting is unlimited.
+model RoadmapNode {
+  id String @id @default(uuid())
+
+  roadmapId String
+  roadmap   Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+
+  /// Self-relation — the same shape as `Page.parentId` / `Page.subPages`, already proven in
+  /// this codebase. NULL = a top-level step ("Step 1: Programming / Scripting").
+  ///
+  /// ⚠️ `onDelete: Cascade` ON THE SELF-RELATION TOO, so deleting a step takes its sub-topics
+  /// with it. Without it, deleting a parent leaves orphans that belong to the roadmap but to no
+  /// visible parent — rows that render nowhere and can only be found by SQL.
+  parentId String?
+  parent   RoadmapNode?  @relation("NodeToChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children RoadmapNode[] @relation("NodeToChildren")
+
+  title String
+
+  /// Deep-link fragment: /domain/webdev/roadmap/frontend?topic=kubernetes
+  ///
+  /// ⚠️ Unique WITHIN one roadmap, not globally — see `@@unique` below. "docker" exists as an
+  /// independent row in both the Frontend and Backend roadmaps. That duplication is deliberate
+  /// (33.2): a shared node would make ordering ambiguous, since the same topic would need two
+  /// different positions. Scoping the constraint is what permits it.
+  slug String
+
+  /// Icon id from `public/icons/` — the SAME field and manifest as `Page.icon` and
+  /// `Domain.icon`.
+  ///
+  /// ⚠️ Validate with `isValidIconId()` before writing. The value reaches an `src` attribute,
+  /// and an unrecognised id renders a broken image with no error anywhere.
+  icon String?
+
+  order Int @default(0)
+
+  /// The "Recommended" flag — AWS, Docker, Kubernetes, EKS in the source sketch.
+  ///
+  /// ⚠️ A BOOLEAN, NOT JUST ANOTHER ENTRY IN `badges`, because it changes how the NODE is drawn
+  /// (a filled marker on the spine), not merely what pill sits beside it. As a string it would
+  /// have to be styled by matching the literal text "Recommended", which breaks the first time
+  /// somebody types "recommended" or "Recommended ⭐".
+  recommended Boolean @default(false)
+
+  /// Free-text labels: "Free", "Paid", "Beginner".
+  ///
+  /// Coloured by `assignBadgeColors` (K-1) over the distinct set within ONE roadmap, so a given
+  /// word is the same colour all the way down the page. ⚠️ That function sorts with plain `<`
+  /// and not `localeCompare` — the two disagree between server and client and produce a React
+  /// hydration mismatch.
+  ///
+  /// Free text rather than a fixed list (user's call), so adding a label is never a code change.
+  badges String[] @default([])
+
+  /// The Sheet body. HTML, authored in the admin.
+  ///
+  /// ⚠️ NOT SANITISED. Sanitisation was removed site-wide (#35), so this is stored verbatim and
+  /// rendered with `dangerouslySetInnerHTML`. `ROADMAP-CONTENT-GUIDE.md` (L-12) is the control.
+  ///
+  /// ⚠️ NULL OR EMPTY MEANS THE TOPIC HAS NO SHEET — it is a label on the spine, not a link.
+  /// Several nodes in the source sketch are exactly that (OSI Model, GCP, AKS), and the renderer
+  /// must not make them look clickable.
+  htmlContent String? @db.Text
+
+  /// Stripped text, for search and the meta description. Written by the API alongside the HTML
+  /// in the same handler, so the two cannot disagree — the same arrangement as
+  /// `RichTextContent.plainText`. Use `htmlToPlainText` from `src/lib/html-text.ts`.
+  plainText String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One "kubernetes" per roadmap, so `?topic=` is never ambiguous.
+  @@unique([roadmapId, slug])
+  /// The tree read: every node of one roadmap, in order.
+  @@index([roadmapId, parentId, order])
 }
 
 // Authentication Models for Auth.js
