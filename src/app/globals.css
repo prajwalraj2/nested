@@ -169,9 +169,9 @@
    So: if the rich-text card is ever made theme-following (option C — a migration
    stripping those inline colours), THIS RULE MUST GAIN A DARK VARIANT at the same
    time. Until then, leave it alone. */
-.rich-text-content a:hover {
+/* .rich-text-content a:hover {
   color: #000 !important;
-}
+} */
 
 /* ==========================================================================
    Scrollbars — thin, themed, everywhere
