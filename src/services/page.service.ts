@@ -47,6 +47,45 @@ const pageWithContentSelect = {
       updatedAt: true,
     },
   },
+  /**
+   * Roadmap content (Phase L). The whole tree, flat — `RoadmapLayout` nests it.
+   *
+   * ⚠️ `htmlContent` IS SELECTED FOR EVERY NODE, DELIBERATELY. It is what makes a roadmap the
+   * first content type on this site whose body is **server-rendered and therefore indexable** —
+   * finding #30 records that ~650 table pages return 200 with no table in the HTML at all,
+   * because `TableLayout` fetches client-side. A roadmap ships its content in the first
+   * response, and a `?topic=` deep link can render its Sheet already open.
+   *
+   * The cost is bounded: 30–60 nodes at a few KB each. If a roadmap ever grows past that,
+   * dropping this one line and fetching a topic on demand is the fix — **no schema change**,
+   * which is exactly why 33.3 kept the content on the node rather than in a fourth table.
+   *
+   * ⚠️ `parentId` first in the ordering is what lets the layout nest this in a single pass:
+   * children of one parent arrive contiguously and already in display order.
+   */
+  roadmap: {
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      settings: true,
+      updatedAt: true,
+      nodes: {
+        select: {
+          id: true,
+          parentId: true,
+          title: true,
+          slug: true,
+          icon: true,
+          order: true,
+          recommended: true,
+          badges: true,
+          htmlContent: true,
+        },
+        orderBy: [{ parentId: 'asc' as const }, { order: 'asc' as const }],
+      },
+    },
+  },
 };
 
 // ============================================

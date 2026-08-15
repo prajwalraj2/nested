@@ -2070,9 +2070,9 @@ become 50 near-duplicate URLs competing with the page they came from. One line i
 | ✅ **L-2** | Schema, migration, `contentType`, page form | **DONE 15 Aug** — invisible but complete |
 | ✅ **L-3** | Admin — Roadmap Management list screen | **DONE 15 Aug** |
 | ✅ **L-4** | Admin — the tree editor (nodes, reorder, icons, badges) | **DONE 15 Aug** |
-| **L-5** | Admin — the content editor + `sanitizeRoadmapHtml` | ✅ |
-| **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | ✅ first visible result |
-| **L-7** | Public — the Sheet, deep links, sub-topic chips | ✅ |
+| ⤵️ **L-5** | Admin — the content editor + `sanitizeRoadmapHtml` | **ABSORBED into L-4 / obsolete** — see below |
+| ✅ **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | **DONE 15 Aug** |
+| ✅ **L-7** | Public — the Sheet, deep links, sub-topic chips | **DONE 15 Aug — shipped with L-6** |
 | **L-8** | SEO — metadata, sitemap, JSON-LD, canonical | ✅ |
 | **L-12** | `ROADMAP-CONTENT-GUIDE.md` — ⚠️ **not optional**, see below | ships with L-5 |
 | ⏸️ **L-9** | Progress tracking (localStorage) | deferred — user's call |
@@ -2390,6 +2390,24 @@ until **L-7**. HTML previews unstyled for now — structure is visible, spacing 
 
 ---
 
+### ⤵️ L-5 — ABSORBED INTO L-4, AND HALF OF IT NO LONGER EXISTS (15 Aug 2026)
+
+This step had three parts. Their fates differ, which is why it is recorded rather than deleted:
+
+| Part | Outcome |
+| --- | --- |
+| The HTML editor with live preview | ✅ **Shipped inside L-4's `RoadmapNodeForm`** — Edit/Preview toggle, textarea, theme-aware preview container |
+| `sanitizeRoadmapHtml()` stripping `style` | ⚠️ **Obsolete.** Sanitisation was removed site-wide (#35); there is no sanitiser to add a second export to |
+| The colour rule it was meant to enforce | Now **discipline plus `ROADMAP-CONTENT-GUIDE.md`** — see the amendment to 33.2(d) and **L-12** |
+
+⚠️ **The preview container was still built theme-aware**, which was the *other* reason this step
+existed. A preview on a fixed white ground would look right in the admin and wrong on the site —
+worse than no preview, because it actively misleads. It renders through `.roadmap-sheet`, which
+gets its styles in **L-7** alongside the real Sheet, so the two cannot drift apart.
+
+<details>
+<summary>Original step, kept for the reasoning that produced the colour rule</summary>
+
 ### L-5 — The content editor, and the rule that keeps the theme working
 
 Reuses the rich-text editor's shape — a textarea of HTML with a live preview beside it — with
@@ -2421,6 +2439,8 @@ wrong on the site, which is worse than no preview.
 `<script>` → stripped; paste a Google Docs fragment → readable, unstyled, structure intact; a link
 gets `rel="noopener noreferrer"`; a table renders; **toggle dark mode in the preview and again on
 the public page — both readable**; `plainText` is populated and matches the HTML.
+
+</details>
 
 ---
 
@@ -2479,6 +2499,56 @@ collapse all, reload, still collapsed; a one-role domain shows no dropdown; a do
 topic; `curl` that URL → the topic's text is in the HTML; close → the parameter is gone and one
 back press leaves the page (not fifteen); an unknown `?topic=` value → the page renders normally
 with the Sheet shut, **not a 404**; a chip swaps content without closing; Escape closes; mobile.
+
+##### ✅ L-6 + L-7 DONE — 15 Aug 2026 (shipped together, deliberately)
+
+**Merged because splitting them would have shipped a broken affordance.** L-6 alone gives topics
+that look clickable and open nothing — worse than either half on its own.
+
+**New:** `RoadmapLayout.tsx` (server), `roadmap/RoadmapView.tsx` + `roadmap/RoadmapSpine.tsx`
+(client), `src/lib/roadmap-settings.ts`, the `.roadmap-sheet` block in `globals.css`, the
+`roadmap` relation in `pageWithContentSelect`, and one `case` in the router.
+
+**1. ⚠️ THE FIRST CONTENT TYPE ON THIS SITE THAT IS SERVER-RENDERED AND THEREFORE INDEXABLE.**
+`RoadmapLayout` is a server component and the whole tree — every title, badge and Sheet body —
+is in the initial HTML. That is the deliberate opposite of `TableLayout`, which is `'use client'`
+and fetches in a `useEffect`, leaving **~650 table pages returning 200 with no content in the
+document** (finding #30). The interactive parts layer on top rather than replacing it.
+
+**2. ⚠️ `?topic=` costs nothing here, but it is load-bearing on an existing decision.** Reading
+`searchParams` normally forces dynamic rendering — this route is *already* `force-dynamic` because
+geo-targeting reads cookies (#8-DR), so deep links are free. **If #8 ever makes this route static,
+this is one of the things that must be revisited.**
+
+**3. ⚠️ The URL syncs with `history.replaceState`, not `router.push` or `router.replace`.** Pushing
+adds a history entry per topic, so a visitor who opened eight topics needs nine Back presses to
+leave — the modal-in-the-history-stack trap. `router.replace` would re-run the server render for
+data already in the browser. Plain `replaceState` keeps the URL shareable and Back meaning "leave".
+
+**4. ⚠️ localStorage is read in an effect, never during render.** Reading it inline produces
+different markup on server and client, which React resolves by **discarding the server output** —
+losing exactly the indexability point 1 exists for. The stored preference applies one tick later.
+
+**5. ⚠️ A topic with no content renders as a `<span>`, not a disabled button.** A disabled button
+is still announced as a button and still reads as interactive. These are labels on the spine
+(OSI Model, GCP, AKS in the source design) and get no cursor, no hover and no button semantics.
+
+**6. The role dropdown is derived and self-consistent.** It reuses `getChildPages`, which is
+PUBLISHED-only and country-filtered — so a DRAFT role is absent from the dropdown **and** 404s on
+its own URL, from one query rather than two rules that could disagree. Fewer than two roles and it
+is not rendered: a control offering one option implies alternatives that do not exist. A roadmap at
+a domain root has `parentId === null` and no siblings, which is the single-roadmap case working
+correctly rather than an edge case.
+
+**7. Badge colours are computed over the whole roadmap**, not per branch — otherwise the same word
+takes different colours in different parts of one page, which is the defect K-1 was written to fix
+in tables. Classes come from the shared `BADGE_COLOR_CLASSES`, so roadmap and table badges are
+literally identical styling.
+
+⚠️ **`.roadmap-sheet` is used by the public Sheet AND the admin preview.** One class means the
+preview cannot drift from the real thing — a preview that lies is worse than no preview. Its table
+rule sets its own `overflow-x` scroll container, or a wide table would scroll the entire Sheet
+sideways (the K-3 failure, one level in).
 
 ---
 

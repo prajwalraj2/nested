@@ -93,6 +93,40 @@ export type PageWithContent = {
   content: ContentBlockBasic[];
   subPages: PageBasic[];
   richTextContent?: RichTextContentBasic | null;
+  /** Phase L. `null` on every page that is not a roadmap, and on a roadmap page not yet set up. */
+  roadmap?: RoadmapWithNodes | null;
+};
+
+/**
+ * A roadmap and its topics, FLAT — `RoadmapLayout` nests it for rendering.
+ *
+ * ⚠️ Flat on purpose. The database has no notion of a tree, and shaping it in the service would
+ * mean every consumer receives a structure it may not want (the sitemap wants a timestamp, the
+ * meta description wants one string). Nesting is a render concern, so it lives with the renderer.
+ */
+export type RoadmapWithNodes = {
+  id: string;
+  title: string;
+  description: string | null;
+  settings: any;
+  updatedAt: Date;
+  nodes: RoadmapNodeBasic[];
+};
+
+export type RoadmapNodeBasic = {
+  id: string;
+  parentId: string | null;
+  title: string;
+  slug: string;
+  icon: string | null;
+  order: number;
+  recommended: boolean;
+  badges: string[];
+  /**
+   * ⚠️ `null` or empty means the topic has NO Sheet — it is a label on the spine, not a link
+   * (33.3). The renderer must not give it a pointer, a hover state, or a link affordance.
+   */
+  htmlContent: string | null;
 };
 
 /**

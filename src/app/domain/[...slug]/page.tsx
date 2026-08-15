@@ -12,6 +12,7 @@ import { SectionBasedLayout } from '@/components/domain/SectionBasedLayout';
 import { NarrativeLayout } from '@/components/domain/NarrativeLayout';
 import { TableLayout } from '@/components/domain/TableLayout';
 import { RichTextLayout } from '@/components/domain/RichTextLayout';
+import { RoadmapLayout } from '@/components/domain/RoadmapLayout';
 import { getUserCountryFromCookies, isContentVisibleToUser } from '@/lib/server-country';
 import { DomainService, PageService, NavigationService } from '@/services';
 // JSON-LD structured data — see src/lib/structured-data.ts for what it buys us and its
@@ -38,7 +39,19 @@ export const revalidate = 60;
 /** Force dynamic rendering due to geo-targeting (cookie-based) */
 export const dynamic = 'force-dynamic';
 
-type Props = { params: Promise<{ slug: string[] }> };
+type Props = {
+  params: Promise<{ slug: string[] }>;
+  /**
+   * ⚠️ ADDED FOR PHASE L — `?topic=` deep-links a roadmap topic's Sheet.
+   *
+   * Reading `searchParams` in a page normally forces dynamic rendering, which would be a real
+   * cost. It is free here: this route is ALREADY `dynamic = 'force-dynamic'` because geo-targeting
+   * reads cookies (see #8-DR). So the roadmap gets shareable topic URLs at no additional
+   * rendering cost — but ⚠️ if #8 ever makes this route static, this parameter is one of the
+   * things that must be revisited.
+   */
+  searchParams: Promise<{ topic?: string }>;
+};
 
 // ============================================
 // Metadata
@@ -263,9 +276,16 @@ function buildPageDescription(
 // Main Page Component
 // ============================================
 
-export default async function DomainPage({ params }: Props) {
+export default async function DomainPage({ params, searchParams }: Props) {
   const awaitedParams = await params;
   const [domainSlug, ...restSlug] = awaitedParams.slug;
+
+  /*
+    Only the roadmap branch reads this, but it is awaited once here rather than inside the
+    switch — awaiting inside a `case` would put a promise boundary in the middle of the render
+    for every page type, including the ones that never look at it.
+  */
+  const topicParam = (await searchParams)?.topic ?? null;
 
   // Get user's country from cookies
   const userCountry = await getUserCountryFromCookies();
@@ -493,6 +513,35 @@ export default async function DomainPage({ params }: Props) {
       case 'rich_text':
         content = <RichTextLayout page={page} domain={domain} />;
         break;
+      case 'roadmap': {
+        /*
+          The "Choose your role" options: this page's PUBLISHED roadmap siblings.
+
+          ⚠️ `getChildPages` is PUBLISHED-only and country-filtered by design, which is exactly
+          what is wanted — a DRAFT role must be absent from the dropdown AND 404 on its own URL,
+          and both follow from the one query rather than from two rules that could disagree.
+
+          ⚠️ A roadmap at the ROOT of a domain has `parentId === null` and therefore no siblings
+          to query. That is the single-roadmap case (33.2a) and it is correct: one option means
+          the dropdown is not rendered at all.
+        */
+        const siblingRoles = page.parentId
+          ? (await PageService.getChildPages(domain.id, page.parentId, userCountry)).filter(
+              (sibling) => sibling.contentType === 'roadmap'
+            )
+          : [];
+
+        content = (
+          <RoadmapLayout
+            page={page}
+            domain={domain}
+            siblingRoles={siblingRoles}
+            currentPath={`/domain/${domain.slug}/${restSlug.join('/')}`}
+            openTopic={topicParam}
+          />
+        );
+        break;
+      }
       default:
         content = <NarrativeLayout page={page} domain={domain} />;
         break;

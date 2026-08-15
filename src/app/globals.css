@@ -175,6 +175,105 @@
 } */
 
 /* ==========================================================================
+   Roadmap Sheet content (Phase L)
+   ==========================================================================
+   Typography for author-written HTML inside a roadmap topic's Sheet.
+
+   ⚠️ USED BY BOTH THE PUBLIC SHEET AND THE ADMIN PREVIEW, deliberately. One class means the
+   preview cannot drift away from the real thing — a preview that lies is worse than no preview.
+
+   ⚠️ EVERY VALUE IS A THEME TOKEN. Roadmap content is new, so unlike rich text (#34) it has no
+   baked-in colours to fight, and it themes properly in both modes. That only stays true while
+   authors follow ROADMAP-CONTENT-GUIDE.md and never set a colour — there is no sanitiser
+   enforcing it since #35, which is why the rule is written down rather than compiled in.
+
+   ⚠️ `@tailwindcss/typography` IS NOT INSTALLED, so `prose` does nothing anywhere in this app.
+   These rules are the whole typography layer for this content; do not assume a plugin fills gaps.
+   ========================================================================== */
+.roadmap-sheet {
+  font-size: 0.925rem;
+  line-height: 1.65;
+  color: var(--foreground);
+}
+.roadmap-sheet > :first-child { margin-top: 0; }
+
+.roadmap-sheet h2,
+.roadmap-sheet h3 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin: 1.75rem 0 0.6rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--border);
+}
+.roadmap-sheet h4,
+.roadmap-sheet h5 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.4rem;
+}
+
+.roadmap-sheet p { margin: 0 0 0.75rem; max-width: 66ch; }
+.roadmap-sheet ul,
+.roadmap-sheet ol { margin: 0 0 0.75rem; padding-left: 1.25rem; }
+.roadmap-sheet ul { list-style: disc; }
+.roadmap-sheet ol { list-style: decimal; }
+.roadmap-sheet li { margin-bottom: 0.35rem; }
+.roadmap-sheet li::marker { color: var(--muted-foreground); }
+
+.roadmap-sheet a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.roadmap-sheet code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.825em;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+
+.roadmap-sheet hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem 0;
+}
+
+/* ⚠️ Tables get their own scroll container. Without it a wide table makes the whole SHEET scroll
+   sideways, and on mobile that means the page underneath moves too — the same failure the table
+   toolbar hit in K-3. */
+.roadmap-sheet table {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+.roadmap-sheet th,
+.roadmap-sheet td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.roadmap-sheet th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.roadmap-sheet img { max-width: 100%; height: auto; border-radius: 0.5rem; }
+
+/* ==========================================================================
    Scrollbars — thin, themed, everywhere
    ==========================================================================
    Added in K-2 after the table gained a scroll container of its own, which put
