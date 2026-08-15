@@ -6,9 +6,22 @@ import { requireAdmin } from '@/lib/api-auth';
 // leaked a connection pool on every dev hot reload and opened a redundant pool per
 // serverless instance in production.
 import { prisma } from '@/lib/prisma';
-// Finding #2: this endpoint's output is rendered with dangerouslySetInnerHTML to every
-// public visitor, so the HTML is cleaned before it reaches the database.
-import { sanitizeRichTextHtml, htmlToPlainText } from '@/lib/sanitize-html';
+/*
+  ⚠️ HTML IS STORED VERBATIM. IT IS NOT SANITISED. (#35)
+
+  This used to import `sanitizeRichTextHtml` alongside `htmlToPlainText`. Sanitisation was
+  removed on 15 Aug 2026 — see `SANITISER-REMOVAL.md` for the reasoning and the accepted
+  risk, and NEW-IMPROVEMENTS-2.md #35 for how to put it back.
+
+  Short version: finding #2 rated this **Medium once #1 was fixed**, because #1 — the
+  endpoint being unauthenticated — was the part that let strangers write. The remaining
+  exposure is a single trusted admin pasting something they did not read.
+
+  ⚠️ Whatever this endpoint stores is rendered to every public visitor through
+  `dangerouslySetInnerHTML` in RichTextLayout.tsx. There is nothing between the author's
+  paste and that render. `RICH-TEXT-GUIDE.md` is the control.
+*/
+import { htmlToPlainText } from '@/lib/html-text';
 
 interface RouteParams {
   params: Promise<{
@@ -136,47 +149,37 @@ export async function PUT(
       );
     }
 
-    /**
-     * ⚠️ SANITISE BEFORE STORING — finding #2.
-     *
-     * Everything stored here is rendered to every public visitor through
-     * `dangerouslySetInnerHTML` in RichTextLayout.tsx:45. Cleaning on WRITE rather
-     * than on read matters because read paths are cached (`unstable_cache`, the CDN):
-     * one bad write cleaned only at render time would be re-served from cache
-     * indefinitely, and every future cache layer would have to remember to sanitise.
-     * Doing it once at the boundary means the database only ever holds safe HTML.
-     *
-     * The allow-list was derived from the 415 rows already stored, so real formatting
-     * survives — see src/lib/sanitize-html.ts. It does strip `on*` handlers, which
-     * removes the 398 benign hover effects in existing content; the CSS equivalent is
-     * in globals.css under `.rich-text-content a:hover`.
-     */
-    const safeHtml = sanitizeRichTextHtml(htmlContent).trim();
+    /*
+      ⚠️ Named `html`, not `safeHtml`. The old name asserted a guarantee this code no
+      longer provides, and a variable called `safeHtml` is exactly the kind of thing a
+      future reader trusts without checking. See #35.
+    */
+    const html = htmlContent.trim();
 
-    if (!safeHtml) {
+    if (!html) {
       return NextResponse.json(
-        { error: 'htmlContent contained no safe content after sanitisation' },
+        { error: 'htmlContent cannot be empty' },
         { status: 400 }
       );
     }
 
-    // Derived from the SANITISED html, so anything stripped cannot leak into the
-    // searchable text layer — e.g. the body of a removed <script>.
-    const plainText = htmlToPlainText(safeHtml);
+    // Tag-stripped text for search and the word count. ⚠️ This now runs on RAW author
+    // HTML rather than sanitised output — see the note in src/lib/html-text.ts.
+    const plainText = htmlToPlainText(html);
     const wordCount = plainText ? plainText.split(/\s+/).length : 0;
 
     // Update or create rich text content
     const richTextContent = await prisma.richTextContent.upsert({
       where: { pageId: pageId },
       update: {
-        htmlContent: safeHtml,
+        htmlContent: html,
         title: title || null,
         wordCount,
         plainText
       },
       create: {
         pageId,
-        htmlContent: safeHtml,
+        htmlContent: html,
         title: title || null,
         wordCount,
         plainText

@@ -2489,12 +2489,163 @@ a permanent styling decision for two months.
 
 ---
 
+## ⏸️ #35 — Re-add rich text sanitisation (removed by choice 15 Aug 2026)
+
+**Removed, not lost.** Full reasoning in `SANITISER-REMOVAL.md`; the short version is that #2's own
+text rated this **Medium once #1 was fixed** and called it *"recommended… costs almost nothing"* —
+and the cost turned out to be #23, four deploy cycles and a feature 500ing on production.
+
+⚠️ **It was working when it was removed.** The fix was verified on Vercel (a pasted
+`<script></script>` was stripped on save). This is a deliberate trade, not a retreat, so re-adding
+it is a decision about appetite — not a bug to fix.
+
+### When to reopen this
+
+- ⚠️ **A second admin account exists.** This is the strong trigger. "I trust myself" does not
+  generalise, and the create-user flow already exists.
+- Content starts being pasted from sources that are not read line by line.
+- Any public write path to HTML appears — comments, submissions, an import.
+- Phase L's roadmap sheets grow beyond hand-authored content.
+
+### The whole file is one command away
+
+```bash
+git show 872c341:src/lib/sanitize-html.ts > src/lib/sanitize-html.ts
+```
+
+`872c341` is the last commit that touched it, and it was unchanged from then until deletion.
+⚠️ **`htmlToPlainText` moved out to `src/lib/html-text.ts`** — restoring the file wholesale would
+duplicate that export. Delete it from the restored copy and keep the import pointing at
+`html-text.ts`.
+
+### ⚠️ The allow-list was DERIVED from the content, not guessed
+
+All 415 rows (3.4 MB of HTML) were scanned first. A generic allow-list would have destroyed real
+formatting the moment a page was re-saved.
+
+```
+tags (21):  li 17595  ul 4603  strong 1993  h5 1838  p 1617  div 1500  hr 1418
+            h4 1366   a 590    ol 183       span 168  details 52  summary 52
+            h3 37     h6 20    td 18        tr 9      th 9     table 3
+            thead 3   tbody 3
+
+attributes: style 28608   href 589   target 541   class 44
+            onmouseover 199   onmouseout 199     <- stripped, deliberately
+```
+
+Two facts from that scan changed the design:
+
+1. ⚠️ **`details` / `summary` are used 52 times each** — collapsible sections. A standard allow-list
+   omits them, silently collapsing 52 working disclosure widgets into loose text.
+2. ⚠️ **`style` appears 28,608 times across 407 of 415 rows (98%).** Inline styles are the *primary*
+   formatting mechanism here, not classes. Dropping `style` would flatten essentially every
+   rich-text page on the site.
+
+### ⚠️ Six traps, each found by breaking something
+
+**1. `#text` is load-bearing.** DOMPurify treats text nodes as a pseudo-tag `#text`. Omit it from a
+custom `ALLOWED_TAGS` while `KEEP_CONTENT: false` and **every piece of visible text is destroyed**:
+
+```
+no #text, KEEP_CONTENT default   ->  <p>Hello</p>   fine
+no #text, KEEP_CONTENT: false    ->  <p></p>        ALL TEXT GONE
+with #text, KEEP_CONTENT: false  ->  <p>Hello</p>   fine
+```
+
+An earlier version omitted it and sanitising the real content **dropped 49% of its bytes — every
+tag intact, every word gone.**
+
+**2. `USE_PROFILES` is mutually exclusive with the allow-lists.** Setting it makes DOMPurify ignore
+`ALLOWED_TAGS` and `ALLOWED_ATTR` entirely and substitute its own. An earlier version set
+`USE_PROFILES: { html: true }` intending to block SVG and MathML, and got the opposite of what it
+wanted: `target` was stripped from all 541 links, while **`<form>` and `<input>` survived**. SVG
+and MathML are already excluded by not being listed, so the option was never needed.
+
+**3. `ADD_URI_SAFE_ATTR: ['target']` is required.** DOMPurify validates every attribute it considers
+URI-bearing against `ALLOWED_URI_REGEXP`. `target` is in that set and `_blank` does not match
+`^(?:https?:|mailto:|tel:|#|\/)`, so **`target` is dropped from all 541 links even though it is
+explicitly in `ALLOWED_ATTR`.** Confirmed this does not weaken the regex for real URLs —
+`href="javascript:alert(1)"` is still stripped with it set.
+
+**4. No `g` flag on the dangerous-CSS regex.** `RegExp.test()` with `/g` is **stateful** — it
+advances `lastIndex` and resumes there next call, so alternating inputs miss matches they should
+catch. An earlier version used `/gi` and silently stopped stripping `expression(...)` because a
+previous call had left `lastIndex` past it.
+
+**5. Duck-type the hook's node, never `instanceof Element`.** On the server DOMPurify runs against
+jsdom, where `Element` is not a Node global — an `instanceof` check throws a `ReferenceError`
+*inside the hook* and takes the whole sanitise call with it. Use
+`if (!('tagName' in node) || typeof node.setAttribute !== 'function') return`.
+
+**6. Scrub dangerous CSS per DECLARATION, not per attribute.** DOMPurify does not deeply parse CSS;
+it relies on the browser discarding invalid declarations. Since `style` must be allowed here,
+`expression()`, `behavior:`, `javascript:` in `url()`, `vbscript:` and `-moz-binding` are stripped
+explicitly — **dropping the individual declaration**, so one bad value cannot flatten a page's
+entire layout.
+
+### ⚠️ The dependency trap that caused #23 — do not walk back into it
+
+```
+isomorphic-dompurify 3.x  ->  jsdom ^28  ->  html-encoding-sniffer@6  ->  @exodus/bytes
+                                                                          "type": "module",
+                                                                          NO CommonJS build
+```
+
+Turbopack hands external packages to Node at runtime, so loading that becomes a `require()` of an
+ES Module → `ERR_REQUIRE_ESM`, on Vercel only. **jsdom ≤27 uses `html-encoding-sniffer@4` →
+`whatwg-encoding`, which is pure CommonJS.** So:
+
+```jsonc
+"isomorphic-dompurify": "^2.26.0",        // 2.x pins jsdom to ^26.1.0
+"overrides": { "dompurify": "^3.4.13" }   // 2.26.0 asks ^3.2.6, which resolves to a
+                                          // version carrying GHSA-55q2-fjhq-7xh7
+```
+
+⚠️ **That advisory matters specifically here** — *"IN_PLACE hook removal leaves a detached subtree
+executable, causing XSS"* — because this file registers an `afterSanitizeAttributes` hook.
+
+`next.config.ts` also needs the packages back in `serverExternalPackages` **and**
+`outputFileTracingIncludes` for both rich-text routes. Both were required; neither alone was enough.
+
+⚠️ **`sanitize-html` is NOT a drop-in escape.** Its current version depends on `htmlparser2@12`,
+which is `"type": "module"` with **no `require` condition in its exports map** — the identical shape
+to `@exodus/bytes`. `sanitize-html@2.16.0` and earlier use `htmlparser2@8` (CommonJS) and would be
+fine. **The ecosystem is mid-migration to ESM; any choice here means pinning below a boundary.**
+
+### What removal gave up
+
+No longer stripped on save: `<script>`, every `on*` handler, `javascript:` / `data:` hrefs,
+`<iframe>`, `<form>` / `<input>`, `expression()` in CSS. And `rel="noopener noreferrer"` is no
+longer added automatically to `target="_blank"` links — ⚠️ `ShareButton.tsx` used to rely on that
+being automatic.
+
+### Testing it, when it returns
+
+⚠️ **`<script></script>` alone is a weak test** — it proves tag removal, not that the allow-list is
+right. Test the allow-list:
+
+| Input | Expect |
+| --- | --- |
+| `<img src=x onerror="alert(1)">` | `onerror` gone, `<img>` kept |
+| `<a href="javascript:alert(1)">` | href stripped |
+| `<iframe src="…">` | removed entirely |
+| `<a href="…" target="_blank">` | ⚠️ `target` **survives**, gains `rel="noopener noreferrer"` |
+| `<details><summary>x</summary>y</details>` | ⚠️ survives intact |
+| a real page with inline `style` | ⚠️ formatting unchanged — re-save one and diff |
+| `style="width:expression(alert(1));color:red"` | `expression` declaration dropped, `color:red` kept |
+
+⚠️ **Run it against real stored content and diff the output before shipping.** Every trap above was
+found that way, and none of them produced an error — only silent, wrong output.
+
+---
+
 ## Related documents
 
 | Document | Contents |
 | --- | --- |
 | [Table redesign design note](https://claude.ai/code/artifact/930079be-3d25-47bb-9d16-5f128abf9135) | Live mockups, both themes; the density control is interactive |
 | [Roadmap page prototype](https://claude.ai/code/artifact/2d080e12-7280-49ae-bac9-d408ffe0d02c) | **#33 / Phase L.** Three working roles, nesting to three levels, the Sheet, deep-link URLs, both themes |
+| `SANITISER-REMOVAL.md` | **#35.** Step-by-step removal of rich-text sanitisation, with the reasoning and the accepted risk |
 | `BLOB-TO-R2-MIGRATION.md` | Step-by-step move from Vercel Blob to Cloudflare R2, mid-flight |
 | `TABLE-IMAGES-GUIDE.md` | *(written in K-5c)* — how to add a row image |
 | `ICON-GUIDE.md` | Domain and page icons — the **repository** path, deliberately different |

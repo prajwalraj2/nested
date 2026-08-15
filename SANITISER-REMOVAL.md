@@ -101,14 +101,27 @@ number in a comment drove a styling decision for two months. All three rewritten
 the code now does, including the note that `prose prose-neutral` is inert because
 `@tailwindcss/typography` is not installed.
 
-### ⚠️ This step created the bug in step 6 — do step 6 before deploying
+### ⚠️ This step created the hover bug — handled by commenting the rule out
 
-The link-hover rule in `globals.css` pins `color: #000` on hover, and its own comment says it must
-gain a dark variant the moment this card starts following the theme. It has not yet. **Hovering
-any rich-text link in dark mode currently turns it black on a near-black ground.**
+Making the card theme-following meant `.rich-text-content a:hover { color: #000 !important; }`
+would turn links black on a near-black ground. **The rule is commented out, not deleted** —
+step 6 is deferred rather than done, and the CSS is kept so the reasoning survives with it.
 
-Nothing else in this plan depends on ordering, but **step 6 should be pulled forward and shipped
-with step 0**, or the theme fix ships with a visible regression attached.
+⚠️ **One residual the comment-out does not cover.** That rule replaced **398 inline
+`onmouseover` / `onmouseout` handlers across 4 pages**, which set `this.style.color='#000000'`
+directly. Sanitising only ever ran on write, and those 4 pages have not been re-saved, so **the
+handlers are still in the database and still execute** — meaning those specific pages still turn
+their links black on hover in dark mode.
+
+It affects 4 pages, only on hover, and it disappears the moment each is re-saved. Fold it into the
+same pass as the 26 colour pages above; find them with:
+
+```sql
+SELECT p.slug FROM "RichTextContent" r JOIN "Page" p ON p.id = r."pageId"
+WHERE r."htmlContent" ILIKE '%onmouseover%';
+```
+
+**Deployed and confirmed working in both themes on production, 15 Aug 2026.**
 
 **Residual, named and small** — 26 pages of 416 still carry text colours too dark to read on the
 themed ground, and they are only **two documents duplicated across domains**:
@@ -125,7 +138,18 @@ mode → expected to show the problem above; light mode unchanged.
 
 ---
 
-### ☐ 1 — Preserve the sanitiser's knowledge, then plan its return (#35)
+### ✅ 1 — Preserve the sanitiser's knowledge, then plan its return (#35)
+
+**Done 15 Aug 2026.** Written as **#35** in `NEW-IMPROVEMENTS-2.md`: the restore command, the
+derived allow-list with its content scan, all six traps, the #23 dependency trap with the exact
+pins, why `sanitize-html` is not an escape from it, what removal gives up, and a test table that
+exercises the allow-list rather than just `<script>`.
+
+⚠️ **`sanitize-html.ts` is safe to delete from here on** — `git show 872c341:src/lib/sanitize-html.ts`
+restores it verbatim, and nothing in it is now undocumented.
+
+<details>
+<summary>Original step description, kept for the reasoning</summary>
 
 ⚠️ **This step comes before any deletion, deliberately.** `sanitize-html.ts` is ~250 lines of
 findings that were each discovered by breaking something. Deleting the file without capturing them
@@ -162,9 +186,26 @@ Write **#35 — Re-add rich text sanitisation** into `NEW-IMPROVEMENTS-2.md`, ca
 
 **Test:** none — documentation.
 
+</details>
+
 ---
 
-### ☐ 2 — Move `htmlToPlainText` out before deleting anything
+### ✅ 2 — Move `htmlToPlainText` out before deleting anything
+
+**Done 15 Aug 2026.** ✚ `src/lib/html-text.ts`, moved verbatim. Two things recorded in the new
+file that were not obvious:
+
+- ⚠️ **It no longer runs on sanitised input.** It used to receive the output of
+  `sanitizeRichTextHtml`, so anything stripped could not reach the search column. It now receives
+  raw author HTML, and its own tag-stripping is the only thing between a `<script>` body and
+  `plainText`. Acceptable — `plainText` is only ever searched, never rendered — but it is a change
+  in what the function can promise, and it matters if anyone reuses it somewhere that *does*
+  render.
+- ⚠️ **Do not merge it with `htmlToText` in `src/lib/seo.ts`.** Similar name, different job: that
+  one truncates for a ~160-character meta description.
+
+<details>
+<summary>Original step description, kept for the reasoning</summary>
 
 ⚠️ **`sanitize-html.ts` cannot simply be deleted.** It also exports `htmlToPlainText`, which has
 **nothing to do with DOMPurify** — it is pure regex string work — and **both** rich-text routes
@@ -179,9 +220,48 @@ search text and the word counts with no type error at the call sites that matter
 **Test:** `npm run build` passes; save a rich-text page and confirm `plainText` and `wordCount` are
 still written correctly.
 
+</details>
+
 ---
 
-### ☐ 3 — Strip sanitisation from the two API routes
+### ✅ 3 — Strip sanitisation from the two API routes
+
+**Done 15 Aug 2026.** Both routes now store `htmlContent.trim()` directly, with the local renamed
+from `safeHtml` to `html` — the old name asserted a guarantee the code no longer provides, and
+`safeHtml` is exactly what a future reader trusts without checking.
+
+The lazy `await import` in `route.ts` is a normal top-level import again. It existed only to keep
+jsdom out of that file's module graph; `htmlToPlainText` has no dependencies at all.
+
+The error string changed too: *"htmlContent contained no safe content after sanitisation"* was no
+longer true, so both routes now say *"htmlContent cannot be empty"*.
+
+### ⚠️ The comment deleted from `route.ts` held the answer to #23 for two weeks
+
+Dated **30 Jul**, it recorded the failure verbatim:
+
+```
+Failed to load external module jsdom: [ERR_REQUIRE_ESM]
+require() of ES Module @exodus/bytes/encoding-lite.js
+from html-encoding-sniffer/lib/html-encoding-sniffer.js not supported
+```
+
+Every term needed to solve #23 — the error code, the ESM-only package, the CommonJS package
+requiring it — **was already in this repository** while four deploy cycles went into rediscovering
+it from Vercel logs.
+
+⚠️ Its stated root cause was also **wrong**: *"a Node version mismatch, fixed by pinning
+`engines.node`"*. The runtime was on Node 24 the whole time, and `engines` had come from an
+unrelated Phase G commit. So the lesson is two-sided:
+
+> **Grep the repository for the error string before investigating an error — and treat a recorded
+> diagnosis as a lead, not a conclusion.**
+
+The text is preserved in the replacement comment rather than deleted, so the next person finds it
+by the same grep that would have worked this time.
+
+<details>
+<summary>Original step description, kept for the reasoning</summary>
 
 Only two files import it — verified by grep, not assumed.
 
@@ -200,17 +280,33 @@ Only two files import it — verified by grep, not assumed.
 **Test:** save from both paths (create new content, and edit existing); `<script>` now **survives**
 — that is the confirmation, not a regression; existing pages render byte-identically.
 
----
-
-### ☐ 4 — Delete `sanitize-html.ts`
-
-Only after steps 1–3. ✖ `src/lib/sanitize-html.ts`.
-
-**Test:** `npm run build` passes — no dangling imports.
+</details>
 
 ---
 
-### ☐ 5 — Unwind the build configuration
+### ✅ 4 — Delete `sanitize-html.ts`
+
+**Done 15 Aug 2026.** ✖ `src/lib/sanitize-html.ts`. Grep of `src/` confirms **no code references
+remain** — only comments, which are step 7.
+
+---
+
+### ✅ 5 — Unwind the build configuration
+
+**Done 15 Aug 2026.**
+
+- `serverExternalPackages: ['sharp']` — ⚠️ `sharp` and the `./node_modules/@img/**/*` globs
+  untouched, since they fix #31 and are load-bearing for Phase K image uploads.
+- Both `/api/admin/rich-text` entries removed from `outputFileTracingIncludes`.
+- `isomorphic-dompurify` removed from `package.json`; `npm install` re-run.
+
+⚠️ **Verified gone from `node_modules`, not assumed:** `isomorphic-dompurify`, `jsdom`, `dompurify`,
+`html-encoding-sniffer` and `@exodus/bytes` are all absent. That last one is the package whose
+ESM-only packaging caused #23 — its removal is what makes this class of failure impossible rather
+than merely pinned away from.
+
+<details>
+<summary>Original step description, kept for the reasoning</summary>
 
 **`next.config.ts`**
 - `serverExternalPackages: ['sharp', 'isomorphic-dompurify', 'dompurify', 'jsdom']` → `['sharp']`
@@ -235,9 +331,11 @@ to disappear.
 regression check, and it must be done **on a deploy**, not locally, since the failure mode does not
 exist on Windows.
 
+</details>
+
 ---
 
-### ☐ 6 — Fix the link-hover rule in `globals.css`
+### ⏸️ 6 — Fix the link-hover rule in `globals.css` (DEFERRED — commented out 15 Aug 2026)
 
 ```css
 .rich-text-content a:hover { color: #000 !important; }
