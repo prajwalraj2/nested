@@ -228,8 +228,15 @@ export function ShareButton({ variant = 'icon' }: ShareButtonProps = {}) {
    * Platform share endpoints.
    *
    * Each opens in a new tab with `rel="noopener noreferrer"` — `noopener` stops the
-   * opened page reaching back through `window.opener`, the same protection
-   * `sanitize-html.ts` adds to every `target="_blank"` link in rich text.
+   * opened page reaching back through `window.opener` and navigating the original tab.
+   *
+   * ⚠️ THIS USED TO SAY "the same protection `sanitize-html.ts` adds to every
+   * `target="_blank"` link in rich text". THAT IS NO LONGER TRUE — sanitisation was removed
+   * on 15 Aug 2026 (#35), and with it the hook that added `rel` automatically. Rich-text
+   * links now carry only whatever `rel` the author typed, which for existing content is
+   * none. See `RICH-TEXT-GUIDE.md`; adding it by hand is now the author's job.
+   *
+   * These buttons are unaffected — the `rel` here is written into this file.
    *
    * ⚠️ LINKEDIN TAKES NO TEXT PARAMETER. It deliberately ignores any it is given and
    * builds the preview from the page's Open Graph tags instead. That works here only

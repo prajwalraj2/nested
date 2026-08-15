@@ -122,53 +122,54 @@
 }
 
 /* ==========================================================================
-   Rich-text content — link hover
+   Rich-text content — link hover  (DISABLED 15 Aug 2026, kept for the reasoning)
    ==========================================================================
-   Replaces inline `onmouseover` / `onmouseout` handlers that used to live in the
-   stored HTML. 398 of them existed across 4 pages, doing exactly this:
+   ⚠️ COMMENTED OUT, NOT DELETED. Re-enabling it as written would be a dark-mode
+   bug — read this whole block before restoring it.
+
+   WHAT IT WAS FOR
+   ---------------
+   It replaced inline `onmouseover` / `onmouseout` handlers in the stored HTML.
+   398 of them exist across 4 pages, doing exactly this:
 
      <a style="color: #767c7c;"
         onmouseover="this.style.color='#000000';"
         onmouseout="this.style.color='#767c7c';">
 
-   Those were benign — authored deliberately, not injected — but the DOMPurify
-   sanitiser added for finding #2 strips ALL `on*` attributes, and it must: an
-   allow-list cannot tell a harmless `onmouseover` from one that calls `fetch()`
-   against the admin API. Permitting event handlers is permitting arbitrary
-   JavaScript, which defeats the point of sanitising.
+   Those are benign — authored deliberately, not injected — but the sanitiser added
+   for finding #2 stripped ALL `on*` attributes, and it had to: an allow-list cannot
+   tell a harmless `onmouseover` from one that calls `fetch()` against the admin API.
+   So the effect was moved here, where it needs no script at all.
 
-   So the effect moves here, where it needs no script at all. This is strictly
-   better than the original: it applies to every rich-text link consistently,
-   rather than only the 4 pages that happened to carry the handlers.
+   ⚠️ `!important` was REQUIRED, and is not laziness. The stored HTML sets
+   `style="color: #767c7c"` inline on each link, and an inline style always beats a
+   stylesheet rule on specificity — without it the hover simply would not apply.
 
-   ⚠️ `!important` is REQUIRED and is not laziness. The stored HTML sets
-   `style="color: #767c7c"` inline on each link, and an inline style always beats
-   a stylesheet rule on specificity — without `!important` the hover simply would
-   not apply. It is scoped tightly to `.rich-text-content a:hover`, the wrapper
-   set in RichTextLayout.tsx:45, so it cannot leak into the rest of the UI.
+   WHY IT IS OFF
+   -------------
+   Two things changed on 15 Aug 2026:
 
-   ⚠️ Sanitising happens on WRITE, so the 398 existing handlers stay in the
-   database until each page is next saved. They are harmless meanwhile, and this
-   rule means the hover behaves identically before and after — no data migration
-   required.
+   1. The rich-text card stopped being pinned light and now FOLLOWS THE THEME
+      (RichTextLayout.tsx, see NEW-IMPROVEMENTS-2.md #34). `#000` on hover therefore
+      sits on a near-black ground in dark mode — an invisible link. This block's own
+      previous text warned that this rule "MUST GAIN A DARK VARIANT" the moment that
+      happened; it is disabled instead, pending a proper two-theme value.
 
-   ⚠️ DARK MODE: THIS RULE IS STILL CORRECT AND NEEDS NO `.dark` VARIANT.
-   ------------------------------------------------------------------
-   Pure black on hover looks like an obvious dark-mode bug — a black link on a
-   near-black page would be invisible. It is not a bug here, because the rich-text
-   card is deliberately kept LIGHT in both themes (`bg-neutral-100` in
-   RichTextLayout.tsx). Its surface never goes dark, so `#000` never sits on a dark
-   background.
+   2. Sanitisation was REMOVED entirely (#35), so nothing strips `on*` any more —
+      the reason this rule existed is gone for content saved from now on.
 
-   That is not an accident of styling; it is forced by the data. 395 of the 415
-   stored rich-text rows carry colours in inline `style` attributes — 2,519
-   declarations, 574 of them dark — and an inline style beats any stylesheet rule.
-   Theming that surface would make 574 author-specified colours vanish. See finding
-   #21.4 for the full measurement and the options considered.
+   ⚠️ THE 398 HANDLERS ARE STILL LIVE. Sanitising only ever ran on write, and those
+   4 pages have not been re-saved, so they remain in the database and still execute —
+   meaning those specific pages STILL turn their links black on hover in dark mode,
+   and disabling this rule does not touch them. Find them with:
 
-   So: if the rich-text card is ever made theme-following (option C — a migration
-   stripping those inline colours), THIS RULE MUST GAIN A DARK VARIANT at the same
-   time. Until then, leave it alone. */
+     SELECT p.slug FROM "RichTextContent" r JOIN "Page" p ON p.id = r."pageId"
+     WHERE r."htmlContent" ILIKE '%onmouseover%';
+
+   Clearing them is folded into the same pass as the 26 dark-colour pages in #34.
+
+   TO RESTORE: pick a hover colour that works on BOTH grounds (a theme token, or a
+   mid-tone), not `#000`. See SANITISER-REMOVAL.md step 6. */
 /* .rich-text-content a:hover {
   color: #000 !important;
 } */

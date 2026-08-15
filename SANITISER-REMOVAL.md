@@ -360,7 +360,56 @@ that still carry the inline handlers and confirm no conflict.
 
 ---
 
-### ☐ 7 — Correct the comments that now lie
+### ✅ 7 — Correct the comments that now lie
+
+**Done 15 Aug 2026.** Not cosmetic — each was a claim a future reader would have acted on.
+
+| File | Was |
+| --- | --- |
+| `ShareButton.tsx` | *"the same protection `sanitize-html.ts` adds to every `target="_blank"` link"* — ⚠️ **a real behaviour change**: `rel` is no longer added automatically, so rich-text links carry only what the author typed, which for existing content is nothing |
+| `structured-data.ts` | *"#2 already sanitises rich-text HTML"* offered as reassurance — the escape never depended on it, but the surrounding net is thinner than the wording implied |
+| `globals.css` | the whole hover-rule rationale, rewritten around **why it is disabled**, with the SQL to find the 4 pages whose inline handlers still fire |
+
+---
+
+### ✅ 8 — `RICH-TEXT-GUIDE.md`
+
+**Done 15 Aug 2026.** ⚠️ **This is the control that replaced the sanitiser**, so it was written as
+part of the change, not after it.
+
+### ⚠️ Writing it turned up a real defect nobody had noticed
+
+**Tailwind classes inside stored HTML only work by accident.**
+
+Tailwind scans **source files** to decide what CSS to emit — it never reads the database. So a
+class appearing *only* in stored rich-text HTML generates nothing: the attribute is present, the
+styling is absent, and there is no warning.
+
+The template classes work for exactly one reason — they are written literally in
+`src/components/admin/rich-text/HtmlEditor.tsx`, which **is** scanned:
+
+```html
+<h5 class="mt-5 mb-2 font-[verdana]">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 my-3 font-[verdana]">
+<a class="text-[#afb6b5] underline">
+```
+
+Verified against the built CSS (492 KB across 6 files): `verdana`, `afb6b5`, `grid-cols-3`,
+`list-disc`, `pl-6`, `gap-6` all present. **Any class an author invents that is not in that
+template and not used elsewhere in the app will silently do nothing.**
+
+⚠️ **Getting to that answer took three attempts, all my own errors, and the pattern is worth
+recording**: first I searched a 3.6 KB CSS chunk instead of the real 492 KB set; then I used regexes
+that did not account for Tailwind escaping `:` and `[` in selectors, which reported present classes
+as absent. **Plain substring matching over the full corpus was what finally worked.** Same failure
+as #34's colour count and the `export-table.ts` grep — three occurrences now of *the search was
+wrong, not the answer*.
+
+⚠️ And a trap for anyone verifying this later: **Tailwind scans `.md` files too**, so writing a
+class name into a guide creates it. A class cannot be proven safe by finding it in documentation.
+
+<details>
+<summary>Original step description, kept for the reasoning</summary>
 
 Not cosmetic. Every one of these is a claim a future reader would act on.
 
@@ -394,16 +443,29 @@ between a careless paste and a public page**, so it is part of the change, not a
 - `example-rich-text.txt` as the reference document: sizing, spacing and one mid-grey
   `border-color`, and no text colour anywhere.
 
+</details>
+
 ---
 
-### ☐ 9 — Ship
+### ✅ 9 — Ship
 
-1. `npm install`, `npm run build` locally
-2. Push to `dev-3.0`, let Vercel build the preview
-3. ⚠️ Open the **new** deployment URL — a preview URL is pinned to one deployment and refreshing an
-   old tab serves the old build forever (the mistake that cost a round trip in #31)
-4. Editor opens · edit · save · public page renders · `<script>` survives · image upload works
-5. Merge to `master`
+**Shipped and confirmed on `atno.io`, 15 Aug 2026.** Editor opens, edits and saves; public pages
+render in both themes; image upload unaffected.
+
+⚠️ **`sharp` was the regression to watch** and it came through clean — steps 5's edit touched the
+same `serverExternalPackages` array, and that failure mode exists only on the linux runtime, never
+on Windows.
+
+---
+
+## Remaining, not part of this change
+
+| | |
+| --- | --- |
+| ⏸️ Step 6 | Hover rule — commented out, needs a two-theme colour before it returns |
+| ☐ | The 26 dark-colour pages (2 documents) — user clearing by hand |
+| ☐ | The 4 pages with 398 inline `onmouseover` handlers — same pass |
+| ⚠️ | **Reopen #35 the day a second admin account exists** |
 
 ---
 
@@ -414,15 +476,35 @@ the theme *because* `sanitizeRoadmapHtml()` strips the `style` attribute server-
 explicit reasoning that a convention in the editor UI would not survive the first paste out of
 Google Docs.
 
-With no sanitiser there is no server-side enforcement. Two options, to be decided **at L-5, not
-now**:
+With no sanitiser there is no server-side enforcement. Two options were put:
 
-- **(a)** Accept it as discipline plus the guide, consistent with this decision.
-- **(b)** Write a ~30-line `style`-attribute stripper for roadmap content only — one regex pass,
-  no DOM, no dependency, none of #23's failure mode.
+- **(a)** Accept it as discipline plus a guide, consistent with this decision.
+- **(b)** Write a ~30-line `style`-attribute stripper for roadmap content only.
 
-**(b) is cheap and does not reintroduce anything**, so it is the likely answer — but it is L-5's
-call, and recording it here is what stops it being forgotten.
+### ✅ DECIDED: (a) — discipline and a guide. *(user's call, 15 Aug 2026)*
+
+> *"I can ensure that style attributes are only used at places for something else — not for
+> colouring things. We will also have a separate guide for the roadmap content process, in full
+> detail, with everything."*
+
+⚠️ **I argued for enforcement and was overruled on reasonable grounds.** Recording both sides,
+because the failure mode is slow and silent:
+
+**For (a)** — the same person authors everything, the rule is narrow and memorable ("never set a
+colour"), and it is exactly the discipline already accepted for rich text three sections above.
+Adding a stripper for roadmap content while rich text has none is an inconsistency that would
+itself need explaining.
+
+**The risk that remains** — a `style` attribute is not the only way colour arrives. `class="text-…"`
+and `bg-…` utilities do the same thing, and a stripper aimed at `style` would not have caught those
+either. So (b) was never complete protection, which weakens the case for it.
+
+⚠️ **The signal to revisit:** the first roadmap topic that renders wrong in one theme. Unlike rich
+text, where the damage was 26 pages found by measurement, roadmap content is **new** — so if the
+discipline holds, there is nothing to clean up later. If it slips, catch it early.
+
+**Deliverable:** a roadmap content guide, written as part of Phase L, covering the full authoring
+process — not only the colour rule. Recorded as **L-12** in NEW-IMPROVEMENTS-2.md.
 
 ---
 
