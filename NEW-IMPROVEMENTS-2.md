@@ -1852,14 +1852,28 @@ entirely — and `!important` would flatten the deliberate white-on-colour text 
 carry inline *text* colour. It does not change what roadmap content should do; it changes how
 expensive fixing rich text is.
 
-Roadmap content is new, so the data can be kept clean. But:
+Roadmap content is new, so the data can be kept clean.
 
-> ⚠️ **A UI convention will not hold this.** Somebody will paste styled HTML out of Word or Google
-> Docs on the first day. The rule has to be enforced server-side: **`sanitizeRoadmapHtml()` strips
-> the `style` attribute outright**, and the editor offers no colour control.
+### ⚠️ AMENDED 15 Aug 2026 — there is no `sanitizeRoadmapHtml()`
 
-Get this wrong and we rebuild #21.4 from scratch, in a second place, with the same
-irreversibility — because by then the colours are in the database.
+This decision originally read: *"A UI convention will not hold this… the rule has to be enforced
+server-side: `sanitizeRoadmapHtml()` strips the `style` attribute outright."*
+
+**Sanitisation was removed entirely (#35), so that mechanism does not exist.** Two options were
+put, and the user chose **(a) — discipline plus a guide**, over (b) a 30-line `style` stripper.
+
+⚠️ **I argued for enforcement and was overruled on reasonable grounds.** The case for (a): one
+author, a narrow memorable rule ("never set a colour"), and it is the same discipline already
+accepted for rich text — adding a stripper here while rich text has none would be an inconsistency
+needing its own explanation.
+
+⚠️ **And (b) was never complete protection anyway.** `style` is not the only route to a colour —
+`class="text-…"` and `bg-…` utilities do the same thing, and a `style`-attribute stripper would not
+have caught them.
+
+**What replaces it:** **L-12**, a roadmap content guide covering the whole authoring process. And
+one advantage rich text did not have — roadmap content is **new**, so if the discipline holds there
+is no cleanup later. The signal to revisit is the first topic that renders wrong in one theme.
 
 ### (e) Progress tracking, drag-and-drop and blocks are all **deferred**
 
@@ -2060,6 +2074,7 @@ become 50 near-duplicate URLs competing with the page they came from. One line i
 | **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | ✅ first visible result |
 | **L-7** | Public — the Sheet, deep links, sub-topic chips | ✅ |
 | **L-8** | SEO — metadata, sitemap, JSON-LD, canonical | ✅ |
+| **L-12** | `ROADMAP-CONTENT-GUIDE.md` — ⚠️ **not optional**, see below | ships with L-5 |
 | ⏸️ **L-9** | Progress tracking (localStorage) | deferred — user's call |
 | ⏸️ **L-10** | Drag-and-drop reordering | deferred |
 | ⏸️ **L-11** | Content blocks, replacing HTML here *and* in rich text | deferred — #23.5 |
@@ -2345,6 +2360,30 @@ with the Sheet shut, **not a 404**; a chip swaps content without closing; Escape
 URL; the sitemap contains the role pages and no `?topic=`; a DRAFT role is in neither.
 
 ---
+
+### L-12 — `ROADMAP-CONTENT-GUIDE.md`
+
+⚠️ **This is not documentation-after-the-fact. It is the control that replaces server-side
+enforcement**, per the amendment to 33.2(d) above, so it ships **with L-5**, not after Phase L.
+
+Same shape as `ICON-GUIDE.md`, `TABLE-IMAGES-GUIDE.md` and `RICH-TEXT-GUIDE.md`, covering the whole
+authoring process:
+
+- ⚠️ **The one rule: never set a colour.** Not via `style`, and **not via `class` either** —
+  `text-…` and `bg-…` utilities are the route a `style`-stripper would have missed. The worked
+  example is #34: 26 rich-text pages that went unreadable the moment their card followed the theme.
+- What `style` *is* for here — spacing, sizing, alignment — and mid-grey rules (`#9ca3af` reads on
+  both grounds; `#dcdada` is too pale on dark).
+- ⚠️ Nothing is stripped on save (#35): no `<script>`, no `on*`, no `javascript:` hrefs, no
+  `<iframe>`. What to check before pasting from ChatGPT, Google Docs or a website.
+- Add `rel="noopener noreferrer"` by hand to every `target="_blank"` link.
+- Writing a topic: what belongs in the Sheet vs. what belongs as a sub-topic, when to use a badge,
+  when `recommended` is warranted, and picking an icon from the manifest.
+- Slugs — stable, lowercase, and ⚠️ **unique within one roadmap**, because they are the `?topic=`
+  deep link.
+- Structure patterns that work in the Sheet: description → resources → multi-column list → tools
+  table → next-topic chips, matching the Figma.
+- ⚠️ **Check every new topic in both themes before publishing.** This is the entire safety net.
 
 ### ⏸️ L-9 — Progress tracking (deferred)
 

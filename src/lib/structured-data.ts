@@ -51,9 +51,14 @@ import type { BreadcrumbItem } from '@/services/types'
  * would close our block early and open an attacker-controlled one. `JSON.stringify`
  * does not help — it escapes quotes and backslashes, not `<` or `/`.
  *
- * Page and domain titles are admin-authored, and #2 already sanitises rich-text HTML —
- * but titles are plain `String` columns that never pass through DOMPurify, so this is
- * the only thing standing between a title and script execution.
+ * Page and domain titles are admin-authored, and this escape is the only thing standing
+ * between a title and script execution.
+ *
+ * ⚠️ THIS NOTE USED TO ADD "and #2 already sanitises rich-text HTML" as reassurance. It no
+ * longer does — sanitisation was removed on 15 Aug 2026 (#35). That does not weaken this
+ * function, which never depended on it: titles are plain `String` columns and were always
+ * outside the sanitiser's reach. But the surrounding safety net is thinner than the old
+ * wording implied, so this escape now matters more, not less.
  *
  * Escaping `<` and `>` to their unicode form keeps the JSON valid and semantically
  * identical (JSON parsers decode `\u003c` back to `<`), while making the byte sequence
