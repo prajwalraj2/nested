@@ -2069,7 +2069,7 @@ become 50 near-duplicate URLs competing with the page they came from. One line i
 | ✅ **L-1** | Fix #23 — the sanitiser on Vercel | **DONE 14 Aug**, then removed entirely (#35) |
 | ✅ **L-2** | Schema, migration, `contentType`, page form | **DONE 15 Aug** — invisible but complete |
 | ✅ **L-3** | Admin — Roadmap Management list screen | **DONE 15 Aug** |
-| **L-4** | Admin — the tree editor (nodes, reorder, icons, badges) | ✅ |
+| ✅ **L-4** | Admin — the tree editor (nodes, reorder, icons, badges) | **DONE 15 Aug** |
 | **L-5** | Admin — the content editor + `sanitizeRoadmapHtml` | ✅ |
 | **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | ✅ first visible result |
 | **L-7** | Public — the Sheet, deep links, sub-topic chips | ✅ |
@@ -2337,6 +2337,56 @@ reopen the editor — the icon is still selected** (this is the exact K-5c picke
 badges, remove one; a duplicate slug within one roadmap is rejected with a readable message, and
 the same slug in a *different* roadmap is accepted; edit a node, save, then load the public page
 within 5 seconds and see the change (proves invalidation).
+
+##### ✅ L-4 DONE — 15 Aug 2026
+
+**New:** `src/lib/roadmap-tree.ts`, five API routes, `src/app/admin/roadmaps/[pageId]/page.tsx`,
+and `RoadmapEditor` / `RoadmapTree` / `RoadmapNodeForm` / `types.ts`.
+
+**1. ⚠️ L-2's sitemap obligation was made structural, not a comment.** `touchRoadmap(tx, id)` in
+`roadmap-tree.ts` carries the whole explanation, and every one of the four node-writing
+transactions calls it. A note saying "remember to bump the parent" in five handlers is a note
+that gets missed in one of them — and the symptom would be an invisible, systematically wrong
+`<lastmod>`, which is precisely what makes Google discard the field for an entire sitemap.
+
+**2. ⚠️ Reordering renumbers whole sibling lists; it does not swap two rows.** The obvious
+implementation — swap the two affected `order` values — works until the sequence has a gap or a
+duplicate, and **gaps appear the first time a node is deleted**. From then on moves look
+arbitrary with no error to follow. `renumber()` writes 0..n-1 and returns only rows that actually
+change, so it is self-healing whatever state the data was in. The DELETE handler renumbers too,
+which is what keeps the invariant true.
+
+**3. ⚠️ Indent has exactly one legal target: the sibling immediately above.** Anything else is
+ambiguous — "a child of what?" — so position 0 cannot be indented and a top-level node cannot be
+outdented. Both are **disabled in the menu and refused with a 409 by the API**; the disabled state
+is the point, because an enabled button that does nothing reads as broken. Outdent places the node
+immediately *after* its former parent rather than at the end of the list, so it does not vanish
+off screen.
+
+**4. ⚠️ Every mutation re-fetches the tree instead of patching state.** A move rewrites several
+rows' `order` and may change `parentId`; a delete cascades to an unknown number of descendants and
+renumbers what is left. Reproducing that client-side means writing the reorder logic twice, in two
+languages, and having the copies disagree the first time one is fixed.
+
+**5. ⚠️ The field-list bug was headed off in TWO places** — the eighth and ninth times it would
+have landed:
+
+- The PATCH handler builds its update by testing `'key' in body`, so a caller omitting a field
+  leaves it alone. Always writing every field would **blank an author's content**, which is the
+  bug in its most destructive form.
+- `RoadmapNodeForm` seeds from `{ ...node }` and never from a field list — the exact defect that
+  made row images vanish on every edit in K-5c.
+
+⚠️ And the form **re-seeds on `node.id` change**. Without that, `useState`'s initialiser runs once,
+the pane keeps showing the first topic while the tree highlights another, and the next save writes
+those values onto the wrong node.
+
+**6.** Node creation is deliberately minimal — a title, then fill in the detail pane. A dialog
+collecting title, slug, icon, badges and content before the node exists puts a form between the
+author and the tree they are trying to think about.
+
+⚠️ **Known gap, by design:** the content preview renders through `.roadmap-sheet`, which has no CSS
+until **L-7**. HTML previews unstyled for now — structure is visible, spacing is not.
 
 ---
 
