@@ -2073,7 +2073,7 @@ become 50 near-duplicate URLs competing with the page they came from. One line i
 | ⤵️ **L-5** | Admin — the content editor + `sanitizeRoadmapHtml` | **ABSORBED into L-4 / obsolete** — see below |
 | ✅ **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | **DONE 15 Aug** |
 | ✅ **L-7** | Public — the Sheet, deep links, sub-topic chips | **DONE 15 Aug — shipped with L-6** |
-| **L-8** | SEO — metadata, sitemap, JSON-LD, canonical | ✅ |
+| ✅ **L-8** | SEO — metadata, sitemap, JSON-LD, canonical | **DONE 17 Aug** |
 | ✅ **L-13** | Redesign — boxed nodes, configurable connectors, badges outside | **DONE 17 Aug** |
 | ✅ **L-12** | `ROADMAP-CONTENT-GUIDE.md` — ⚠️ **the control, not documentation** | **DONE 17 Aug** |
 | ⏸️ **L-9** | Progress tracking (localStorage) | deferred — user's call |
@@ -2568,6 +2568,47 @@ sideways (the K-3 failure, one level in).
 
 **Test:** `curl -s <url> | grep -i '<title>'`; the canonical on a `?topic=` URL points at the bare
 URL; the sitemap contains the role pages and no `?topic=`; a DRAFT role is in neither.
+
+##### ✅ L-8 DONE — 17 Aug 2026
+
+Three changes, all in `domain/[...slug]/page.tsx`.
+
+**1. ⚠️ `?topic=` is `noindex, follow` and canonicalises to the bare URL.** A 50-topic roadmap
+otherwise becomes 50 near-identical URLs — each serves the *whole page* with one panel open —
+competing with the page they came from. That is textbook keyword cannibalisation: Google picks one
+arbitrarily and it may not be the canonical one.
+
+Both halves are needed. The canonical is `path`, which is built from the route segments and
+**never contains a query string**, so it is correct by construction rather than by stripping one
+off. And `follow: true`, not `nofollow` — the panel's content is real and its links are worth
+discovering; this says "do not list this URL", not "ignore what is on it".
+
+**2. A roadmap's intro line becomes its meta description**, checked **before** the rich-text branch
+and the template. It is the only one of the three a human wrote *as a summary* — the rich-text
+branch scrapes whatever prose happens to be at the top of a page, and the template is generated.
+⚠️ No `htmlToText` pass: the field is plain text by contract, and running one would mangle a
+legitimate `<` or `&`. Same 40-character floor as the rich-text branch, for the same reason.
+
+**3. `generateMetadata` now awaits `searchParams`.** ⚠️ **This does not make the route dynamic** —
+it already is, because `getUserCountryFromCookies()` reads cookies for geo-targeting (#8-DR). If
+#8 ever removes that, this becomes the reason the route stays dynamic, and that trade needs
+deciding rather than inheriting. Noted at the call site.
+
+**Verified, not assumed:** `sitemap.ts` builds every URL from `SITE_URL` plus path segments, so
+`?topic=` cannot appear in it by construction. Breadcrumb JSON-LD needed nothing — a role is a real
+`Page`, so the existing parent-chain walk already produces
+`ATNO › Domains › Web Development › Roadmap › Frontend`.
+
+### ⚠️ A correction to something asserted twice in this phase
+
+I twice claimed the outstanding hydration warning would "destroy the indexability" of the roadmap
+page and therefore had to be fixed **before** L-8. **That overstates it.** A hydration mismatch
+happens in the browser *after* the server HTML has been delivered — a crawler receives that HTML
+either way. It is a real bug (a discarded render, possible flicker) but it neither blocks nor
+invalidates L-8.
+
+The general shape of the error is worth keeping: *an argument for doing X first is only as good as
+the mechanism behind it, and "SEO" is a broad enough word to hide a missing mechanism.*
 
 ---
 
