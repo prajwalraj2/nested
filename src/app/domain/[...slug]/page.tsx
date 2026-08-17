@@ -86,10 +86,17 @@ type Props = {
  * double the query count for every page view. The calls below are deliberately
  * identical to the ones in `DomainPage`.
  */
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const awaitedParams = await params;
   const [domainSlug, ...restSlug] = awaitedParams.slug;
   const userCountry = await getUserCountryFromCookies();
+  /*
+    ⚠️ Awaiting `searchParams` here does NOT make this route dynamic — it already is, because
+    `getUserCountryFromCookies()` above reads cookies for geo-targeting (see #8-DR). If #8 ever
+    removes that, this becomes the reason the route stays dynamic, and that trade needs deciding
+    rather than inheriting.
+  */
+  const topic = (await searchParams)?.topic;
 
   const domain = await DomainService.getWithPages(domainSlug);
 
@@ -178,6 +185,28 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${pageTitle}${TITLE_SEPARATOR}${domainName}`;
   const description = buildPageDescription(page, pageTitle, domainName);
 
+  /*
+    ⚠️ `?topic=` MUST NOT BE INDEXED, AND MUST CANONICALISE TO THE BARE URL (L-8).
+    ==========================================================================
+    A roadmap deep-links every topic — `…/roadmap/frontend?topic=kubernetes` — and each of those
+    URLs serves THE WHOLE PAGE with one panel open. They are not separate documents.
+
+    Left alone, a 50-topic roadmap becomes 50 near-identical URLs competing with the page they
+    came from, which is textbook keyword cannibalisation: Google picks one arbitrarily, and it
+    may not be the canonical one.
+
+    Two parts, and BOTH are needed:
+      • `canonical: path` — the bare URL, with the parameter dropped. `path` is built from the
+        route segments above and never contains a query string, so this is correct by
+        construction rather than by stripping.
+      • `index: false, follow: true` — keep the variant out of the index, but still crawl
+        through it.
+
+    ⚠️ `follow: true`, not `noindex, nofollow`. The panel's content is real content, and its
+    links are worth discovering. This says "do not list this URL", not "ignore what is on it".
+  */
+  const isTopicVariant = Boolean(topic);
+
   return {
     title,
     description,
@@ -187,7 +216,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     // BOTH the domain and the page must be globally targeted for this URL to be
     // indexable. See isGloballyIndexable() in src/lib/seo.ts for why — it prevents
     // the soft-404 chain described in finding #15.4.
-    robots: buildRobots(isGloballyIndexable(domain.targetCountries, page.targetCountries)),
+    robots: isTopicVariant
+      ? { index: false, follow: true }
+      : buildRobots(isGloballyIndexable(domain.targetCountries, page.targetCountries)),
   };
 }
 
@@ -228,10 +259,34 @@ function buildRobots(indexable: boolean): Metadata['robots'] {
  * that's product work, noted at the end of finding #14.
  */
 function buildPageDescription(
-  page: { contentType: string; richTextContent?: { htmlContent: string } | null },
+  page: {
+    contentType: string;
+    richTextContent?: { htmlContent: string } | null;
+    roadmap?: { description: string | null } | null;
+  },
   pageTitle: string,
   domainName: string
 ): string {
+  /*
+    0. A roadmap's own intro line (L-8).
+
+    ⚠️ CHECKED BEFORE THE RICH-TEXT BRANCH, AND BEFORE THE TEMPLATE, because it is the only one
+    of the three that a human wrote *as a summary*. The rich-text branch below scrapes prose that
+    happens to be at the top of a page; the template is generated. This field exists to describe
+    the page in one line, which is exactly what a meta description is.
+
+    ⚠️ It is PLAIN TEXT by contract (see the field's note in schema.prisma and the editor's
+    hint), so it needs no `htmlToText` pass — and running one would silently mangle a legitimate
+    `<` or `&` typed by the author.
+
+    The 40-character floor is the same guard the rich-text branch uses: a three-word intro is
+    worse in a search result than a full generated sentence.
+  */
+  const intro = page.roadmap?.description?.trim();
+  if (intro && intro.length >= 40) {
+    return truncate(intro);
+  }
+
   // 1. Real prose, if this page has any.
   const html = page.richTextContent?.htmlContent;
   if (html) {
