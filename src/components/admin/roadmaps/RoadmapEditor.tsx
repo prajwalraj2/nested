@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { RoadmapTree } from './RoadmapTree';
 import { RoadmapNodeForm } from './RoadmapNodeForm';
 import { allIds, findNode, type EditorNode, type MoveDirection, type RoadmapMeta, type RoadmapPageMeta } from './types';
+import { resolveRoadmapSettings } from '@/lib/roadmap-settings';
 
 /**
  * The roadmap tree editor (L-4).
@@ -301,6 +302,7 @@ function RoadmapMetaForm({
   pageId: string;
   onSaved: () => Promise<void>;
 }) {
+  const current = resolveRoadmapSettings(roadmap.settings);
   const [title, setTitle] = useState(roadmap.title);
   const [description, setDescription] = useState(roadmap.description ?? '');
   const [saving, setSaving] = useState(false);
@@ -313,7 +315,13 @@ function RoadmapMetaForm({
       await fetch(`/api/admin/roadmaps/${pageId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description }),
+        /*
+          ⚠️ The whole resolved settings object, not just the changed key. `settings` is one JSON
+          column — sending `{ layout }` alone would replace the blob and drop `defaultExpanded`
+          with it. That is the shallow-write trap `align-table-settings.mjs` was written to
+          repair in K-2, and it costs nothing to avoid here.
+        */
+        body: JSON.stringify({ title, description, settings: current }),
       });
       await onSaved();
     } finally {
@@ -350,6 +358,15 @@ function RoadmapMetaForm({
           Plain text, no HTML — it also becomes this page&rsquo;s search-result description.
         </p>
       </div>
+
+      {/*
+        A roadmap-wide LAYOUT selector lived here while `clustered` and `branching` were being
+        compared. Branching won, clustered was deleted, and this went with it (L-13).
+
+        ⚠️ The per-node connector controls are NOT this — they are on the topic form, because
+        the choice is genuinely per node: one step's children are a sequence, the next step's are
+        alternatives.
+      */}
 
       <Button onClick={save} disabled={!dirty || saving}>
         {saving && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}

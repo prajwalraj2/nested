@@ -2070,10 +2070,11 @@ become 50 near-duplicate URLs competing with the page they came from. One line i
 | ✅ **L-2** | Schema, migration, `contentType`, page form | **DONE 15 Aug** — invisible but complete |
 | ✅ **L-3** | Admin — Roadmap Management list screen | **DONE 15 Aug** |
 | ✅ **L-4** | Admin — the tree editor (nodes, reorder, icons, badges) | **DONE 15 Aug** |
-| **L-5** | Admin — the content editor + `sanitizeRoadmapHtml` | ✅ |
-| **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | ✅ first visible result |
-| **L-7** | Public — the Sheet, deep links, sub-topic chips | ✅ |
+| ⤵️ **L-5** | Admin — the content editor + `sanitizeRoadmapHtml` | **ABSORBED into L-4 / obsolete** — see below |
+| ✅ **L-6** | Public — the roadmap page (spine, tree, role dropdown, collapse) | **DONE 15 Aug** |
+| ✅ **L-7** | Public — the Sheet, deep links, sub-topic chips | **DONE 15 Aug — shipped with L-6** |
 | **L-8** | SEO — metadata, sitemap, JSON-LD, canonical | ✅ |
+| ✅ **L-13** | Redesign — boxed nodes, configurable connectors, badges outside | **DONE 17 Aug** |
 | **L-12** | `ROADMAP-CONTENT-GUIDE.md` — ⚠️ **not optional**, see below | ships with L-5 |
 | ⏸️ **L-9** | Progress tracking (localStorage) | deferred — user's call |
 | ⏸️ **L-10** | Drag-and-drop reordering | deferred |
@@ -2390,6 +2391,24 @@ until **L-7**. HTML previews unstyled for now — structure is visible, spacing 
 
 ---
 
+### ⤵️ L-5 — ABSORBED INTO L-4, AND HALF OF IT NO LONGER EXISTS (15 Aug 2026)
+
+This step had three parts. Their fates differ, which is why it is recorded rather than deleted:
+
+| Part | Outcome |
+| --- | --- |
+| The HTML editor with live preview | ✅ **Shipped inside L-4's `RoadmapNodeForm`** — Edit/Preview toggle, textarea, theme-aware preview container |
+| `sanitizeRoadmapHtml()` stripping `style` | ⚠️ **Obsolete.** Sanitisation was removed site-wide (#35); there is no sanitiser to add a second export to |
+| The colour rule it was meant to enforce | Now **discipline plus `ROADMAP-CONTENT-GUIDE.md`** — see the amendment to 33.2(d) and **L-12** |
+
+⚠️ **The preview container was still built theme-aware**, which was the *other* reason this step
+existed. A preview on a fixed white ground would look right in the admin and wrong on the site —
+worse than no preview, because it actively misleads. It renders through `.roadmap-sheet`, which
+gets its styles in **L-7** alongside the real Sheet, so the two cannot drift apart.
+
+<details>
+<summary>Original step, kept for the reasoning that produced the colour rule</summary>
+
 ### L-5 — The content editor, and the rule that keeps the theme working
 
 Reuses the rich-text editor's shape — a textarea of HTML with a live preview beside it — with
@@ -2421,6 +2440,8 @@ wrong on the site, which is worse than no preview.
 `<script>` → stripped; paste a Google Docs fragment → readable, unstyled, structure intact; a link
 gets `rel="noopener noreferrer"`; a table renders; **toggle dark mode in the preview and again on
 the public page — both readable**; `plainText` is populated and matches the HTML.
+
+</details>
 
 ---
 
@@ -2480,6 +2501,56 @@ topic; `curl` that URL → the topic's text is in the HTML; close → the parame
 back press leaves the page (not fifteen); an unknown `?topic=` value → the page renders normally
 with the Sheet shut, **not a 404**; a chip swaps content without closing; Escape closes; mobile.
 
+##### ✅ L-6 + L-7 DONE — 15 Aug 2026 (shipped together, deliberately)
+
+**Merged because splitting them would have shipped a broken affordance.** L-6 alone gives topics
+that look clickable and open nothing — worse than either half on its own.
+
+**New:** `RoadmapLayout.tsx` (server), `roadmap/RoadmapView.tsx` + `roadmap/RoadmapSpine.tsx`
+(client), `src/lib/roadmap-settings.ts`, the `.roadmap-sheet` block in `globals.css`, the
+`roadmap` relation in `pageWithContentSelect`, and one `case` in the router.
+
+**1. ⚠️ THE FIRST CONTENT TYPE ON THIS SITE THAT IS SERVER-RENDERED AND THEREFORE INDEXABLE.**
+`RoadmapLayout` is a server component and the whole tree — every title, badge and Sheet body —
+is in the initial HTML. That is the deliberate opposite of `TableLayout`, which is `'use client'`
+and fetches in a `useEffect`, leaving **~650 table pages returning 200 with no content in the
+document** (finding #30). The interactive parts layer on top rather than replacing it.
+
+**2. ⚠️ `?topic=` costs nothing here, but it is load-bearing on an existing decision.** Reading
+`searchParams` normally forces dynamic rendering — this route is *already* `force-dynamic` because
+geo-targeting reads cookies (#8-DR), so deep links are free. **If #8 ever makes this route static,
+this is one of the things that must be revisited.**
+
+**3. ⚠️ The URL syncs with `history.replaceState`, not `router.push` or `router.replace`.** Pushing
+adds a history entry per topic, so a visitor who opened eight topics needs nine Back presses to
+leave — the modal-in-the-history-stack trap. `router.replace` would re-run the server render for
+data already in the browser. Plain `replaceState` keeps the URL shareable and Back meaning "leave".
+
+**4. ⚠️ localStorage is read in an effect, never during render.** Reading it inline produces
+different markup on server and client, which React resolves by **discarding the server output** —
+losing exactly the indexability point 1 exists for. The stored preference applies one tick later.
+
+**5. ⚠️ A topic with no content renders as a `<span>`, not a disabled button.** A disabled button
+is still announced as a button and still reads as interactive. These are labels on the spine
+(OSI Model, GCP, AKS in the source design) and get no cursor, no hover and no button semantics.
+
+**6. The role dropdown is derived and self-consistent.** It reuses `getChildPages`, which is
+PUBLISHED-only and country-filtered — so a DRAFT role is absent from the dropdown **and** 404s on
+its own URL, from one query rather than two rules that could disagree. Fewer than two roles and it
+is not rendered: a control offering one option implies alternatives that do not exist. A roadmap at
+a domain root has `parentId === null` and no siblings, which is the single-roadmap case working
+correctly rather than an edge case.
+
+**7. Badge colours are computed over the whole roadmap**, not per branch — otherwise the same word
+takes different colours in different parts of one page, which is the defect K-1 was written to fix
+in tables. Classes come from the shared `BADGE_COLOR_CLASSES`, so roadmap and table badges are
+literally identical styling.
+
+⚠️ **`.roadmap-sheet` is used by the public Sheet AND the admin preview.** One class means the
+preview cannot drift from the real thing — a preview that lies is worse than no preview. Its table
+rule sets its own `overflow-x` scroll container, or a wide table would scroll the entire Sheet
+sideways (the K-3 failure, one level in).
+
 ---
 
 ### L-8 — SEO
@@ -2497,6 +2568,131 @@ with the Sheet shut, **not a 404**; a chip swaps content without closing; Escape
 
 **Test:** `curl -s <url> | grep -i '<title>'`; the canonical on a `?topic=` URL points at the bare
 URL; the sitemap contains the role pages and no `?topic=`; a DRAFT role is in neither.
+
+---
+
+### ✅ L-13 — The redesign: boxed nodes and configurable connectors (17 Aug 2026)
+
+**Trigger:** the user looked at the shipped L-6 page and said it *"looks like a course
+curriculum"*. They were right, and naming the cause took a comparison rather than an argument.
+
+#### What was actually wrong
+
+A topic was a **line of text on a thin rail**. A bordered **box** says "a place you go to"; a line
+of text says "an item in a list". Everything else followed from that one difference. ⚠️ **Step
+numbers made it worse** — `01 / 02 / 03` restated an order the spine already carried, and added
+the air of a formal syllabus. Removed.
+
+#### Choosing the layout
+
+Three directions were built as a live comparison — an artifact with the user's own DevOps content
+and a **container-query width control**, so the mobile cost was visible rather than asserted. Then
+two of them (`clustered`, `branching`) were built **in the real app** behind a setting, because a
+mockup cannot settle how a design feels with real content.
+
+**Branching won.** `clustered` and the `layout` setting were then **deleted** — two renderers for
+one data shape is a standing tax, and the loser had no users. ⚠️ Stored blobs may still hold
+`{"layout":"clustered"}`; the resolver simply does not read the key, so it is inert, not broken.
+
+#### ⚠️ Two connector axes, and my first reading of them was wrong
+
+The user described two connection shapes. I read them as one field folded together with the
+toggle position. Their Figma showed otherwise — **both shapes come out of the bottom; the
+difference is what happens after that**:
+
+```
+branch — one arm per child            group — children flush against a shared rail
+┌──────────────┐                      ┌──────────────┐
+│ Networking   │                      │ Cloud        │
+└──────┬───────┘                      └──────┬───────┘
+       ├──── OSI Model                       └──┐
+       ├──── Network Protocol                   │[ AWS ]
+       └──── Subnets / CIDR                     │[ Azure ]
+                                                │[ GCP ]
+```
+
+So **two columns**, purely additive, migration `20260817082406_add_roadmap_connectors`:
+
+| Column | Values | Decides |
+| --- | --- | --- |
+| `branchFrom` | `bottom` \| `right` | where children go **and** where the circle sits — one decision, not two |
+| `connector` | `branch` \| `group` | one arm per child, or a shared rail |
+
+⚠️ **The two are independent** — three of the four combinations appear in the source design.
+
+⚠️ **And the choice tracks a real distinction.** The author reached for `group` exactly where the
+children are ALTERNATIVES (AWS/Azure/GCP, EKS/GKE/AKS) and `branch` where they are a sequence —
+the same thing roadmap.sh uses dotted lines to say. That rule of thumb is written into the editor
+UI, so the field is not a coin flip every time.
+
+#### The rest of the redesign
+
+- **Chevrons → a circle on the box edge.** A bare chevron per row made every node look like a
+  collapsible list item. The circle sits at the point the branch comes out of, so it reads as part
+  of the diagram. Sized down to 1.1rem — at 1.4rem it competed with the boxes.
+- **Badges moved outside the box, top-right.** Inline badges pushed titles around and widened
+  boxes, and width is the scarce resource in a branching layout. ⚠️ **Not capped** — one or two is
+  the author's discipline by agreement, and a silent truncation would be worse than a visible
+  overlap because the author would never learn a badge was dropped.
+- ⚠️ **`recommended` stopped rendering.** Free-text badges cover "Recommended", "Start with this"
+  and "Very Important" equally, and two ways to say one thing is worse than one. The column and its
+  editor control survive; **nothing public reads them**.
+- **`defaultExpanded` → `expandFirst: 2`.** All-expanded buried the shape under everything at once;
+  all-collapsed showed the shape but nothing of the substance. First-visit only — a returning
+  visitor's stored state always wins.
+
+#### ⚠️ Three defects the redesign surfaced
+
+**1. The Share button was missing, and had been since L-6.** `RoadmapView` rendered its own `<h1>`
+instead of going through `PageHeading` — which renders Share **by default**, precisely because, in
+its own words, *"a missing share button is invisible: nothing renders and nothing errors."* The
+roadmap page is that comment's first casualty. Fixed by using the shared component, not by adding
+a button.
+
+**2. `--border` is not a connector colour.** It is tuned for card edges on a filled surface; as a
+1.5px hairline on the page background it was nearly invisible in **both** themes. Replaced with
+values mixed from `--foreground`:
+
+```css
+--rm-line: color-mix(in oklch, var(--foreground) 38%, transparent);
+--rm-box:  color-mix(in oklch, var(--foreground) 30%, transparent);
+```
+
+One expression, correct in both themes by construction, and it tracks a future theme change
+without a `.dark` override that someone forgets.
+
+**3. ⚠️ THREE hand-written node `select` lists** across the roadmap routes — adding two columns
+meant finding all three. Now one exported `NODE_SELECT`. **That is the tenth occurrence of the
+rebuild-by-explicit-field-list bug in this project.**
+
+#### Things worth knowing about the implementation
+
+⚠️ **The stem is at a fixed offset, not the box's centre.** The source design drops it from the
+middle of the box; CSS cannot align a child's rail to a sibling's centre without measuring in JS.
+Both the circle and the rail anchor to one variable, `--rm-stem`, so they always meet whatever the
+title length.
+
+⚠️ **Below 640px, `right` falls back to `bottom`** — including the circle, which moves with it.
+Right-branching costs a full extra step of horizontal space on top of the normal indent; without
+the fallback a three-level roadmap runs off a phone and the page body scrolls sideways, which is
+the failure K-3 fought in tables.
+
+⚠️ **Hover is `button.rm-box:hover`, not `.rm-box:hover`.** A topic with no sheet renders as a
+`<span>`, so tying hover to the element type means an unclickable node *cannot* gain one — the rule
+enforces itself rather than depending on a second conditional class staying in step.
+
+**The geometry lives in `globals.css`, not the components.** Two attributes × two breakpoints is a
+matrix; a matrix is readable as one CSS block and unreadable as arbitrary-variant class strings
+spread across three files.
+
+#### ⚠️ A process failure worth recording
+
+Two files were corrupted mid-step by round-tripping them through PowerShell: `Get-Content` on
+PS 5.1 reads UTF-8 as ANSI, so every `⚠️` came back as `âš ï¸` and was written back double-encoded.
+Restored from git and re-edited with the Edit tool.
+
+**Never rewrite a source file with `Get-Content | Set-Content` on PowerShell 5.1.** Use the editor,
+or `[IO.File]::ReadAllText` / `WriteAllText` with an explicit `UTF8Encoding($false)`.
 
 ---
 

@@ -8,6 +8,11 @@ export type EditorNode = {
   slug: string;
   icon: string | null;
   order: number;
+  /** `'bottom' | 'right'` — where children go, and where the expand circle sits (L-13). */
+  branchFrom: string;
+  /** `'branch' | 'group'` — one arm per child, or a shared rail (L-13). */
+  connector: string;
+  /** ⚠️ Stored and editable, but NOT rendered publicly — badges replaced it. See L-13. */
   recommended: boolean;
   badges: string[];
   /** `null` or empty means the topic has no Sheet — a label on the spine, not a link (33.3). */
@@ -22,6 +27,8 @@ export type RoadmapMeta = {
   id: string;
   title: string;
   description: string | null;
+  /** Arbitrary JSON from the database — always read it through `resolveRoadmapSettings`. */
+  settings: unknown;
   updatedAt: string;
 };
 

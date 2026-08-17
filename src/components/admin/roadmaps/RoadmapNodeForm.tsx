@@ -81,6 +81,8 @@ export function RoadmapNodeForm({ node, saving, onSave }: Props) {
     if (form.title !== node.title) patch.title = form.title;
     if (form.slug !== node.slug) patch.slug = form.slug;
     if (form.icon !== node.icon) patch.icon = form.icon;
+    if (form.branchFrom !== node.branchFrom) patch.branchFrom = form.branchFrom;
+    if (form.connector !== node.connector) patch.connector = form.connector;
     if (form.recommended !== node.recommended) patch.recommended = form.recommended;
     if (JSON.stringify(form.badges) !== JSON.stringify(node.badges)) patch.badges = form.badges;
     if ((form.htmlContent ?? '') !== (node.htmlContent ?? '')) {
@@ -94,6 +96,8 @@ export function RoadmapNodeForm({ node, saving, onSave }: Props) {
     form.title !== node.title ||
     form.slug !== node.slug ||
     form.icon !== node.icon ||
+    form.branchFrom !== node.branchFrom ||
+    form.connector !== node.connector ||
     form.recommended !== node.recommended ||
     JSON.stringify(form.badges) !== JSON.stringify(node.badges) ||
     (form.htmlContent ?? '') !== (node.htmlContent ?? '');
@@ -150,6 +154,83 @@ export function RoadmapNodeForm({ node, saving, onSave }: Props) {
           {/* ⚠️ Explains why this is a checkbox and not just a badge you could type. */}
           <p className="text-muted-foreground text-xs">
             Draws a filled marker on the spine — the happy path through the roadmap.
+          </p>
+        </div>
+      </div>
+
+      {/*
+        ⚠️ CONNECTOR GEOMETRY (L-13). Two independent choices, and folding them into one was my
+        first reading and it was wrong — the source design uses three of the four combinations.
+
+        Shown as picture-buttons rather than dropdowns because the choice IS a shape: nobody can
+        tell "branch" from "group" by its name, and a label alone would make this a field people
+        set at random.
+      */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Children appear</Label>
+          <div className="flex gap-2">
+            {(
+              [
+                ['bottom', 'Below', '│\n├──\n└──'],
+                ['right', 'To the right', '──┐\n  │\n  │'],
+              ] as const
+            ).map(([value, label, art]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => update('branchFrom', value)}
+                className={
+                  'flex-1 rounded-lg border p-2.5 text-left transition-colors ' +
+                  (form.branchFrom === value
+                    ? 'border-primary bg-accent'
+                    : 'border-border hover:border-muted-foreground')
+                }
+              >
+                <pre className="text-muted-foreground mb-1 font-mono text-[10px] leading-tight">
+                  {art}
+                </pre>
+                <span className="text-xs font-medium">{label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Also decides where the expand circle sits. ⚠️ Below 640px wide, &ldquo;to the
+            right&rdquo; falls back to &ldquo;below&rdquo; so the page never scrolls sideways.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Connector</Label>
+          <div className="flex gap-2">
+            {(
+              [
+                ['branch', 'One arm each', '├──\n├──\n└──'],
+                ['group', 'Shared rail', '│▪\n│▪\n│▪'],
+              ] as const
+            ).map(([value, label, art]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => update('connector', value)}
+                className={
+                  'flex-1 rounded-lg border p-2.5 text-left transition-colors ' +
+                  (form.connector === value
+                    ? 'border-primary bg-accent'
+                    : 'border-border hover:border-muted-foreground')
+                }
+              >
+                <pre className="text-muted-foreground mb-1 font-mono text-[10px] leading-tight">
+                  {art}
+                </pre>
+                <span className="text-xs font-medium">{label}</span>
+              </button>
+            ))}
+          </div>
+          {/* The rule of thumb, so this is not a coin-flip every time. */}
+          <p className="text-muted-foreground text-xs">
+            Use the shared rail when the children are alternatives — AWS / Azure / GCP. One arm
+            each when they are all to be learned.
           </p>
         </div>
       </div>
