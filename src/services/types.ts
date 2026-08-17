@@ -120,6 +120,11 @@ export type RoadmapNodeBasic = {
   slug: string;
   icon: string | null;
   order: number;
+  /** `'bottom' | 'right'` — where children go, and where the expand circle sits (L-13). */
+  branchFrom: string;
+  /** `'branch' | 'group'` — one arm per child, or a shared rail (L-13). */
+  connector: string;
+  /** ⚠️ Kept in the data, NOT rendered — free-text badges replaced it on screen. See L-13. */
   recommended: boolean;
   badges: string[];
   /**

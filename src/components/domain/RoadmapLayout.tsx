@@ -88,12 +88,28 @@ export function RoadmapLayout({ page, domain, siblingRoles, currentPath, openTop
   return (
     <div className="min-h-screen">
       <div className="mx-auto max-w-5xl px-6 py-8">
+        {/*
+          ⚠️ THE TITLE COMES THROUGH `PageHeading`, NOT FROM `RoadmapView`'s OWN <h1>.
+
+          It rendered its own heading until 17 Aug 2026, and the cost was exactly what
+          PageHeading's comment predicts: **the roadmap shipped with no Share button and nobody
+          noticed**, because a missing share button renders nothing and errors nothing. Every
+          other public layout goes through this component and gets one by default.
+
+          The heading shows the ROADMAP's title, falling back to the page's. They differ on
+          purpose — the page is "Frontend" in the sidebar and breadcrumb, the roadmap can be
+          "Frontend Developer" on the page itself.
+        */}
+        <PageHeading title={roadmap.title || page.title} icon={page.icon} share />
+
+        {roadmap.description && (
+          <p className="text-muted-foreground -mt-6 mb-8 max-w-prose">{roadmap.description}</p>
+        )}
+
         <RoadmapView
-          title={roadmap.title || page.title}
-          description={roadmap.description}
           tree={tree}
           allBadges={allBadges}
-          defaultExpanded={settings.defaultExpanded}
+          expandFirst={settings.expandFirst}
           // Keyed by roadmap id, so two roadmaps in the same domain never share collapse state.
           storageKey={`atno:roadmap:${roadmap.id}:collapsed`}
           roles={roles}

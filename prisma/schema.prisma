@@ -419,7 +419,49 @@ model RoadmapNode {
 
   order Int @default(0)
 
+  /// Where this node's children are drawn — and therefore where its expand circle sits (L-13).
+  ///
+  ///   "bottom"  children stack underneath;  circle at the bottom edge, centred
+  ///   "right"   children extend rightward;  circle on the right edge, centred
+  ///
+  /// ⚠️ ONE FIELD FOR BOTH, because they are one decision. A right-branching node with a
+  /// bottom circle would point at empty space — the control has to sit where the children
+  /// actually come out, or it stops being a control and becomes decoration.
+  ///
+  /// ⚠️ "right" COSTS HORIZONTAL SPACE ON TOP OF THE NORMAL INDENT. Below the `sm` breakpoint
+  /// the renderer forces every node back to "bottom" — see RoadmapBranching. Without that a
+  /// three-level roadmap runs off a 390px screen and the page body scrolls sideways, which is
+  /// the failure K-3 fought in tables.
+  branchFrom String @default("bottom")
+
+  /// How this node's children attach to it (L-13).
+  ///
+  ///   "branch"  one horizontal arm per child — "learn all of these"
+  ///             ├──── OSI Model
+  ///             ├──── Network Protocol
+  ///             └──── Subnets / CIDR
+  ///
+  ///   "group"   children sit flush against a shared rail — "pick one of these"
+  ///             └──┐
+  ///                │[ AWS ] [ Azure ] [ GCP ]
+  ///
+  /// ⚠️ SEPARATE FROM `branchFrom`. Both connector styles work in both directions, and the
+  /// source design uses three of the four combinations. Folding them into one field was my
+  /// first reading and it was wrong.
+  ///
+  /// The distinction is visual, but it tracks a real one: the author reached for "group"
+  /// exactly where the children are ALTERNATIVES (AWS/Azure/GCP, EKS/GKE/AKS) and "branch"
+  /// where they are a sequence. That is the same thing roadmap.sh uses dotted lines to say, so
+  /// the default is predictable: "branch" unless the children are a choose-one set.
+  connector String @default("branch")
+
   /// The "Recommended" flag — AWS, Docker, Kubernetes, EKS in the source sketch.
+  ///
+  /// ⚠️ NO LONGER RENDERED (L-13). Free-text `badges` replaced it on screen, because an author
+  /// wants "Start with this" or "Very Important" as readily as "Recommended". The column and its
+  /// editor control are kept deliberately — the data is real and costs nothing — but **nothing
+  /// on the public page reads it**. Do not add styling that depends on it without deciding what
+  /// it means alongside a badge that says the same thing.
   ///
   /// ⚠️ A BOOLEAN, NOT JUST ANOTHER ENTRY IN `badges`, because it changes how the NODE is drawn
   /// (a filled marker on the spine), not merely what pill sits beside it. As a string it would

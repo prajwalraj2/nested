@@ -7,6 +7,7 @@ import { invalidatePages } from '@/lib/cache-invalidation';
 import { isValidIconId } from '@/lib/icon-manifest';
 import { htmlToPlainText } from '@/lib/html-text';
 import { renumber, slugifyTopic, touchRoadmap, uniqueSlug } from '@/lib/roadmap-tree';
+import { NODE_SELECT } from '../../roadmaps/[pageId]/route';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -100,6 +101,32 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     if ('recommended' in body) data.recommended = Boolean(body.recommended);
 
+    /*
+      L-13 connector geometry. ⚠️ Validated against the known set rather than stored as given:
+      these are plain `String` columns, so the database accepts anything, and a typo would reach
+      the CSS, match no rule, and silently draw a node with no connectors at all.
+    */
+    if ('branchFrom' in body) {
+      const v = String(body.branchFrom);
+      if (v !== 'bottom' && v !== 'right') {
+        return NextResponse.json(
+          { error: 'branchFrom must be "bottom" or "right"' },
+          { status: 400 }
+        );
+      }
+      data.branchFrom = v;
+    }
+    if ('connector' in body) {
+      const v = String(body.connector);
+      if (v !== 'branch' && v !== 'group') {
+        return NextResponse.json(
+          { error: 'connector must be "branch" or "group"' },
+          { status: 400 }
+        );
+      }
+      data.connector = v;
+    }
+
     if ('badges' in body) {
       if (!Array.isArray(body.badges)) {
         return NextResponse.json({ error: 'badges must be an array' }, { status: 400 });
@@ -134,10 +161,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       const result = await tx.roadmapNode.update({
         where: { id },
         data,
-        select: {
-          id: true, parentId: true, title: true, slug: true, icon: true,
-          order: true, recommended: true, badges: true, htmlContent: true, updatedAt: true,
-        },
+        // ⚠️ The shared list — see its note in ../../roadmaps/[pageId]/route.ts.
+        select: NODE_SELECT,
       });
       await touchRoadmap(tx, node.roadmapId);
       return result;

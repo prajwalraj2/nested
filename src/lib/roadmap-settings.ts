@@ -9,15 +9,41 @@
  * predates whatever field it is looking for.
  */
 
+/*
+  ⚠️ A `layout` SETTING WITH A SECOND `clustered` RENDERER LIVED HERE AND WAS DELETED (L-13).
+
+  It existed so `clustered` and `branching` could be compared against real content rather than a
+  mockup — a legitimate reason, and the comparison is what settled the design. But two renderers
+  for one data shape is a standing tax: every change to the node chrome has to be made twice, and
+  the copies drift. Once branching won, keeping the loser would have been carrying that cost for
+  a feature nobody uses.
+
+  Stored blobs may still contain `{ "layout": "clustered" }`. That is harmless — this resolver
+  simply does not read the key, so it is inert rather than broken. No data migration needed.
+*/
+
 export type RoadmapSettings = {
-  /** Whether steps start expanded. */
-  defaultExpanded: boolean;
+  /**
+   * How many top-level steps are open when someone arrives for the FIRST time.
+   *
+   * ⚠️ REPLACES A `defaultExpanded` BOOLEAN, and the reason is worth keeping. All-expanded
+   * buried the shape of the roadmap under everything at once; all-collapsed showed the shape but
+   * nothing of the substance, so the page looked empty. Opening the first two steps shows both —
+   * you can see it is a tree, and you can see what a topic looks like, without scrolling past
+   * eighty rows.
+   *
+   * ⚠️ FIRST VISIT ONLY. Once the visitor has collapsed or expanded anything, their stored state
+   * wins — re-imposing a default on every visit would silently undo a deliberate choice.
+   *
+   * One level deep: the two steps' direct children are visible, grandchildren are not.
+   */
+  expandFirst: number;
   /** Reserved for L-9. Read but not yet acted on, so the field exists before the feature does. */
   showProgress: boolean;
 };
 
 export const ROADMAP_SETTINGS_DEFAULTS: RoadmapSettings = {
-  defaultExpanded: true,
+  expandFirst: 2,
   showProgress: false,
 };
 
@@ -36,7 +62,15 @@ export const ROADMAP_SETTINGS_DEFAULTS: RoadmapSettings = {
 export function resolveRoadmapSettings(stored: unknown): RoadmapSettings {
   const s = (stored ?? {}) as Partial<RoadmapSettings>;
   return {
-    defaultExpanded: s.defaultExpanded ?? ROADMAP_SETTINGS_DEFAULTS.defaultExpanded,
+    /*
+      ⚠️ Range-checked, not just defaulted. `settings` is arbitrary JSON, and a negative or
+      non-numeric value would make the "which steps start open" arithmetic below produce an
+      empty or absurd set with no error anywhere.
+    */
+    expandFirst:
+      typeof s.expandFirst === 'number' && Number.isFinite(s.expandFirst) && s.expandFirst >= 0
+        ? Math.floor(s.expandFirst)
+        : ROADMAP_SETTINGS_DEFAULTS.expandFirst,
     showProgress: s.showProgress ?? ROADMAP_SETTINGS_DEFAULTS.showProgress,
   };
 }

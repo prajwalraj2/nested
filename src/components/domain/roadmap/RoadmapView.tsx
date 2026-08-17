@@ -36,11 +36,10 @@ import { getIcon } from '@/lib/icon-manifest';
 export type RoleLink = { id: string; title: string; icon: string | null; href: string };
 
 type Props = {
-  title: string;
-  description: string | null;
   tree: SpineNode[];
   allBadges: string[];
-  defaultExpanded: boolean;
+  /** How many top-level steps start open on a first visit. See `roadmap-settings.ts`. */
+  expandFirst: number;
   /** Stable per roadmap, so two roadmaps never share collapse state. */
   storageKey: string;
   /** Sibling roadmap pages. ⚠️ Fewer than two and the dropdown is not rendered at all. */
@@ -51,11 +50,9 @@ type Props = {
 };
 
 export function RoadmapView({
-  title,
-  description,
   tree,
   allBadges,
-  defaultExpanded,
+  expandFirst,
   storageKey,
   roles,
   currentRoleHref,
@@ -127,14 +124,12 @@ export function RoadmapView({
 
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-balance">{title}</h1>
-          {description && (
-            <p className="text-muted-foreground mt-1.5 max-w-prose">{description}</p>
-          )}
-        </div>
-
+      <div className="flex flex-wrap items-end justify-end gap-4">
+        {/*
+          ⚠️ THE TITLE IS NOT RENDERED HERE ANY MORE. It moved to `PageHeading` in
+          RoadmapLayout — see the note there. This component owns only what needs the client:
+          the role dropdown, the spine's collapse state, and the Sheet.
+        */}
         {/*
           ⚠️ RENDERED ONLY WHEN THERE IS SOMETHING TO CHOOSE.
 
@@ -181,7 +176,7 @@ export function RoadmapView({
       <RoadmapSpine
         nodes={tree}
         allBadges={allBadges}
-        defaultExpanded={defaultExpanded}
+        expandFirst={expandFirst}
         storageKey={storageKey}
         openTopic={openTopic}
         onOpenTopic={open}

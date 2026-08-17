@@ -5,6 +5,7 @@ import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { invalidatePages } from '@/lib/cache-invalidation';
 import { slugifyTopic, touchRoadmap, uniqueSlug } from '@/lib/roadmap-tree';
+import { NODE_SELECT } from '../route';
 
 interface RouteParams {
   params: Promise<{ pageId: string }>;
@@ -69,10 +70,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const node = await prisma.$transaction(async (tx) => {
       const created = await tx.roadmapNode.create({
         data: { roadmapId: roadmap.id, parentId, title, slug, order },
-        select: {
-          id: true, parentId: true, title: true, slug: true, icon: true,
-          order: true, recommended: true, badges: true, htmlContent: true, updatedAt: true,
-        },
+        // ⚠️ The shared list, not another hand-written copy — see its note.
+        select: NODE_SELECT,
       });
       // ⚠️ Required — see touchRoadmap. Without it the sitemap reports a stale date for this URL.
       await touchRoadmap(tx, roadmap.id);

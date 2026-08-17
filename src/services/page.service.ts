@@ -78,6 +78,10 @@ const pageWithContentSelect = {
           slug: true,
           icon: true,
           order: true,
+          // L-13 — the connector geometry. Read defensively in the renderer: these are plain
+          // String columns, so the database cannot reject an unknown value.
+          branchFrom: true,
+          connector: true,
           recommended: true,
           badges: true,
           htmlContent: true,

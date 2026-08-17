@@ -24,14 +24,26 @@ interface RouteParams {
   params: Promise<{ pageId: string }>;
 }
 
-/** Every field the editor needs for one node. ⚠️ Includes `htmlContent` — see the GET note. */
-const NODE_SELECT = {
+/**
+ * Every field the editor needs for one node. ⚠️ Includes `htmlContent` — see the GET note.
+ *
+ * ⚠️ EXPORTED AND SHARED. There were three hand-written copies of this list across the roadmap
+ * routes, and adding `branchFrom` / `connector` in L-13 meant finding all three — the
+ * rebuild-by-explicit-field-list bug that has now been caught **ten times** in this project. A
+ * field missing from one copy does not fail to compile: it simply never reaches the client, and
+ * the editor renders a control bound to `undefined`.
+ *
+ * Import this rather than writing another list.
+ */
+export const NODE_SELECT = {
   id: true,
   parentId: true,
   title: true,
   slug: true,
   icon: true,
   order: true,
+  branchFrom: true,
+  connector: true,
   recommended: true,
   badges: true,
   htmlContent: true,

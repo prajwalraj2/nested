@@ -175,6 +175,185 @@
 } */
 
 /* ==========================================================================
+   Roadmap tree connectors (Phase L, L-13)
+   ==========================================================================
+   Geometry for the branching layout. Plain CSS with data attributes rather than Tailwind
+   variants, because four combinations of two attributes across two breakpoints is a matrix —
+   and a matrix is far easier to read in one block than spread across arbitrary-variant class
+   strings on three components.
+
+   TWO INDEPENDENT AXES, set per node in the admin:
+
+     data-branch    = bottom | right     where the children go, and where the circle sits
+     data-connector = branch | group     one arm per child, or a shared rail
+
+   ⚠️ THE RAIL AND THE CIRCLE SHARE ONE OFFSET — `--rm-stem`. The source design drops the stem
+   from the box's horizontal CENTRE, which cannot be expressed in CSS here: the rail lives on the
+   children container and its sibling's width is unknowable without measuring in JS. Anchoring
+   both to a fixed offset instead means they ALWAYS meet, whatever the title length. On a box of
+   any realistic width the circle still reads as sitting on the bottom edge.
+   ========================================================================== */
+.rm-tree {
+  --rm-stem: 1.75rem;   /* x of the vertical rail, from the node's left edge */
+  --rm-arm: 1.4rem;     /* length of a per-child horizontal arm */
+  --rm-run: 2.25rem;    /* horizontal run from a box to a right-hand rail */
+
+  /*
+    ⚠️ CONNECTOR AND BORDER COLOURS ARE MIXED FROM `--foreground`, NOT TAKEN FROM `--border`.
+
+    `--border` is tuned for the edges of cards and inputs sitting on a filled surface. Used for
+    a 1.5px hairline on the page background it was almost invisible in BOTH themes — the first
+    version of this looked like floating boxes with no diagram between them.
+
+    Mixing a percentage of `--foreground` with transparent solves it in one expression: on a
+    light page `--foreground` is near-black so the lines darken, on a dark page it is near-white
+    so they lighten. One value, correct in both, and it tracks any future theme change for free
+    rather than needing a `.dark` override that someone forgets.
+  */
+  --rm-line: color-mix(in oklch, var(--foreground) 38%, transparent);
+  --rm-box: color-mix(in oklch, var(--foreground) 30%, transparent);
+  /* Hover: a firmer edge and the faintest lift off the page. Both mixed from `--foreground`
+     for the same reason as the values above — one expression, correct in both themes. */
+  --rm-box-hover: color-mix(in oklch, var(--foreground) 62%, transparent);
+  --rm-box-hover-bg: color-mix(in oklch, var(--foreground) 7%, transparent);
+
+  display: grid;
+  gap: 1.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The box border, strengthened to match the connectors. Scoped to the tree so it cannot leak
+   into the Sheet or anything else that uses the same node component. */
+.rm-tree .rm-box { border-color: var(--rm-box); }
+
+/*
+  ⚠️ `button.rm-box`, NOT `.rm-box`. A topic with no sheet renders as a `<span>` (see
+  RoadmapNodeBox), so tying the hover to the element type means an unclickable node CANNOT
+  accidentally gain a hover state — the rule enforces itself rather than depending on a second
+  conditional class staying in step with the first.
+*/
+.rm-tree button.rm-box:hover {
+  border-color: var(--rm-box-hover);
+  background: var(--rm-box-hover-bg);
+}
+
+.rm-node { position: relative; list-style: none; }
+
+/* The box and its circle. `fit-content` so the circle can sit on the box's real edges. */
+.rm-head { position: relative; width: fit-content; max-width: 100%; }
+
+.rm-kids {
+  position: relative;
+  display: grid;
+  list-style: none;
+  margin: 0;
+  border-left: 1.5px solid var(--rm-line);
+}
+
+/* ── branch: one arm per child ───────────────────────────────────────────── */
+.rm-node[data-connector='branch'] > .rm-kids {
+  gap: 0.85rem;
+  padding-left: var(--rm-arm);
+}
+.rm-node[data-connector='branch'] > .rm-kids > .rm-node::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--rm-arm) * -1);
+  top: 1.15rem;
+  width: var(--rm-arm);
+  height: 1.5px;
+  background: var(--rm-line);
+}
+
+/* ── group: children flush against a shared rail ─────────────────────────── */
+/* No arms — that absence IS the distinction. The rail alone says "these belong together,
+   pick one", where arms say "do each of these". */
+.rm-node[data-connector='group'] > .rm-kids {
+  gap: 0.5rem;
+  padding-left: 0.55rem;
+}
+
+/* ── branch from the bottom (default, and the mobile fallback) ───────────── */
+.rm-node > .rm-kids {
+  margin-top: 0.9rem;
+  margin-left: var(--rm-stem);
+}
+
+/* ── branch from the right ───────────────────────────────────────────────── */
+/* ⚠️ `sm` AND UP ONLY. Right-branching costs a full extra step of horizontal space on top of
+   the normal indent; below 640px a three-level roadmap would run off the screen and the page
+   body would scroll sideways. Under that width every node falls back to bottom-branching, which
+   is why the rules above are written unconditionally and this one overrides. */
+@media (min-width: 640px) {
+  .rm-node[data-branch='right'] {
+    display: flex;
+    align-items: flex-start;
+  }
+  .rm-node[data-branch='right'] > .rm-kids {
+    margin-top: 0;
+    margin-left: var(--rm-run);
+  }
+  /* The run from the box's right edge across to the rail. */
+  .rm-node[data-branch='right'] > .rm-kids::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--rm-run) * -1);
+    top: 1.15rem;
+    width: var(--rm-run);
+    height: 1.5px;
+    background: var(--rm-line);
+  }
+}
+
+/* ── The expand circle ───────────────────────────────────────────────────── */
+/* ⚠️ REPLACES A PLAIN CHEVRON, DELIBERATELY. The bare chevron made every row look like a
+   collapsible list item, which is what made the page read as a course curriculum. A circle
+   sitting ON the box edge reads as part of the diagram — the point the branch comes out of. */
+.rm-toggle {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  /* ⚠️ Deliberately small. At 1.4rem it competed with the boxes for attention and pulled the
+     eye to the controls rather than the route. It is a hinge, not a button. */
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 9999px;
+  border: 1.5px solid var(--rm-line);
+  background: var(--background);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.rm-toggle:hover { color: var(--foreground); border-color: var(--muted-foreground); }
+
+/* Bottom-centred on the stem, straddling the box's lower border. */
+.rm-toggle[data-at='bottom'] {
+  left: var(--rm-stem);
+  bottom: 0;
+  transform: translate(-50%, 50%);
+}
+/* Right edge, vertically centred. */
+.rm-toggle[data-at='right'] {
+  right: 0;
+  top: 50%;
+  transform: translate(50%, -50%);
+}
+/* ⚠️ Below `sm` the layout falls back to bottom-branching, so the circle must move with it —
+   otherwise it sits on the right edge pointing at children that are now underneath. */
+@media (max-width: 639px) {
+  .rm-toggle[data-at='right'] {
+    right: auto;
+    top: auto;
+    left: var(--rm-stem);
+    bottom: 0;
+    transform: translate(-50%, 50%);
+  }
+}
+
+/* ==========================================================================
    Roadmap Sheet content (Phase L)
    ==========================================================================
    Typography for author-written HTML inside a roadmap topic's Sheet.
