@@ -2075,7 +2075,7 @@ become 50 near-duplicate URLs competing with the page they came from. One line i
 | ✅ **L-7** | Public — the Sheet, deep links, sub-topic chips | **DONE 15 Aug — shipped with L-6** |
 | **L-8** | SEO — metadata, sitemap, JSON-LD, canonical | ✅ |
 | ✅ **L-13** | Redesign — boxed nodes, configurable connectors, badges outside | **DONE 17 Aug** |
-| **L-12** | `ROADMAP-CONTENT-GUIDE.md` — ⚠️ **not optional**, see below | ships with L-5 |
+| ✅ **L-12** | `ROADMAP-CONTENT-GUIDE.md` — ⚠️ **the control, not documentation** | **DONE 17 Aug** |
 | ⏸️ **L-9** | Progress tracking (localStorage) | deferred — user's call |
 | ⏸️ **L-10** | Drag-and-drop reordering | deferred |
 | ⏸️ **L-11** | Content blocks, replacing HTML here *and* in rich text | deferred — #23.5 |
@@ -2720,6 +2720,27 @@ authoring process:
   table → next-topic chips, matching the Figma.
 - ⚠️ **Check every new topic in both themes before publishing.** This is the entire safety net.
 
+##### ✅ L-12 DONE — 17 Aug 2026
+
+**`ROADMAP-CONTENT-GUIDE.md`**, eleven sections. Written as a working reference rather than a
+record — it is consulted while authoring, so the two sections that carry real risk (§3 the colour
+rule, §8 nothing is sanitised) are called out at the top and everything else is scannable.
+
+**What it covers beyond the obvious:** the heading-versus-page-title distinction; why the first two
+steps matter more than the rest (they are what a first-time visitor sees); the connector rule of
+thumb as a table; which tags `.roadmap-sheet` already styles, so authors reach for plain HTML;
+⚠️ that the "Next" chips are **generated from children** and writing them by hand duplicates them;
+and that a topic with empty content is a **deliberate** state, not an unfinished one.
+
+⚠️ **Three rules are shared verbatim with `RICH-TEXT-GUIDE.md`** — never set a colour, check what
+you paste, add `rel="noopener noreferrer"` by hand. That duplication is intentional: an author
+opens one guide, not both, and a cross-reference is a rule that gets skipped.
+
+⚠️ **The "unsafe class" examples use `⟨placeholder⟩` notation**, because Tailwind scans `.md` and a
+real class name written into a guide is generated into the CSS — which would make it *look* safe
+and quietly contradict the section warning against it. Same trap as K-1, avoided deliberately this
+time rather than discovered.
+
 ### ⏸️ L-9 — Progress tracking (deferred)
 
 A checkbox per topic in `localStorage`, keyed by roadmap slug; the spine fills in behind you and
@@ -3020,6 +3041,8 @@ found that way, and none of them produced an error — only silent, wrong output
 | [Table redesign design note](https://claude.ai/code/artifact/930079be-3d25-47bb-9d16-5f128abf9135) | Live mockups, both themes; the density control is interactive |
 | [Roadmap page prototype](https://claude.ai/code/artifact/2d080e12-7280-49ae-bac9-d408ffe0d02c) | **#33 / Phase L.** Three working roles, nesting to three levels, the Sheet, deep-link URLs, both themes |
 | `SANITISER-REMOVAL.md` | **#35.** Step-by-step removal of rich-text sanitisation, with the reasoning and the accepted risk |
+| `RICH-TEXT-GUIDE.md` | What to write on a rich-text page, and what never to paste |
+| `ROADMAP-CONTENT-GUIDE.md` | **L-12.** Building a roadmap — ⚠️ the control that replaced server-side enforcement |
 | `BLOB-TO-R2-MIGRATION.md` | Step-by-step move from Vercel Blob to Cloudflare R2, mid-flight |
 | `TABLE-IMAGES-GUIDE.md` | *(written in K-5c)* — how to add a row image |
 | `ICON-GUIDE.md` | Domain and page icons — the **repository** path, deliberately different |
