@@ -105,7 +105,14 @@ export function SubcategorySelector({ domain, page }: {
         ) : (
           <div className="space-y-10">
             {rowGroups.map((rowGroup, groupIndex) => (
-              <div key={groupIndex} className="grid grid-cols-1 lg:grid-cols-3 gap-x-6 gap-y-1">
+              /*
+                ⚠️ 1 -> 2 -> 3, same reasoning as the /domain board, with one difference: this
+                grid renders THREE EXPLICIT COLUMN DIVS rather than cells with placeholders, so
+                there are no holes to hide. At two columns, column 3 simply wraps beneath column 1
+                within the same row group - which stays readable because each group is its own
+                grid, separated by `space-y-10`, so the wrap cannot run into the next group.
+              */
+              <div key={groupIndex} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1">
                 {/* Column 1 */}
                 <div className="space-y-1">
                   {rowGroup[1].map((subcategory) => (

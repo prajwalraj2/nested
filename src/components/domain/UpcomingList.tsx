@@ -81,7 +81,15 @@ export function UpcomingList({ items, noun }: UpcomingListProps) {
       ⚠️ Beyond 15 items the grid creates implicit fourth and fifth columns rather than
       overflowing — wider than the three tracks above it, but nothing is clipped or hidden.
     */
-    <div className="grid grid-cols-1 gap-x-6 lg:grid-flow-col lg:grid-cols-3 lg:grid-rows-5">
+    /*
+      ⚠️ THE `md:` STEP MUST REPEAT `grid-flow-col` AND `grid-rows-5`, not just the column count.
+
+      This list fills DOWNWARDS (see above). `grid-flow-col` needs an explicit row count to know
+      when to start the next column - without `md:grid-rows-5` the browser would fall back to a
+      single row and lay every item out sideways off the screen. So the two-column step is three
+      classes, not one.
+    */
+    <div className="grid grid-cols-1 gap-x-6 md:grid-flow-col md:grid-cols-2 md:grid-rows-5 lg:grid-cols-3 lg:grid-rows-5">
       {items.map((item) => (
         <button
           key={item.id}

@@ -130,7 +130,24 @@ export function SectionBasedLayout({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-x-8 gap-y-10">
+          /*
+            ⚠️ 1 -> 2 -> 3 COLUMNS, AND THE MIDDLE STEP NEEDED MORE THAN A BREAKPOINT.
+
+            This grid was `grid-cols-1 lg:grid-cols-3`, so it jumped straight from one column to
+            three at 1024px with nothing in between - which is what the tablet range looked wrong at.
+
+            ⚠️ WHY `md:grid-cols-2` ALONE WOULD HAVE BROKEN IT. This is not a flowing list. It is a
+            BOARD: each category carries an admin-set `categoryOrder` (its row) and
+            `columnPosition` (its column, 1-3), and the loop below emits three cells per row -
+            including EMPTY placeholder cells to hold the alignment. Feed three cells per row into
+            a two-column grid and the placeholders become visible holes in the middle of the page,
+            with the third cell of each row wrapping under the first.
+
+            The fix is on the placeholder, not here: `hidden lg:block` makes the empty cells exist
+            only in the three-column layout that needs them. At two columns they vanish and the
+            real cells close up into a natural flow.
+          */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-10">
             {/* Render row by row - sections with same order render together */}
             {rows.map((row, rowIndex) => (
               // Each row renders 3 cells (columns 1, 2, 3)
@@ -144,8 +161,15 @@ export function SectionBasedLayout({
                     currentPath={currentPath}
                   />
                 ) : (
-                  // Empty placeholder to maintain grid alignment
-                  <div key={`row-${rowIndex}-col-${colNum}-empty`} />
+                  /*
+                  ⚠️ `hidden lg:block` - an alignment spacer, NOT content.
+
+                  It exists only to keep a row's real cells in their admin-assigned columns, which
+                  is a three-column idea. Below `lg` there are two columns, the row structure no
+                  longer maps onto them, and an empty cell would simply be a hole. Hiding it lets
+                  the remaining cells flow.
+                */
+                <div key={`row-${rowIndex}-col-${colNum}-empty`} className="hidden lg:block" />
                 );
               })
             )).flat()}
