@@ -10,6 +10,9 @@ import {
   // ⚠️ Also used for `roadmap` in PageTree's CONTENT_TYPE_ICONS and SectionEditor's
   // PageTypeIcon — one content type, one glyph, wherever it appears in the admin.
   Route,
+  // ⚠️ Matches the public header's Submit button, so the screen that reviews
+  // submissions is recognisably about the same thing as the one that creates them.
+  Inbox,
   // ⚠️ The same glyph the public header uses for the Feedback link, so the two screens that
   // concern the same queue are recognisably about the same thing.
   MessageSquare,
@@ -147,6 +150,17 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         label: 'Images',
         icon: ImageIcon,
         description: 'Pictures used beside table rows',
+      },
+      {
+        /*
+          ⚠️ Sits directly above Feedback because the two are the same KIND of screen: a queue of
+          things other people sent, worked through and cleared. Neither is content we author, which
+          is what everything under the Content group has in common.
+        */
+        href: '/admin/submissions',
+        label: 'Submissions',
+        icon: Inbox,
+        description: 'Tool suggestions and domain requests from visitors',
       },
       {
         /*

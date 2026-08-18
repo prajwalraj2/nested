@@ -443,16 +443,22 @@ model RateLimit {
 
 ---
 
-## Phase M — The public site (#36) — PLAN (agreed 18 Aug 2026, not started)
+## Phase M — The public site (#36) — PLAN (agreed 18 Aug 2026)
+
+**Shipped:** M-1 · M-2 · M-3 (18 Aug) · M-4 · M-5 (19 Aug) · M-6 (19 Aug).
+**Next:** M-7 Changelog · M-8 Careers · M-9 Blogs · M-10 dependency bump.
+
+⚠️ **Menu links still pointing at nothing: `/changelog`, `/careers`, `/blogs`.** Down from five.
+`PENDING_ROUTES` in `site-nav-links.ts` is the live record; an entry leaves it as its step ships.
 
 | Step | What | Ships alone? |
 | --- | --- | --- |
-| **M-1** | The `/` rewrite | ⚡ ten minutes — do it first |
-| **M-2** | The site header — server-rendered, themed, mobile | ✅ |
-| **M-3** | Static pages: About · Contact · Privacy · Terms | ✅ |
-| **M-4** | Public form foundations — rate limit, honeypot, validation | ⚠️ **blocks M-5, M-6, M-8** |
-| **M-5** | Feedback | ✅ |
-| **M-6** | Submissions — including the public domain/page cascade | ✅ |
+| ~~**M-1**~~ | ~~The `/` rewrite~~ | ✅ shipped 18 Aug |
+| ~~**M-2**~~ | ~~The site header~~ | ✅ shipped 18 Aug |
+| ~~**M-3**~~ | ~~Static pages: About · Contact · Privacy · Terms~~ | ✅ shipped 18 Aug |
+| ~~**M-4**~~ | ~~Public form foundations~~ | ✅ shipped 19 Aug |
+| ~~**M-5**~~ | ~~Feedback~~ | ✅ shipped 19 Aug |
+| ~~**M-6**~~ | ~~Submissions~~ | ✅ shipped 19 Aug — ⚠️ **domain only, page cascade cut** |
 | **M-7** | Changelog board + admin | ✅ |
 | **M-8** | Careers — jobs, applications, R2 private storage | ✅ |
 | **M-9** | Blogs | ✅ the largest |
@@ -597,14 +603,35 @@ and honeypot both fire.
 
 `/submit` — propose a tool, or request a domain.
 
-**The cascade:** pick a domain → optionally pick a page inside it. ⚠️ **"Not sure" must be a first
-class answer**, not an empty select the visitor has to guess at.
+⚠️ **BUILT AS DOMAIN-ONLY. The page half of the cascade was cut on 19 Aug 2026** — pick a domain,
+and that is all. `Submission.pageId` / `pageName` exist but nothing writes them, so adding the page
+step later needs no migration.
 
-⚠️ **This needs NEW public read routes.** The existing domain and page endpoints are admin-authed.
-The new ones must apply **the same `status: PUBLISHED` and country filters the public site uses** —
-otherwise the form would offer a draft page as a destination and leak its existence.
+**"Not sure" is a first-class answer**, not an empty select the visitor has to guess at.
+⚠️ It needs a SENTINEL VALUE (`__not_sure__`), because Radix's `Select` **throws** on
+`value=""` — it reserves the empty string for the placeholder state.
 
-⚠️ **Nothing existing changes.** These are additive routes; the admin endpoints are untouched.
+⚠️ **NO NEW PUBLIC READ ROUTE WAS NEEDED, and that is the better outcome.** The plan assumed the
+cascade required one. With only the domain list left, it is server-rendered into the page as props
+— the `SiteHeader` pattern. An endpoint that lists content is an endpoint whose filters can be got
+wrong; the one never written can never leak a draft.
+
+⚠️ **`productUrl` BECAME OPTIONAL** (agreed 19 Aug), because a domain request has no product URL.
+Validation is conditional via a zod discriminated union: required for `kind: "tool"`, optional
+otherwise — a single schema with an optional field would have accepted a linkless tool suggestion.
+
+⚠️ **A SUBMITTED URL IS A SECOND XSS ROUTE, AND THE LINT RULE DOES NOT COVER IT.**
+`href={submittedValue}` accepts `javascript:alert(1)`; one click in a logged-in admin session runs
+it on the admin's origin, without `dangerouslySetInnerHTML` ever appearing. ⚠️ **`z.url()` is not a
+defence** — it validates URL *shape*, and `javascript:` is a well-formed URL. `isSafeHttpUrl` in
+`lib/submission-kinds.ts` confines the scheme, checked BOTH on the way in and again immediately
+before the anchor is rendered (the second covers rows written before the first existed).
+
+⚠️ **The submitted `domainName` is ignored and re-derived server-side** from the id, filtered to
+`PUBLISHED`. Trusting the client's label would let a real id travel beside a fabricated name into a
+position that looks verified — and an unfiltered lookup would confirm whether a draft domain exists.
+
+⚠️ **Nothing existing changes.** Additive routes only; the admin endpoints are untouched.
 
 **Test:** the cascade lists only published, globally-targeted pages; ⚠️ a DRAFT page is absent;
 "not sure" submits successfully; a domain request with no domain selected works; the snapshot

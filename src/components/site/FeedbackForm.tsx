@@ -287,16 +287,21 @@ export function FeedbackForm({ issuedAt, formToken, honeypotField }: Props) {
         </p>
       )}
 
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={sending}>
-          {sending ? 'Sending…' : 'Send feedback'}
-        </Button>
-        {pageUrl && (
-          <span className="text-muted-foreground truncate text-xs">
-            About: {pageUrl}
-          </span>
-        )}
-      </div>
+      {/*
+        ⚠️ `pageUrl` IS STILL CAPTURED AND STILL SUBMITTED — only its display was removed.
+
+        It used to render as "About: <url>" beside this button. Dropped on request: it is
+        housekeeping the visitor did not ask for and cannot act on, and a long URL made the row
+        wrap awkwardly. The value continues to travel in the POST body and to land in
+        `Feedback.pageUrl`, which is the part that matters — a UI bug report without the page it
+        happened on is close to useless.
+
+        ⚠️ SO DO NOT "TIDY UP" THE `pageUrl` STATE OR THE EFFECT ABOVE as unused. Nothing renders
+        it any more, which is exactly what makes that look like dead code.
+      */}
+      <Button type="submit" disabled={sending}>
+        {sending ? 'Sending…' : 'Send feedback'}
+      </Button>
     </form>
   );
 }
