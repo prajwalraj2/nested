@@ -3088,3 +3088,4 @@ found that way, and none of them produced an error — only silent, wrong output
 | `TABLE-IMAGES-GUIDE.md` | *(written in K-5c)* — how to add a row image |
 | `ICON-GUIDE.md` | Domain and page icons — the **repository** path, deliberately different |
 | `NEW-IMPROVEMENTS.md` | Items #1–#28, Phases A–J |
+| `NEW-IMPROVEMENTS-3.md` | **#36 onward, Phase M** — the public site: header, static pages, blogs, submissions, feedback, changelog, careers |

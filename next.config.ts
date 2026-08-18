@@ -96,6 +96,62 @@ const nextConfig: NextConfig = {
   },
 
   /**
+   * `/` SERVES THE DOMAIN LISTING DIRECTLY — no redirect (M-1).
+   * ==========================================================================
+   *
+   * ⚠️ `src/app/page.tsx` WAS DELETED FOR THIS AND MUST NOT COME BACK.
+   *
+   * A plain `rewrites()` array runs in the `afterFiles` phase — *after* filesystem routes. So a
+   * `page.tsx` at the app root would win and this rule would never fire, silently. If a real
+   * homepage is ever wanted, delete this rule; do not add a file beside it.
+   *
+   * ── WHAT THIS REPLACED, AND WHY ───────────────────────────────────────────
+   * `/` used to `permanentRedirect('/domain')` — a 308. The reasoning for choosing 308 over 307
+   * was sound and is worth keeping:
+   *
+   *   307 (temporary) tells Google "`/` is still the real URL, it is just borrowing `/domain`" —
+   *   so Google keeps `/` indexed and re-crawled, and any authority earned by links to
+   *   `atno.io` stays attached to a URL that shows nothing. A 308 says "moved for good", and
+   *   Google consolidates onto `/domain`.
+   *
+   * ⚠️ BUT A 308 IS CACHED BY BROWSERS INDEFINITELY — that is what "permanent" means. The
+   * consequence, spelled out in the file this replaces: build a real homepage later and every
+   * visitor who hit the redirect even once is *still* bounced to `/domain`, forever, and **it
+   * cannot be fixed from the server side.**
+   *
+   * ── WHY NOT JUST SWITCH TO 307 ────────────────────────────────────────────
+   * That was the obvious fix and it is worse. The delay a visitor notices on `atno.io` is caused
+   * by **having a redirect at all** — a full round trip before anything renders. The 308 cache is
+   * precisely why *repeat* visits feel instant. Switching to 307 would remove that cache and make
+   * the delay happen on **every** visit, trading a future trap for a permanent tax.
+   *
+   *                        first visit          repeat visit
+   *     308 (before)       round trip           instant — browser remembers
+   *     307                round trip           round trip, every time
+   *     rewrite (this)     no redirect at all   no redirect at all
+   *
+   * A rewrite serves other content at the same URL: the address bar and the indexed URL both stay
+   * `/`, unlike a redirect which changes them. No round trip, no cached 308, and a real homepage
+   * later is one deleted line rather than an unfixable cache.
+   *
+   * ⚠️ ANYONE WHO ALREADY VISITED `atno.io` STILL HAS THE OLD 308 CACHED and will keep being sent
+   * to `/domain` until their browser cache clears. That is the trap, already sprung — new
+   * visitors get the fast path immediately, existing ones eventually. Nothing here can hurry it.
+   *
+   * ── ONE OPEN QUESTION THIS CREATES ────────────────────────────────────────
+   * ⚠️ `src/app/domain/page.tsx` sets `canonical: '/domain'`, so `/` now serves content while
+   * pointing search engines at `/domain`. That is unchanged behaviour and not a regression — but
+   * "which URL is canonical" is a live decision now that both serve. Making `/` canonical would
+   * also mean deciding what `/domain` becomes. Deliberately NOT folded into this change.
+   *
+   * ⚠️ Middleware still runs on `/`: it executes before `afterFiles` rewrites, and the matcher
+   * excludes only `api/auth`, `_next` and static files. Geo detection is unaffected.
+   */
+  async rewrites() {
+    return [{ source: '/', destination: '/domain' }];
+  },
+
+  /**
    * Cache headers for the domain/page icons in `public/icons/`.
    * ==========================================================================
    *
