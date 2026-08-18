@@ -36,7 +36,25 @@ export default function AppSidebar() {
   const { sidebarMode } = usePageSidebarDataFromContext();
 
   return (
-    <Sidebar side="left" collapsible="offcanvas" variant="floating">
+    /*
+      ⚠️ `top-16` AND A REDUCED HEIGHT — WITHOUT THESE THE SIDEBAR SLIDES UNDER THE HEADER.
+
+      shadcn's `Sidebar` renders its container as `fixed inset-y-0 h-svh`, i.e. pinned to the top
+      of the VIEWPORT. The site header (M-2) is `sticky top-0 z-50`, so it paints over the
+      sidebar's first 64px — the domain at the top of the list became unreachable.
+
+      `className` lands on that fixed container, so this is fixed from the caller. ⚠️ Deliberately
+      NOT by editing `components/ui/sidebar.tsx`, which is vendored and must stay upstream.
+
+      ⚠️ 4rem is the header's `h-16`. The two are coupled and there is no shared token for it —
+      if the header height changes, this and the breadcrumb's `top-16` change with it.
+    */
+    <Sidebar
+      side="left"
+      collapsible="offcanvas"
+      variant="floating"
+      className="top-16 h-[calc(100svh-4rem)]"
+    >
       {/* Content - Conditionally render based on sidebar mode */}
       {sidebarMode === 'domain' ? (
         <SidebarContent>

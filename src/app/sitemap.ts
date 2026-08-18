@@ -141,9 +141,27 @@ function pageLastModified(page: PageNode): Date {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  // The domain index is the site's real landing page (`/` 308-redirects to it),
-  // so it is listed first and is the one entry that never depends on the database.
-  const entries: MetadataRoute.Sitemap = [{ url: `${SITE_URL}/domain` }]
+  /*
+    The domain index is the site's real landing page — since M-1 it is served at `/` by a rewrite
+    rather than reached by a 308 — so it is listed first and is the one entry that never depends
+    on the database.
+
+    ⚠️ `/` ITSELF IS DELIBERATELY NOT LISTED. Both URLs serve the same document and
+    `domain/page.tsx` canonicals to `/domain`, so listing both would offer Google two URLs for one
+    page and contradict the canonical.
+
+    ⚠️ THE STATIC PAGES MUST BE ADDED HERE BY HAND (M-3). Everything below this line is generated
+    from the database, so a hand-written route is invisible to the sitemap unless it is named — a
+    page that exists, renders and is linked from the header, but that no crawler is told about.
+    Add to this list whenever a route is added under `src/app/(site)/`.
+  */
+  const entries: MetadataRoute.Sitemap = [
+    { url: `${SITE_URL}/domain` },
+    { url: `${SITE_URL}/about` },
+    { url: `${SITE_URL}/contact` },
+    { url: `${SITE_URL}/privacy` },
+    { url: `${SITE_URL}/terms` },
+  ]
 
   try {
     const domains = await prisma.domain.findMany({
