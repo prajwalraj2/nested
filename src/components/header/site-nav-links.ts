@@ -53,6 +53,18 @@ export type SiteLink = {
   soon?: boolean;
   /** Opens in a new tab with `rel="noopener noreferrer"`. */
   external?: boolean;
+  /**
+   * ⚠️ APPEND `?from=<current path>` WHEN RENDERING THIS LINK.
+   *
+   * The feedback form needs to know which page the visitor was looking at, and it CANNOT work
+   * that out for itself. `document.referrer` is set when a DOCUMENT loads; a Next `<Link>` is a
+   * client-side transition that never reloads the document, so the referrer stays empty on a
+   * direct visit and stale on any other. Every report arrived with `pageUrl: NULL`.
+   *
+   * The only reliable source is the header, which knows the path it is being rendered on. So the
+   * link carries it.
+   */
+  appendFrom?: boolean;
 };
 
 /**
@@ -77,7 +89,7 @@ export const COMPANY_LEGAL: SiteLink[] = [
 export const RESOURCE_LINKS: SiteLink[] = [
   { label: 'Blog', href: '/blogs', icon: Feather, hint: 'Guides and writing' },
   { label: 'Changelog', href: '/changelog', icon: SquareStack, hint: 'What we are building' },
-  { label: 'Feedback', href: '/feedback', icon: MessageSquare, hint: 'Report a bug or suggest a feature' },
+  { label: 'Feedback', href: '/feedback', icon: MessageSquare, hint: 'Report a bug or suggest a feature', appendFrom: true },
   /*
     ⚠️ A hosted uptime service on its own subdomain, not a page on this site. Marked `soon`
     until the URL exists — see the note on the field.
@@ -96,4 +108,8 @@ export const RESOURCE_LINKS: SiteLink[] = [
  * The honest alternative was to add each link as its page shipped. It was rejected because a
  * header with one working menu is not worth deploying.
  */
-export const PENDING_ROUTES = ['/careers', '/blogs', '/changelog', '/feedback', '/submit'] as const;
+/*
+  ⚠️ `/feedback` LEFT THIS LIST WHEN M-5 SHIPPED. The list is the honest record of which menu
+  items still 404, so removing an entry is part of finishing a step — not a tidy-up. Four to go.
+*/
+export const PENDING_ROUTES = ['/careers', '/blogs', '/changelog', '/submit'] as const;

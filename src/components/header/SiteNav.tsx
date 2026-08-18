@@ -419,6 +419,30 @@ export function SiteNav({ groups, totalDomains }: Props) {
 }
 
 /**
+ * Resolve a link's `href`, adding `?from=` when the destination asked for it.
+ *
+ * ⚠️ THIS IS WHY EVERY FEEDBACK ROW ARRIVED WITH `pageUrl: NULL`. The form tried to read
+ * `document.referrer`, which is set when a DOCUMENT loads — but a Next `<Link>` is a client-side
+ * transition that never reloads the document, so the referrer stayed empty. The header is the only
+ * place that reliably knows which page the visitor was on, so the link carries it.
+ *
+ * ⚠️ USED BY BOTH THE DESKTOP MENU AND THE MOBILE SHEET. Feedback opened from the hamburger
+ * has to carry the page just as much as feedback opened from the mega-menu, and two copies of this
+ * line is exactly how one of them ends up without it.
+ *
+ * ⚠️ `encodeURIComponent`, because a path can contain characters that would end the query
+ * value early — an `&` in a slug would truncate it silently.
+ *
+ * Already on the destination? Then there is no useful "from" to record: `?from=/feedback` would
+ * only say the visitor came from the feedback page.
+ */
+function resolveHref(link: SiteLink, pathname: string): string {
+  if (!link.appendFrom) return link.href;
+  if (pathname === link.href) return link.href;
+  return `${link.href}?from=${encodeURIComponent(pathname)}`;
+}
+
+/**
  * A labelled column of dub.co-style link tiles.
  *
  * ⚠️ Shared by Company and Resources so the two menus cannot drift apart visually. The previous
@@ -453,6 +477,7 @@ function MenuColumn({
 /** One entry in a dropdown - a link, or dimmed text when the destination does not exist yet. */
 function MenuLink({ link }: { link: SiteLink }) {
   const Icon = link.icon;
+  const pathname = usePathname();
 
   /*
     ⚠️ THE INNER MARKUP IS BUILT ONCE AND REUSED BY BOTH BRANCHES BELOW. A `soon` entry and a real
@@ -502,7 +527,7 @@ function MenuLink({ link }: { link: SiteLink }) {
     */
     <NavigationMenuLink asChild className="hover:bg-accent flex-row items-center gap-3 rounded-md p-2">
       <Link
-        href={link.href}
+        href={resolveHref(link, pathname)}
         {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
       >
         {body}
@@ -521,6 +546,8 @@ function MobileSection({ title, children }: { title: string; children: React.Rea
 }
 
 function MobileLink({ link, onNavigate }: { link: SiteLink; onNavigate: () => void }) {
+  const pathname = usePathname();
+
   if (link.soon) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 px-2 py-1.5 text-sm">
@@ -531,7 +558,7 @@ function MobileLink({ link, onNavigate }: { link: SiteLink; onNavigate: () => vo
   }
   return (
     <Link
-      href={link.href}
+      href={resolveHref(link, pathname)}
       onClick={onNavigate}
       {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
       className="hover:bg-accent block rounded-md px-2 py-1.5 text-sm"

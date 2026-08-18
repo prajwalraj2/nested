@@ -161,6 +161,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/contact` },
     { url: `${SITE_URL}/privacy` },
     { url: `${SITE_URL}/terms` },
+    /*
+      ⚠️ INCLUDED EVEN THOUGH IT IS A FORM. A feedback page is a real destination someone may
+      search for ("atno report broken link"), and it carries no query parameters or duplicate
+      variants — the two things that make a page a poor sitemap entry. Its `force-dynamic` render
+      is about the signed token, not about the content, which is identical for every visitor.
+    */
+    { url: `${SITE_URL}/feedback` },
   ]
 
   try {

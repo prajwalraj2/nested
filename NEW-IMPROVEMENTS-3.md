@@ -456,6 +456,7 @@ model RateLimit {
 | **M-7** | Changelog board + admin | ✅ |
 | **M-8** | Careers — jobs, applications, R2 private storage | ✅ |
 | **M-9** | Blogs | ✅ the largest |
+| **M-10** | Dependency bump — `next` patch, plus the auth criticals | ✅ ⚡ deferred by choice, see below |
 
 ⚠️ **The order is by dependency and by risk, not by size.** M-4 comes before any form so the
 security work is done once. M-5 is the simplest form, so it proves that foundation before M-6 and
@@ -698,6 +699,44 @@ pipelines is how they drift.
 it passes; ⚠️ `curl` a post and grep for a sentence from the body — **it is in the HTML**; the cover
 renders at a sensible size in a social preview; the slug is unique; posts appear in the sitemap
 with honest dates; dark mode; the guide's colour rule holds.
+
+---
+
+### M-10 — Dependency bump
+
+⚠️ **Deferred deliberately on 18 Aug 2026, not overlooked.** It was offered ahead of M-4 and the
+decision was to finish the feature work first. Recording it here so it cannot quietly become
+"nobody remembered".
+
+**Measured on 18 Aug 2026** with `npm audit` — not copied from an older note:
+
+| | |
+| --- | --- |
+| Totals | **20 vulnerabilities — 4 critical, 14 high, 1 moderate, 1 low** |
+| `next` | 15.5.9 → **15.5.23**. ⚠️ **Patch-level, `isSemVerMajor: false`** — the cheapest item here |
+| `next-auth` | **critical**, fix available |
+| `@auth/core`, `@auth/prisma-adapter` | **critical**, fix available |
+| `tar` | **critical**, fix available |
+| `sharp` | high — resolves via the same `next` bump |
+| `prisma` | high, but npm proposes a **downgrade** to 6.12.0 flagged semver-major. ⚠️ Handle separately; do not let `npm audit fix --force` touch it |
+
+**Why the auth ones matter most on this project:** one `@auth/core` advisory is *"OAuth state, nonce
+and PKCE check cookies are not bound to the request"*. This app puts its entire admin behind that
+library, so it is the one dependency whose failure mode is "someone else gets in", not "the site
+gets slower".
+
+⚠️ **`npm audit` lists every advisory filed against a package — it does not prove each one applies
+to how this app uses it.** Many of the `next` entries are self-hosting or custom-server scenarios
+that Vercel's platform already handles. **That is an argument for taking the patch bump, not for
+studying the list**: the upgrade costs less than the investigation.
+
+⚠️ **Do NOT run `npm audit fix --force`.** It will take the `prisma` downgrade and any other
+semver-major it fancies. Bump the named packages explicitly.
+
+**Test:** `npm run build` passes; `npm audit` totals drop; ⚠️ **log in and out of the admin** —
+`next-auth` is a beta pinned at `5.0.0-beta.29` and is the single most likely thing to break;
+a public page, a table page and an image upload all still render; `middleware.ts` geo-detection
+still sets `user-country`.
 
 ---
 

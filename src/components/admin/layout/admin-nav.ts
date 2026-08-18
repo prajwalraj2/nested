@@ -10,6 +10,9 @@ import {
   // ⚠️ Also used for `roadmap` in PageTree's CONTENT_TYPE_ICONS and SectionEditor's
   // PageTypeIcon — one content type, one glyph, wherever it appears in the admin.
   Route,
+  // ⚠️ The same glyph the public header uses for the Feedback link, so the two screens that
+  // concern the same queue are recognisably about the same thing.
+  MessageSquare,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -144,6 +147,18 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         label: 'Images',
         icon: ImageIcon,
         description: 'Pictures used beside table rows',
+      },
+      {
+        /*
+          ⚠️ System, not Content — and the distinction is the same one Images turns on. Everything
+          under Content is something WE author. Feedback is a queue of things OTHER PEOPLE sent us:
+          it is worked through and cleared, not written. Filing it beside Rich Text would imply it
+          is a kind of page.
+        */
+        href: '/admin/feedback',
+        label: 'Feedback',
+        icon: MessageSquare,
+        description: 'Bug reports and suggestions from visitors',
       },
       {
         href: '/admin/users',
