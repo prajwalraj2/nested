@@ -61,10 +61,23 @@ export function SiteNav({ groups, totalDomains }: Props) {
         logo or the action group changed width. `1fr auto 1fr` gives the middle column the true
         centre regardless of what flanks it.
 
-        ⚠️ `px-6 lg:px-10` — the actions used to sit hard against the viewport edge. The extra
-        padding at large sizes is what pulls Submit inboard.
+        ⚠️ THE EDGE INSET IS BUILT FROM THREE STEPS, AND THE SMALL ONE IS DELIBERATELY TIGHT.
+
+            < md    px-4                                              16px
+            md      px-6  + the logo's ml-6/pl-4 and its mirror       64px
+            lg      px-10 + the logo's ml-10/pl-4 and its mirror      96px
+
+        Below `md` the nav collapses to a wordmark and a hamburger, and generous side padding
+        there just wastes the little width a phone has — so the two controls sit near their
+        corners. The roomy inset is a wide-screen affordance only.
+
+        ⚠️ THE EXTRA INSET LIVES ON THE LOGO AND THE ACTION GROUP, NOT HERE. Container padding
+        applies to both edges at once, which is the wrong tool when only some breakpoints want
+        it — and it would have re-opened the "Submit sits too far right" complaint the moment
+        the left side was tuned. Keeping the two offsets separate but numerically equal is what
+        makes them read as the same distance from their own edge.
       */}
-      <div className="mx-auto grid h-16 max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 lg:px-10">
+      <div className="mx-auto grid h-16 max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 md:px-6 lg:px-10">
         {/*
           ⚠️ TWO IMAGE FILES, SWAPPED BY CSS — NOT ONE FILE, AND NOT A JS THEME CHECK.
 
@@ -92,7 +105,23 @@ export function SiteNav({ groups, totalDomains }: Props) {
 
           `priority` because this is above the fold on every page; without it the logo pops in.
         */}
-        <Link href="/" className="col-start-1 justify-self-start" aria-label="ATNO home">
+        {/*
+          ⚠️ EVERY OFFSET IS `md:`-PREFIXED — BELOW THAT THE LOGO SITS AT THE CORNER.
+
+          It has an EXACT MIRROR on the action group at the other end (`md:mr-6 md:pr-4
+          lg:mr-10`). The two must be changed together or the header stops looking centred: the
+          eye reads the gap from each edge, not the grid columns, so an asymmetry of even a few
+          pixels shows up as the whole bar leaning.
+
+          ⚠️ `ml` AND `pl` DO DIFFERENT JOBS HERE, which is why both are present rather than one
+          combined value. `ml-6` moves the element; `pl-4` grows its clickable box leftward, so
+          the extra distance is not dead space — a near-miss on the logo still navigates home.
+        */}
+        <Link
+          href="/"
+          className="col-start-1 justify-self-start md:ml-6 md:pl-4 lg:ml-10"
+          aria-label="ATNO home"
+        >
           <Image
             src="/logo-light.png"
             alt="ATNO"
@@ -294,7 +323,15 @@ export function SiteNav({ groups, totalDomains }: Props) {
           Pinning all three items to explicit columns makes the layout independent of how many of
           them happen to be visible at any breakpoint.
         */}
-        <div className="col-start-3 flex items-center gap-2 justify-self-end">
+        {/*
+          ⚠️ `md:mr-6 md:pr-4 lg:mr-10` IS THE EXACT MIRROR OF THE LOGO'S `md:ml-6 md:pl-4
+          lg:ml-10`. Same numbers, opposite side, same breakpoints — so Submit stands off the
+          right edge by precisely what the wordmark stands off the left. Change one and the
+          other has to follow, or the bar looks like it is sliding sideways.
+
+          Below `md` both drop away and the hamburger returns to the corner, matching the logo.
+        */}
+        <div className="col-start-3 flex items-center gap-2 justify-self-end md:mr-6 md:pr-4 lg:mr-10">
           <Button asChild size="sm" className="hidden sm:inline-flex">
             <Link href="/submit">
               Submit
