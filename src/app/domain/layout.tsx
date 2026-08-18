@@ -7,6 +7,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { ShareButton } from "@/components/domain/ShareButton";
 import { PageContextProvider } from "@/contexts/PageContextProvider";
 import { ClarityAnalytics } from "@/components/analytics/ClarityAnalytics";
+import { SiteHeader } from "@/components/header/SiteHeader";
 
 export default function DomainLayout({ children }: { children: ReactNode }) {
   return (
@@ -46,6 +47,26 @@ export default function DomainLayout({ children }: { children: ReactNode }) {
       {process.env.VERCEL_ENV === 'production' && <ClarityAnalytics />}
 
       <div className="flex flex-col min-h-screen">
+        {/*
+          The site header (M-2).
+
+          ⚠️ IT SITS HERE, ABOVE THE SIDEBAR, RATHER THAN INSIDE `SidebarProvider`. This wrapper
+          was already `flex flex-col` with the sidebar area as `flex-1`, so there was a slot for
+          it — no restructuring, and the sidebar keeps the full remaining height.
+
+          ⚠️ WHY THE DOMAIN TREE GETS A HEADER AT ALL, when it already has a sidebar and a
+          breadcrumb: since M-1, `/` serves this section, so the domain listing IS the homepage —
+          and a homepage with no way to reach About, the blog or the changelog would be odd. The
+          three layers do different jobs: the header is site-wide navigation, the sidebar is
+          within-domain, the breadcrumb is where-am-I. That is the standard documentation-site
+          arrangement, not an accident.
+
+          ⚠️ A server component inside a client-provider tree is fine — `PageContextProvider`
+          receives it as `children`, already rendered. It does NOT become a client component by
+          being nested here, which is what keeps its ~25 domain links in the HTML.
+        */}
+        <SiteHeader />
+
         {/* Main content area with sidebar */}
         <div className="flex-1">
           <SidebarProvider>
@@ -101,7 +122,31 @@ export default function DomainLayout({ children }: { children: ReactNode }) {
             */}
             <main className="flex-1 min-w-0">
               {/* Breadcrumb bar */}
-              <div className="flex items-center gap-2 p-4 m-4 border rounded-lg bg-background z-10 sticky top-0">
+              {/*
+                  ⚠️ `top-16`, NOT `top-0` — the site header (M-2) occupies the first 64px, so a
+                  bar sticking to `top-0` slides UNDERNEATH it on scroll and reads as a faded
+                  half-visible strip rather than a broken layout, which is why it is easy to miss.
+
+                  ⚠️ `z-20`, AND THE EXACT VALUE MATTERS IN BOTH DIRECTIONS.
+
+                  BELOW the header's `z-50` — raising it past that would put the breadcrumb over
+                  the header, which is the same bug pointing the other way.
+
+                  ABOVE `z-10`, because `z-10` was a TIE and a tie is decided by DOM order. The
+                  sticky table header in `DataTable.tsx:602` is also `z-10`, it lives inside
+                  `{children}` so it comes LATER in the document, and later wins — which is why the
+                  table header painted ON TOP of this bar while everything else slid politely
+                  underneath. Nothing was "in front" by design; the two simply drew at the same
+                  level and the table happened to be second.
+
+                  ⚠️ That also explains the half-symptom that made it confusing: the table's own
+                  search and filter row has no `z-index` at all, so it stays at level 0 and goes
+                  behind this bar correctly. Only the one element that shared `z-10` misbehaved.
+
+                  ⚠️ CONSEQUENCE FOR NEW CODE: page content must stay at `z-10` or below. The
+                  chrome (header 50, this bar 20) outranks it deliberately.
+                */}
+                <div className="flex items-center gap-2 p-4 m-4 border rounded-lg bg-background z-20 sticky top-16">
                 {/*
                   `text-gray-500 hover:text-gray-700` was hardcoded here: fixed greys that
                   ignore the theme entirely, so on a dark background the trigger became a
