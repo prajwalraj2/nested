@@ -633,3 +633,59 @@ model TableImage {
   /// Ordered newest-first in the admin; indexed because that listing is the common read.
   @@index([createdAt])
 }
+
+/// Per-source request counters for public forms (M-4).
+///
+/// ⚠️ IN POSTGRES, NOT IN MEMORY. Each serverless instance has its own memory, so a JS `Map`
+/// resets on every cold start and is not shared between concurrent instances — an attacker
+/// spreading requests across connections would never trip it. Identical reasoning to
+/// `User.failedLoginAttempts`, and the same conclusion: Postgres is the one piece of state
+/// every instance shares.
+model RateLimit {
+  /// ⚠️ An HMAC of the action plus the source, NOT a plain hash and NEVER the raw IP.
+  ///
+  /// The plan originally said `sha256("feedback:" + ip)`. That is not anonymisation: there are
+  /// only ~4 billion IPv4 addresses, so the entire hash space can be enumerated on a laptop and
+  /// reversed. Keying the digest with a secret (see `sourceKey` in `lib/public-forms.ts`) is
+  /// what makes it a pseudonym rather than a reversible encoding of personal data.
+  key String @id
+
+  /// ⚠️ A FIXED WINDOW, NOT A SLIDING ONE — the plan says "sliding", but two columns cannot
+  /// express that. A true sliding window needs a timestamp per request, which costs a row per
+  /// request forever. The cost of the simpler model is boundary burst: 10 requests at 09:59 and
+  /// 10 more at 10:01 pass a "10 per 10 minutes" limit. Acceptable for spam control, and written
+  /// down here so nobody later reads "sliding" in the plan and assumes this delivers it.
+  count       Int
+  windowStart DateTime
+
+  /// Supports the opportunistic prune of expired rows. Without it the table grows forever, since
+  /// nothing else ever deletes from it.
+  @@index([windowStart])
+}
+
+/// A bug report or suggestion from a visitor (M-5).
+///
+/// ⚠️ EVERY FIELD HERE IS ATTACKER-CONTROLLED. This is the first model on the site whose rows are
+/// written by strangers rather than by the single trusted admin that #35 assumed. It must render
+/// as TEXT in the admin, never as HTML — see NEW-IMPROVEMENTS-3.md §36.4 rule 1, and the lint rule
+/// in `eslint.config.mjs` that enforces it.
+model Feedback {
+  id String @id @default(uuid())
+
+  /// "ui-bug" | "feature-request" | "content-issue" | "other"
+  category String
+  message  String @db.Text
+
+  /// ⚠️ Optional. Requiring an email to report a broken button loses most bug reports.
+  email String?
+  name  String?
+
+  /// ⚠️ CAPTURED AUTOMATICALLY, NOT TYPED. A UI bug report without knowing which page it was on
+  /// is close to useless, and nobody types their own URL accurately.
+  pageUrl String?
+
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+}
