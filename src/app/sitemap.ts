@@ -168,6 +168,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       is about the signed token, not about the content, which is identical for every visitor.
     */
     { url: `${SITE_URL}/feedback` },
+    { url: `${SITE_URL}/submit` },
   ]
 
   try {

@@ -51,6 +51,21 @@ export function SiteNav({ groups, totalDomains }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
 
+  /*
+    ⚠️ `?from=` ONLY FROM A DOMAIN PAGE, NOT FROM EVERYWHERE.
+
+    `/submit` uses this to PRE-SELECT the domain in its dropdown, and it resolves the slug out of
+    the path. `?from=/about` carries nothing it can use, so appending it there would be a query
+    string that exists only to be ignored — visible in the address bar, mirrored into analytics,
+    and doing nothing.
+
+    Kept inline rather than routed through `resolveHref`: that helper serves the fixed link lists
+    in `site-nav-links.ts`, and this button is not one of them.
+  */
+  const submitHref = pathname.startsWith('/domain/')
+    ? `/submit?from=${encodeURIComponent(pathname)}`
+    : '/submit';
+
   return (
     <header className="border-border bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-50 w-full border-b backdrop-blur">
       {/*
@@ -333,7 +348,7 @@ export function SiteNav({ groups, totalDomains }: Props) {
         */}
         <div className="col-start-3 flex items-center gap-2 justify-self-end md:mr-6 md:pr-4 lg:mr-10">
           <Button asChild size="sm" className="hidden sm:inline-flex">
-            <Link href="/submit">
+            <Link href={submitHref}>
               Submit
               <Plus className="size-4" aria-hidden="true" />
             </Link>
@@ -395,7 +410,7 @@ export function SiteNav({ groups, totalDomains }: Props) {
                 </MobileSection>
 
                 <Button asChild className="w-full">
-                  <Link href="/submit" onClick={() => setMobileOpen(false)}>
+                  <Link href={submitHref} onClick={() => setMobileOpen(false)}>
                     Submit a tool
                     <Plus className="size-4" aria-hidden="true" />
                   </Link>

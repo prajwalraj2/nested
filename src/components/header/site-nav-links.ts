@@ -109,7 +109,9 @@ export const RESOURCE_LINKS: SiteLink[] = [
  * header with one working menu is not worth deploying.
  */
 /*
-  ⚠️ `/feedback` LEFT THIS LIST WHEN M-5 SHIPPED. The list is the honest record of which menu
-  items still 404, so removing an entry is part of finishing a step — not a tidy-up. Four to go.
+  ⚠️ ENTRIES LEAVE THIS LIST AS THEIR STEP SHIPS — `/feedback` with M-5, `/submit` with M-6.
+  The list is the honest record of which menu items still 404, so removing an entry is part of
+  finishing a step, not a tidy-up. Three to go: M-7 clears `/changelog`, M-8 `/careers`,
+  M-9 `/blogs`.
 */
-export const PENDING_ROUTES = ['/careers', '/blogs', '/changelog', '/submit'] as const;
+export const PENDING_ROUTES = ['/careers', '/blogs', '/changelog'] as const;

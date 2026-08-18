@@ -689,3 +689,62 @@ model Feedback {
 
   @@index([status, createdAt])
 }
+
+/// Someone proposing a tool, or requesting a new domain (M-6).
+///
+/// ⚠️ ATTACKER-CONTROLLED, like `Feedback`. It renders as TEXT in the admin, never as HTML —
+/// see NEW-IMPROVEMENTS-3.md §36.4 rule 1 and the lint rule in `eslint.config.mjs`.
+model Submission {
+  id String @id @default(uuid())
+
+  /// "tool" | "domain-request"
+  kind String
+
+  /*
+    Where the submitter thinks it belongs. All four optional — the form explicitly offers
+    "not sure" as a real answer, and a domain REQUEST has no existing domain by definition.
+
+    ⚠️ PLAIN STRINGS, NOT FOREIGN KEYS, AND THE NAME IS STORED ALONGSIDE THE ID.
+
+    A submission is a HISTORICAL RECORD. With an FK, deleting a domain would either cascade the
+    submission away or block the delete — both wrong. And an id alone becomes meaningless the day
+    its row disappears, so the label is snapshotted at submission time and the record stays
+    readable forever.
+
+    ⚠️ `pageId` / `pageName` ARE DELIBERATELY UNWRITTEN FOR NOW. The agreed plan had a
+    domain → page cascade; the scope was cut to the domain alone on 19 Aug 2026. The columns are
+    kept because they are nullable and free, and because adding the page step later then needs no
+    migration. If you are wondering why they are always NULL — that is why, not a bug.
+  */
+  domainId   String?
+  domainName String?
+  pageId     String?
+  pageName   String?
+
+  productName String
+
+  /// ⚠️ OPTIONAL, WHICH DEVIATES FROM THE PLAN'S SCHEMA — agreed 19 Aug 2026. A domain REQUEST
+  /// ("please add Photography") has no product URL, so requiring one would mean either a blocked
+  /// submission or a fabricated value. Validation makes it conditional instead: required when
+  /// `kind` is "tool", optional otherwise. See the discriminated union in `api/submit/route.ts`.
+  ///
+  /// ⚠️ WHATEVER IS STORED HERE IS ONLY EVER `http:` OR `https:` — the POST route rejects every
+  /// other scheme. That is what makes it safe for the admin to render as a link at all; a stored
+  /// `javascript:` URL would be one click from running in a logged-in admin session.
+  productUrl  String?
+  description String  @db.Text
+
+  /// ⚠️ REQUIRED here, unlike `Feedback` where both are optional. You cannot act on a tool
+  /// suggestion without being able to ask a follow-up question.
+  submitterName  String
+  submitterEmail String
+
+  /// "new" | "reviewed" | "accepted" | "rejected"
+  status    String  @default("new")
+  adminNote String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+}
