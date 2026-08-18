@@ -33,8 +33,14 @@ export const dynamic = 'force-dynamic';
  * Static metadata — this is a single, fixed page, so there's nothing to compute
  * per-request and no need for `generateMetadata`.
  *
- * This is the site's real landing page: `/` issues a 308 redirect here, so this is
- * the URL Google indexes and the one inbound links to `atno.io` consolidate onto.
+ * This is the site's real landing page, and since M-1 it is served at BOTH `/` and `/domain` —
+ * `next.config.ts` rewrites the root here, so `atno.io` renders this component with no redirect
+ * and no round trip. (It used to be a 308; the full reasoning for the change is beside the
+ * rewrite rule.)
+ *
+ * ⚠️ The canonical below is still `/domain`, so that remains the URL Google indexes and the one
+ * inbound links to `atno.io` consolidate onto. Unchanged behaviour — but now that both URLs
+ * serve, "which one should be canonical" is a live question rather than a settled one.
  */
 const DESCRIPTION =
   'Browse every domain on ATNO — curated tools, resources and channels across design, development, AI, ecommerce and more.';
@@ -53,9 +59,9 @@ export const metadata: Metadata = {
   /**
    * ⚠️ `absolute` — this bypasses the `%s · ATNO` template in src/app/layout.tsx.
    *
-   * WHY THIS PAGE IS SPECIAL: `/` issues a 308 permanent redirect here, and every
-   * search crawler and link-preview bot follows redirects. So `/domain` is the
-   * de-facto homepage — the URL people type, link to, and paste into chat.
+   * WHY THIS PAGE IS SPECIAL: `atno.io` serves this component directly (M-1's rewrite), and
+   * this page's own canonical points at `/domain`. Either way it is the de-facto homepage — the
+   * URL people type, link to, and paste into chat.
    *
    * Through the template it would render as `Domains · ATNO`, which describes the
    * page mechanically and says nothing about what ATNO is. For the site's single
