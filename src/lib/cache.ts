@@ -51,6 +51,13 @@ export const CACHE_TAGS = {
   TABLES: 'tables',
   TABLE: (id: string) => `table:${id}`,
   
+  // Changelog (M-7)
+  //
+  // ⚠️ ONE FLAT TAG, NO PER-ENTRY VARIANT — unlike DOMAIN/PAGE/TABLE above. The public board
+  // is a SINGLE query returning every card, so there is exactly one cached value and any write
+  // invalidates all of it. A `CHANGELOG_ENTRY(id)` tag would be a tag nothing is ever keyed by.
+  CHANGELOG: 'changelog',
+
   // Country-specific
   COUNTRY: (code: string) => `country:${code}`,
 } as const;

@@ -169,6 +169,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     */
     { url: `${SITE_URL}/feedback` },
     { url: `${SITE_URL}/submit` },
+    { url: `${SITE_URL}/changelog` },
   ]
 
   try {
