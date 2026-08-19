@@ -15,6 +15,8 @@ import {
   // ⚠️ Matches the public header's Submit button, so the screen that reviews
   // submissions is recognisably about the same thing as the one that creates them.
   Inbox,
+  // ⚠️ Roles and the people who applied to them.
+  Briefcase,
   // ⚠️ The same glyph the public header uses for the Feedback link, so the two screens that
   // concern the same queue are recognisably about the same thing.
   MessageSquare,
@@ -165,6 +167,17 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         label: 'Images',
         icon: ImageIcon,
         description: 'Pictures used beside table rows',
+      },
+      {
+        /*
+          ⚠️ Beside Submissions and Feedback for the same reason: a queue of things other people
+          sent us. ⚠️ It is also the only admin screen holding a document a stranger uploaded, which
+          is why `components/admin/careers/` is in the `dangerouslySetInnerHTML` ban.
+        */
+        href: '/admin/careers',
+        label: 'Careers',
+        icon: Briefcase,
+        description: 'Open roles and job applications',
       },
       {
         /*

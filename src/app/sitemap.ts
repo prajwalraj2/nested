@@ -170,6 +170,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/feedback` },
     { url: `${SITE_URL}/submit` },
     { url: `${SITE_URL}/changelog` },
+    /*
+      ⚠️ THE LISTING ONLY. Individual roles at `/careers/[id]` are deliberately absent: they are
+      short-lived, they 404 the moment a role closes, and a sitemap full of dead URLs is worse for
+      a site than one that is merely incomplete.
+    */
+    { url: `${SITE_URL}/careers` },
   ]
 
   try {

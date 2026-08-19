@@ -784,3 +784,62 @@ model ChangelogEntry {
 
   @@index([status, order])
 }
+
+/// An open role (M-8).
+model Job {
+  id String @id @default(uuid())
+
+  title       String
+  description String @db.Text
+  location    String
+  category    String
+
+  /// "open" | "closed".
+  ///
+  /// ⚠️ CLOSING A JOB MUST NOT DELETE IT. Its applications are records of real people who applied,
+  /// and they have to remain readable after the role is filled. A closed job disappears from
+  /// `/careers` and stops accepting applications; it does not disappear from the admin.
+  status String @default("open")
+
+  applications JobApplication[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+}
+
+/// Someone applying (M-8).
+model JobApplication {
+  id String @id @default(uuid())
+
+  jobId String
+  /// ⚠️ `Cascade` IS IN THE AGREED SCHEMA BUT MUST NEVER ACTUALLY FIRE, and that is not a
+  /// contradiction — it is a backstop with a guard in front of it.
+  ///
+  /// A cascade happens INSIDE POSTGRES, so no application code runs: the rows vanish and their
+  /// CVs stay in R2 forever, unreferenced and undeletable through the admin. `DELETE
+  /// /api/admin/jobs/[id]` therefore REFUSES to delete a job that has applications, the same
+  /// guard `CategoryList` uses for a category that still has domains. The cascade remains only so
+  /// that a row can never be left pointing at a job that is gone.
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  name  String
+  email String
+
+  /// ⚠️ A KEY, NOT A URL — AND THE NAMING IS THE POINT.
+  ///
+  /// The object lives in a PRIVATE R2 bucket and has no public address at all. Calling this
+  /// `resumeUrl` would invite someone to render it in an `href`, which is exactly the mistake the
+  /// private bucket exists to prevent. It is readable only through
+  /// `GET /api/admin/applications/[id]/resume`, behind `requireAdmin()`.
+  resumeKey   String
+  resumeBytes Int
+
+  /// "new" | "reviewed" | "shortlisted" | "rejected"
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+
+  @@index([jobId, createdAt])
+  @@index([status, createdAt])
+}

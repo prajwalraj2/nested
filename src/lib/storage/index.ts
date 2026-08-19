@@ -94,3 +94,43 @@ export async function getStorage(): Promise<StorageAdapter> {
   const { vercelBlobAdapter } = await import('./vercel-blob');
   return vercelBlobAdapter;
 }
+
+// ============================================================================
+// Private storage (M-8)
+// ============================================================================
+
+/**
+ * Private object storage — three methods, and deliberately no URL anywhere.
+ *
+ * ⚠️ SEPARATE FROM `StorageAdapter` ON PURPOSE. See the long note at the top of `private-r2.ts`:
+ * the agreed plan put these on the adapter with Vercel Blob throwing, which cannot work while the
+ * public provider IS Blob. Private storage is its own infrastructure, not a mode of the public one.
+ *
+ * ⚠️ NO `getUrl`, NO SIGNING. Adding either would reintroduce exactly what the private bucket
+ * exists to prevent — a string that grants access to a CV to anyone who ends up holding it.
+ */
+export type PrivateStorage = {
+  /** Store `body` under `objectKey`. Returns the key, never a URL. */
+  putPrivate(objectKey: string, body: Buffer, contentType: string): Promise<{ key: string }>;
+
+  /** Read an object back. Server-side only — the caller must have checked authorisation. */
+  getPrivate(objectKey: string): Promise<Buffer>;
+
+  /** Remove an object. Idempotent: deleting a key that is not there succeeds. */
+  deletePrivate(objectKey: string): Promise<void>;
+};
+
+/**
+ * The private storage backend.
+ *
+ * ⚠️ ALWAYS R2, AND `STORAGE_PROVIDER` IS NOT CONSULTED. That variable chooses where PUBLIC assets
+ * live and is currently unset (so, Vercel Blob). Private files have exactly one home, because Blob
+ * has no private mode at all — this is the one capability decision 36.3(d) went to R2 for.
+ *
+ * Dynamic import for the same reason `getStorage()` uses one: the S3 client and its credentials
+ * must not load for routes that never touch a private file.
+ */
+export async function getPrivateStorage(): Promise<PrivateStorage> {
+  const { privateR2Storage } = await import('./private-r2');
+  return privateR2Storage;
+}

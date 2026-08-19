@@ -91,10 +91,10 @@ const eslintConfig = [
      * `admin/roadmaps/RoadmapNodeForm.tsx` use `dangerouslySetInnerHTML` legitimately, on content
      * the trusted admin authored. The distinction is not the API, it is WHO WROTE THE STRING.
      *
-     * ⚠️ TWO OF THESE PATHS DO NOT EXIST YET — M-6 and M-8 create them. That is deliberate: the
-     * rule is in place BEFORE the code it governs, so the first version of those screens is
-     * written under it rather than retrofitted after a review catches it. An eslint `files`
-     * pattern that matches nothing is inert, not an error.
+     * ⚠️ ALL THREE PATHS NOW EXIST. Two of them did not when this rule was written in M-4 — that
+     * was deliberate, so the first version of each screen was authored UNDER the rule rather than
+     * retrofitted after a review caught something. An eslint `files` pattern that matches nothing
+     * is inert, not an error, which is what made writing it early free.
      *
      * ⚠️ THE PRISMA SELECTOR IS REPEATED HERE ON PURPOSE. Flat config REPLACES a rule's options
      * rather than merging them, so a block that sets `no-restricted-syntax` for these files would
