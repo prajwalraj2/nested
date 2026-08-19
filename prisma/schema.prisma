@@ -748,3 +748,39 @@ model Submission {
 
   @@index([status, createdAt])
 }
+
+/// One card on the public product board (M-7).
+///
+/// ⚠️ WRITTEN BY THE ADMIN, NOT BY VISITORS — the opposite of `Feedback` and `Submission`. That is
+/// why `components/admin/changelog/` is deliberately absent from the `dangerouslySetInnerHTML` ban
+/// in `eslint.config.mjs`: that rule exists because strangers write those rows, and applying it
+/// here would be copying the rule past the reason for it.
+model ChangelogEntry {
+  id String @id @default(uuid())
+
+  title       String
+  description String @db.Text
+
+  /// "bug" | "ui-enhancement" | "new-feature" | "new-column" | "new-data"
+  /// Shown as a badge on the card and drives the public filter.
+  type String
+
+  /// "not-started" | "in-progress" | "done" | "released"
+  ///
+  /// ⚠️ FOUR INDEPENDENT COLUMNS. "done" and "released" carry NO defined relationship beyond being
+  /// different — the user was explicit. Do not invent one in the UI: no arrows between columns, no
+  /// progress indicator, no ordering that implies one leads to the other.
+  status String
+
+  /// Position within its column.
+  ///
+  /// ⚠️ RENUMBER THE WHOLE COLUMN ON REORDER, NEVER SWAP TWO ROWS. Gaps appear the first time a
+  /// card is deleted, and from then on swap-based ordering degrades silently. `renumber()` in
+  /// `src/lib/roadmap-tree.ts` already does exactly this and is not roadmap-specific.
+  order Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, order])
+}

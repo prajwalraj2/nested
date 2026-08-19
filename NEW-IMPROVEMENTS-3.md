@@ -445,10 +445,10 @@ model RateLimit {
 
 ## Phase M — The public site (#36) — PLAN (agreed 18 Aug 2026)
 
-**Shipped:** M-1 · M-2 · M-3 (18 Aug) · M-4 · M-5 (19 Aug) · M-6 (19 Aug).
-**Next:** M-7 Changelog · M-8 Careers · M-9 Blogs · M-10 dependency bump.
+**Shipped:** M-1 · M-2 · M-3 (18 Aug) · M-4 · M-5 · M-6 · M-7 (19 Aug).
+**Next:** M-8 Careers · M-9 Blogs · M-10 dependency bump.
 
-⚠️ **Menu links still pointing at nothing: `/changelog`, `/careers`, `/blogs`.** Down from five.
+⚠️ **Menu links still pointing at nothing: `/careers`, `/blogs`.** Down from five.
 `PENDING_ROUTES` in `site-nav-links.ts` is the live record; an entry leaves it as its step ships.
 
 | Step | What | Ships alone? |
@@ -459,7 +459,7 @@ model RateLimit {
 | ~~**M-4**~~ | ~~Public form foundations~~ | ✅ shipped 19 Aug |
 | ~~**M-5**~~ | ~~Feedback~~ | ✅ shipped 19 Aug |
 | ~~**M-6**~~ | ~~Submissions~~ | ✅ shipped 19 Aug — ⚠️ **domain only, page cascade cut** |
-| **M-7** | Changelog board + admin | ✅ |
+| ~~**M-7**~~ | ~~Changelog board + admin~~ | ✅ shipped 19 Aug |
 | **M-8** | Careers — jobs, applications, R2 private storage | ✅ |
 | **M-9** | Blogs | ✅ the largest |
 | **M-10** | Dependency bump — `next` patch, plus the auth criticals | ✅ ⚡ deferred by choice, see below |
@@ -654,9 +654,29 @@ Admin: its own sidebar entry, cards created and moved between columns.
 does this and is not roadmap-specific — the swap-two-rows approach degrades silently the first time
 a card is deleted.
 
-⚠️ **Badge colours come from `assignBadgeColors`** (K-1), computed over the whole board so one type
-keeps one colour. Compared with plain `<`, never `localeCompare` — the two disagree between server
-and client and produce a hydration mismatch.
+⚠️ **Badge colours come from `assignBadgeColors`** (K-1), computed over the WHOLE board — not per
+column and not over the filtered set. It allocates by sorted position among the distinct values it
+is handed, so feeding it one column gives "bug" a different colour in each, and feeding it the
+filtered set makes colours change as the filter changes. ✅ It already sorts with plain `<`
+(`badge-colors.ts:196`), so the `localeCompare` hydration trap is avoided.
+
+⚠️ **The public board and the admin both call it over their full set**, so a type carries the same
+colour on the page and on the screen that manages it.
+
+⚠️ **CACHED VIA `unstable_cache` WITH A `CHANGELOG` TAG**, invalidated by every write route —
+create, update, delete AND move. Missing it on any ONE leaves the admin correct and the public page
+stale, which reads as a caching bug long after the cause is forgotten.
+
+⚠️ **`status` AND `order` ARE ABSENT FROM THE PATCH SCHEMA.** Both change only through
+`[id]/move`, which assigns a position in the destination column. A bare `{ status }` PATCH would
+move a card into a column carrying whatever order it already had, colliding with a card there.
+
+⚠️ **`POST` AND `move` COMPUTE THE NEXT POSITION FROM THE MAX, NEVER FROM A COUNT** — deleting
+does not renumber, so five cards minus one leaves orders 0,1,2,4 and a count would produce a
+duplicate 4. Everything here is written to tolerate gaps.
+
+⚠️ **Cards are `<button>`, not `<a>`.** Deep-linking is unsupported, and an anchor promises
+middle-click, copy-link and a working back button that this cannot deliver.
 
 **Test:** all four columns render; the filter narrows without reloading; the modal opens and closes;
 ⚠️ deep-linking a card is **not** supported and nothing suggests it is; empty columns show a state

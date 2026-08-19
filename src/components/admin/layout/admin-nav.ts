@@ -10,6 +10,8 @@ import {
   // ⚠️ Also used for `roadmap` in PageTree's CONTENT_TYPE_ICONS and SectionEditor's
   // PageTypeIcon — one content type, one glyph, wherever it appears in the admin.
   Route,
+  // ⚠️ Public product board — a list of things in flight.
+  ClipboardList,
   // ⚠️ Matches the public header's Submit button, so the screen that reviews
   // submissions is recognisably about the same thing as the one that creates them.
   Inbox,
@@ -133,6 +135,19 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         label: 'Roadmaps',
         icon: Route,
         description: 'Build step-by-step learning paths',
+      },
+      {
+        /*
+          ⚠️ Content, not System — the opposite call to Submissions and Feedback, deliberately.
+
+          Those two are queues of things OTHER PEOPLE sent, worked through and cleared. The
+          changelog is a public page WE author, card by card, exactly like Rich Text and Roadmaps.
+          What it describes happens to be work rather than a subject, but the act is the same one.
+        */
+        href: '/admin/changelog',
+        label: 'Changelog',
+        icon: ClipboardList,
+        description: 'The public product board',
       },
     ],
   },

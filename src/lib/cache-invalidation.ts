@@ -194,3 +194,19 @@ export function invalidateCategories(): void {
   revalidateTag(CACHE_TAGS.DOMAINS)
   revalidateTag(CACHE_TAGS.NAVIGATION)
 }
+
+/**
+ * Invalidate the public changelog board (M-7).
+ *
+ * ⚠️ CALLED BY EVERY WRITE ROUTE THAT TOUCHES `ChangelogEntry` — create, update, delete and
+ * move. Forgetting it on any ONE of them leaves the board showing stale cards for up to the cache
+ * duration, with nothing to indicate why: the admin list would be correct and the public page
+ * would not, which reads as a caching bug long after the cause is forgotten.
+ *
+ * ⚠️ Only ONE tag, deliberately. Unlike domains or pages, the changelog is not referenced by
+ * the navigation, the sidebar or the breadcrumb, so nothing else needs clearing — and revalidating
+ * tags it does not affect would throw away caches for no reason.
+ */
+export function invalidateChangelog(): void {
+  revalidateTag(CACHE_TAGS.CHANGELOG)
+}
