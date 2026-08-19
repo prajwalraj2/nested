@@ -111,6 +111,6 @@ export const RESOURCE_LINKS: SiteLink[] = [
 /*
   ⚠️ ENTRIES LEAVE THIS LIST AS THEIR STEP SHIPS — `/feedback` with M-5, `/submit` with M-6.
   The list is the honest record of which menu items still 404, so removing an entry is part of
-  finishing a step, not a tidy-up. Two to go: M-8 clears `/careers`, M-9 `/blogs`.
+  finishing a step, not a tidy-up. One to go: M-9 clears `/blogs`.
 */
-export const PENDING_ROUTES = ['/careers', '/blogs'] as const;
+export const PENDING_ROUTES = ['/blogs'] as const;

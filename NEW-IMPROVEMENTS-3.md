@@ -445,10 +445,10 @@ model RateLimit {
 
 ## Phase M — The public site (#36) — PLAN (agreed 18 Aug 2026)
 
-**Shipped:** M-1 · M-2 · M-3 (18 Aug) · M-4 · M-5 · M-6 · M-7 (19 Aug).
-**Next:** M-8 Careers · M-9 Blogs · M-10 dependency bump.
+**Shipped:** M-1 · M-2 · M-3 (18 Aug) · M-4 · M-5 · M-6 · M-7 · M-8 (19 Aug).
+**Next:** M-9 Blogs · M-10 dependency bump.
 
-⚠️ **Menu links still pointing at nothing: `/careers`, `/blogs`.** Down from five.
+⚠️ **One menu link still points at nothing: `/blogs`.** Down from five.
 `PENDING_ROUTES` in `site-nav-links.ts` is the live record; an entry leaves it as its step ships.
 
 | Step | What | Ships alone? |
@@ -460,7 +460,7 @@ model RateLimit {
 | ~~**M-5**~~ | ~~Feedback~~ | ✅ shipped 19 Aug |
 | ~~**M-6**~~ | ~~Submissions~~ | ✅ shipped 19 Aug — ⚠️ **domain only, page cascade cut** |
 | ~~**M-7**~~ | ~~Changelog board + admin~~ | ✅ shipped 19 Aug |
-| **M-8** | Careers — jobs, applications, R2 private storage | ✅ |
+| ~~**M-8**~~ | ~~Careers — jobs, applications, R2 private storage~~ | ✅ shipped 19 Aug |
 | **M-9** | Blogs | ✅ the largest |
 | **M-10** | Dependency bump — `next` patch, plus the auth criticals | ✅ ⚡ deferred by choice, see below |
 
@@ -694,7 +694,14 @@ rather than collapsing; dark mode; mobile stacks the columns.
 name, email, and often their phone and address. A public blob URL is unguessable but **permanent
 and unauthenticated** — anyone who ever obtains it has it forever, and it cannot be revoked.
 
-The adapter grows a private trio, kept separate from the public methods rather than adding flags:
+⚠️ **BUILT AS A SEPARATE MODULE, NOT AS THREE METHODS ON `StorageAdapter` — the shape below
+could not work.** `getStorage()` returns ONE adapter chosen by `STORAGE_PROVIDER`, which is unset
+and therefore Vercel Blob. With the private trio on the adapter and Blob throwing on it, every
+private upload would fail unless the PUBLIC provider were switched to R2 — which decision 36.3(d)
+forbids. `src/lib/storage/private-r2.ts` plus `getPrivateStorage()` is the fix, and it is closer to
+36.3(g)'s intent anyway: private is separate infrastructure, not a mode of the public adapter.
+
+The private trio (on `PrivateStorage`, not `StorageAdapter`):
 
 ```ts
 putPrivate(objectKey, body, contentType): Promise<{ key: string }>
@@ -714,10 +721,40 @@ is a capability Blob does not have, not a bug to work around.
 | ⚠️ **No re-encoding is possible** | `sharp` re-encodes images, which destroys anything embedded. **A PDF is stored as given.** That is precisely why it must never be public |
 | **Streamed via an admin route** | `GET /api/admin/applications/[id]/resume`, behind `requireAdmin()` |
 
+⚠️ **SIZE IS CHECKED TWICE, AND NEITHER CHECK ALONE IS ENOUGH.** "Refused before it is read"
+means `Content-Length` — which is client-supplied and can lie. The real cap is the byte length
+after `formData()` has buffered it. Both are present: the header check saves an honest 10 MB
+transfer, the buffer check catches a dishonest one.
+
+⚠️ **THE CASCADE ON `JobApplication.jobId` MUST NEVER FIRE.** It runs inside Postgres, so no
+application code executes and the CVs stay in R2 forever — unreferenced and therefore unreachable
+through the admin. `DELETE /api/admin/jobs/[id]` returns **409** for a job with applications and
+tells you to close it instead, the same guard `CategoryList` uses for a category with domains.
+
+⚠️ **`resumeKey` IS NOT SELECTED BY THE ADMIN LIST ROUTE.** Nothing in the UI needs it, and the
+moment an object path is in a page's JSON somebody will try to build a URL from it.
+
+⚠️ **THE DOWNLOAD IS `Content-Disposition: attachment` + `nosniff` + `no-store`.** A PDF is
+stored byte for byte as uploaded — nothing re-encodes it, unlike `sharp` with an image — so
+rendering it inline would put an untrusted document in the browser's viewer on the admin's own
+origin. `no-store` because a cached CV outlives the session that was allowed to see it.
+
+⚠️ **DELETING AN APPLICATION DELETES THE OBJECT FIRST, THEN THE ROW.** The other order strands
+the file: if the row goes and the object delete then fails, nothing remembers the key.
+
+⚠️ **NO CORS CONFIGURATION IS NEEDED ON THE BUCKET** — the browser never contacts R2. It is the
+usual R2 stumbling block and this design sidesteps it entirely.
+
+⚠️ **CREDENTIALS ARE `.trim()`ED WHEN READ.** The first connectivity test failed with
+`Credential access key has length 33, should be 32`: a trailing newline had come along with the
+paste into `.env`. The error reads as "wrong key" rather than "invisible character", and the same
+paste has to happen again in Vercel.
+
 **Test:** post a job, apply to it; a non-PDF is refused; a `.pdf` that is really a `.exe` is refused
 by magic bytes; a 10 MB file is refused **before** it is read; ⚠️ **the resume key never appears in
 any public response** — grep the page source; the admin download works and **fails when logged
-out**; closing a job keeps its applications.
+out**; closing a job keeps its applications; ⚠️ deleting an application removes the object from
+R2 as well as the row.
 
 ---
 
