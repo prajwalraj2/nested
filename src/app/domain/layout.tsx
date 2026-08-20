@@ -3,7 +3,6 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import AppSidebar from "@/components/sidebar/app-sidebar"
 import BreadcrumbDemo from "@/components/bread/bread"
 import { Separator } from "@/components/ui/separator"
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { ShareButton } from "@/components/domain/ShareButton";
 import { PageContextProvider } from "@/contexts/PageContextProvider";
 import { ClarityAnalytics } from "@/components/analytics/ClarityAnalytics";
@@ -182,9 +181,20 @@ export default function DomainLayout({ children }: { children: ReactNode }) {
                   `SubcategorySelector`) — putting it there would be five copies to keep
                   in step. See the block comment at the top of ShareButton.tsx.
                 */}
+                {/*
+                  ⚠️ THE THEME TOGGLE USED TO BE HERE AND MOVED TO THE SITE HEADER (20 Aug 2026).
+
+                  This bar renders only under `/domain/*`, so a control living here was absent from
+                  every page in the `(site)` group. The header is on every public page; this is not.
+                  ⚠️ Do not add it back — two toggles on one screen is what that would produce.
+
+                  The wrapper and the commented `ShareButton` are KEPT deliberately. Share is
+                  mounted once, here, rather than beside each of the five layout components that
+                  render their own heading — see the note above and the block comment in
+                  `ShareButton.tsx`. Removing this container would lose that placement.
+                */}
                 <div className="ml-auto flex items-center gap-2">
                   {/* <ShareButton /> */}
-                  <ThemeToggle />
                 </div>
               </div>
               {children}

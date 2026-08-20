@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/navigation-menu';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { getIcon } from '@/lib/icon-manifest';
 import { cn } from '@/lib/utils';
 import { COMPANY_LEGAL, COMPANY_LINKS, RESOURCE_LINKS, type SiteLink } from './site-nav-links';
@@ -347,6 +348,27 @@ export function SiteNav({ groups, totalDomains }: Props) {
           Below `md` both drop away and the hamburger returns to the corner, matching the logo.
         */}
         <div className="col-start-3 flex items-center gap-2 justify-self-end md:mr-6 md:pr-4 lg:mr-10">
+          {/*
+            ⚠️ MOVED HERE FROM THE BREADCRUMB BAR, AND THAT FIXED A GAP RATHER THAN RELOCATING A
+            BUTTON.
+
+            It used to live in `domain/layout.tsx`, which renders ONLY under `/domain/*`. So every
+            page in the `(site)` group — blog, careers, about, contact, privacy, terms, feedback,
+            submit, changelog — had no way to switch theme at all. Nine routes, and the omission was
+            invisible because the pages that DID have one are the ones you look at most.
+
+            The header is the only element on every public page, so it is the only correct home for
+            a site-wide control.
+
+            ⚠️ VISIBLE AT EVERY WIDTH, unlike Submit — it is not tucked into the mobile Sheet. A
+            36px icon button beside a 77px wordmark and the hamburger still leaves room at 375px,
+            and a theme switch buried two taps deep is a theme switch nobody finds.
+
+            ✅ `ThemeToggle` renders a same-sized placeholder until it mounts, so this does not shift
+            the header on first paint — which would otherwise be visible on every page load.
+          */}
+          <ThemeToggle />
+
           <Button asChild size="sm" className="hidden sm:inline-flex">
             <Link href={submitHref}>
               Submit
