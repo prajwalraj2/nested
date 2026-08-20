@@ -52,6 +52,85 @@ export const OUTPUT_SIZE = 64;
 /** Refuse anything claiming more pixels than this before allocating for it. */
 const MAX_INPUT_PIXELS = 40_000_000; // ~6300 × 6300
 
+/**
+ * What an upload is being processed FOR (M-9).
+ * ============================================================================
+ *
+ * ⚠️ ONE PIPELINE, TWO SHAPES — NOT TWO PIPELINES. The rules that matter are the ones above and
+ * below this line: the magic-byte sniff, the SVG and GIF rejections, the pixel ceiling, the
+ * re-encode that destroys anything embedded in the original. Duplicating those for blog covers is
+ * how one copy quietly stops rejecting SVGs. Only the output geometry differs, so only the output
+ * geometry is parameterised.
+ *
+ * ⚠️ THE PLAN SAID "ONE UPLOAD ENDPOINT WITH A PRESET", AND THAT WAS NOT QUITE RIGHT. The existing
+ * endpoint is `/api/admin/table-images`, whose job includes WRITING A `TableImage` ROW and
+ * returning its id — a blog cover has no such row, because `BlogPost.coverUrl` stores a URL
+ * directly (the key indirection earns its keep at 1.68x reuse, and a cover belongs to one post).
+ * A route that sometimes writes a row and sometimes does not, keyed on a query parameter, is worse
+ * than two thin routes over one shared pipeline. So the PRESET lives here and the routes stay
+ * separate.
+ */
+export type ImagePreset = 'table-icon' | 'blog-cover';
+
+type PresetSpec = {
+  width: number;
+  height: number;
+  fit: 'contain' | 'cover';
+  format: 'webp' | 'jpeg';
+  contentType: 'image/webp' | 'image/jpeg';
+  /** Transparent padding for `contain`; ignored by `cover`. */
+  background: { r: number; g: number; b: number; alpha: number };
+  withoutEnlargement: boolean;
+};
+
+const PRESETS: Record<ImagePreset, PresetSpec> = {
+  /**
+   * A logo beside a table row. Unchanged from the original hard-coded behaviour.
+   *
+   * `contain`, not `cover`: a logo cropped to a square loses the parts that identify it — `cover`
+   * slices the ends off a wordmark. The padding is transparent so it disappears against any row
+   * background, in either theme.
+   */
+  'table-icon': {
+    width: OUTPUT_SIZE,
+    height: OUTPUT_SIZE,
+    fit: 'contain',
+    format: 'webp',
+    contentType: 'image/webp',
+    background: { r: 0, g: 0, b: 0, alpha: 0 },
+    withoutEnlargement: true,
+  },
+
+  /**
+   * A blog cover, sized for a social card.
+   *
+   * ⚠️ 1200x630 IS THE OPEN GRAPH RATIO (1.91:1), not an arbitrary large number. Off-ratio images
+   * get cropped by each platform differently, so the crop is done here where it can be seen.
+   *
+   * ⚠️ `cover`, NOT `contain` — the opposite call to the icon above, and deliberately so. A padded
+   * social card shows bars down the sides in every feed. A photograph loses its edges to a crop and
+   * survives; a wordmark does not, which is why the icon preset chose the other way.
+   *
+   * ⚠️ JPEG, NOT WEBP, AND THIS IS THE ONE CHOICE MOST LIKELY TO LOOK WRONG. WebP is smaller and
+   * every browser reads it — but this image's main job is `og:image`, and WebP support across
+   * social platforms is uneven. A cover that renders perfectly on the site and produces a blank
+   * card on X is a bad trade for a few kilobytes. Revisit only with the platforms re-checked.
+   *
+   * ⚠️ `withoutEnlargement: false`, unlike the icon. A 600px-wide source SHOULD be scaled up to
+   * fill the card: a small centred image with the rest cropped away is worse than a slightly soft
+   * one. The icon preset chose the opposite because a 16px favicon must stay crisp.
+   */
+  'blog-cover': {
+    width: 1200,
+    height: 630,
+    fit: 'cover',
+    format: 'jpeg',
+    contentType: 'image/jpeg',
+    background: { r: 255, g: 255, b: 255, alpha: 1 },
+    withoutEnlargement: false,
+  },
+};
+
 export type ProcessedImage = {
   buffer: Buffer;
   /** Content hash of the OUTPUT, which becomes the object name. */
@@ -59,7 +138,7 @@ export type ProcessedImage = {
   width: number;
   height: number;
   bytes: number;
-  contentType: 'image/webp';
+  contentType: 'image/webp' | 'image/jpeg';
 };
 
 export class ImageRejected extends Error {
@@ -104,7 +183,16 @@ export function sniffFormat(buffer: Buffer): 'png' | 'jpeg' | 'webp' | 'gif' | '
  *
  * @throws {ImageRejected} with a message meant to be shown to the person uploading.
  */
-export async function processUpload(input: Buffer): Promise<ProcessedImage> {
+export async function processUpload(
+  input: Buffer,
+  /*
+    ⚠️ DEFAULTS TO `table-icon` SO EVERY EXISTING CALLER IS UNCHANGED. `table-images/route.ts` was
+    written before presets existed and still passes one argument; making the parameter required
+    would have meant editing a working upload path to add a value it already had.
+  */
+  preset: ImagePreset = 'table-icon'
+): Promise<ProcessedImage> {
+  const spec = PRESETS[preset];
   if (input.length === 0) throw new ImageRejected('That file is empty.');
   if (input.length > MAX_UPLOAD_BYTES) {
     throw new ImageRejected(
@@ -133,23 +221,34 @@ export async function processUpload(input: Buffer): Promise<ProcessedImage> {
 
   let processed: { data: Buffer; info: OutputInfo };
   try {
-    processed = await sharp(input, { limitInputPixels: MAX_INPUT_PIXELS })
+    const pipeline = sharp(input, { limitInputPixels: MAX_INPUT_PIXELS })
       .rotate() // Honour the EXIF orientation BEFORE the metadata is discarded below.
-      .resize(OUTPUT_SIZE, OUTPUT_SIZE, {
-        /*
-          `contain`, not `cover`. A logo cropped to a square loses the parts that identify it
-          — `cover` would slice the ends off a wordmark. `contain` fits the whole image and
-          pads, and the padding is transparent so it disappears against any row background,
-          in either theme.
-        */
-        fit: 'contain',
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-        // Never scale a small source up: a 16px favicon should stay crisp at 16px inside a
-        // 64px canvas rather than become a blurry 64px square.
-        withoutEnlargement: true,
-      })
-      .webp({ quality: 90, effort: 4 })
-      .toBuffer({ resolveWithObject: true });
+      /*
+        Geometry comes from the preset — see `PRESETS` above for why each field differs between a
+        table icon and a blog cover. Everything around this call is identical for both.
+      */
+      .resize(spec.width, spec.height, {
+        fit: spec.fit,
+        background: spec.background,
+        withoutEnlargement: spec.withoutEnlargement,
+      });
+
+    /*
+      ⚠️ `flatten` BEFORE JPEG, BECAUSE JPEG HAS NO ALPHA CHANNEL. Without it, a PNG with a
+      transparent background encodes with BLACK where the transparency was — which on a social card
+      reads as a rendering failure rather than a design choice. The WebP path keeps its alpha and
+      must NOT be flattened.
+
+      Written as a branch rather than a chained expression: the two formats take different option
+      objects, and expressing that inline means indexing sharp by a computed method name, which
+      TypeScript cannot check and a reader has to decode.
+    */
+    const encoded =
+      spec.format === 'jpeg'
+        ? pipeline.flatten({ background: spec.background }).jpeg({ quality: 82, mozjpeg: true })
+        : pipeline.webp({ quality: 90, effort: 4 });
+
+    processed = await encoded.toBuffer({ resolveWithObject: true });
   } catch (error) {
     /*
       sharp throws for a corrupt file, an unsupported variant, or the pixel limit. The
@@ -176,7 +275,7 @@ export async function processUpload(input: Buffer): Promise<ProcessedImage> {
     width: processed.info.width,
     height: processed.info.height,
     bytes: processed.data.length,
-    contentType: 'image/webp',
+    contentType: spec.contentType,
   };
 }
 

@@ -152,3 +152,51 @@ export function buildOrganizationJsonLd(): object {
       'Curated tools, resources and channels across design, development, AI, ecommerce and more.',
   }
 }
+
+/**
+ * `Article` structured data for one blog post (M-9).
+ *
+ * ⚠️ EMITTED ONLY ON A POST'S OWN PAGE, never on the listing. The listing is a collection, not an
+ * article — describing it as one is the kind of mismatch between markup and content that Google
+ * treats as a quality signal against the site rather than a harmless mistake.
+ *
+ * ⚠️ FIELDS ARE OMITTED WHEN ABSENT, NOT FILLED WITH PLACEHOLDERS. A post with no cover simply has
+ * no `image`; inventing one would put a claim in machine-readable markup that the page does not
+ * support, which is worse than saying nothing.
+ */
+export function buildArticleJsonLd(post: {
+  title: string
+  slug: string
+  excerpt: string | null
+  coverUrl: string | null
+  author: string
+  publishedAt: Date
+  updatedAt: Date
+}): object {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: post.title,
+    /*
+      ⚠️ ABSOLUTE, and `mainEntityOfPage` rather than a bare `url`. Production is served on two
+      hostnames (see `lib/seo.ts`), so a relative value would resolve differently depending on
+      which one a crawler arrived at — the same reason a canonical is pinned there.
+    */
+    mainEntityOfPage: { '@type': 'WebPage', '@id': `${SITE_URL}/blogs/${post.slug}` },
+    ...(post.excerpt ? { description: post.excerpt } : {}),
+    ...(post.coverUrl ? { image: post.coverUrl } : {}),
+    author: { '@type': 'Person', name: post.author },
+    publisher: {
+      '@type': 'Organization',
+      name: SITE_NAME,
+      logo: { '@type': 'ImageObject', url: `${SITE_URL}/og-image.png` },
+    },
+    /*
+      ⚠️ ISO STRINGS, NOT `Date` OBJECTS. `JSON.stringify` would serialise a Date correctly here by
+      accident, but being explicit means the shape does not change if this object is ever built
+      somewhere that stringifies differently.
+    */
+    datePublished: post.publishedAt.toISOString(),
+    dateModified: post.updatedAt.toISOString(),
+  }
+}

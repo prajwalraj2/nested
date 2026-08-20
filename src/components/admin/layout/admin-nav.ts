@@ -12,6 +12,8 @@ import {
   Route,
   // ⚠️ Public product board — a list of things in flight.
   ClipboardList,
+  // ⚠️ Blog posts — written content, filed with the other things we author.
+  PenLine,
   // ⚠️ Matches the public header's Submit button, so the screen that reviews
   // submissions is recognisably about the same thing as the one that creates them.
   Inbox,
@@ -150,6 +152,17 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         label: 'Changelog',
         icon: ClipboardList,
         description: 'The public product board',
+      },
+      {
+        /*
+          ⚠️ Content, with Rich Text and Roadmaps — a post is something WE write. Its body is
+          HTML by the same decision as roadmap sheets (36.3(b)), and L-11 will migrate all three to
+          content blocks in one pass.
+        */
+        href: '/admin/blogs',
+        label: 'Blog',
+        icon: PenLine,
+        description: 'Write and publish posts',
       },
     ],
   },

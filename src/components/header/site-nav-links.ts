@@ -111,6 +111,10 @@ export const RESOURCE_LINKS: SiteLink[] = [
 /*
   ⚠️ ENTRIES LEAVE THIS LIST AS THEIR STEP SHIPS — `/feedback` with M-5, `/submit` with M-6.
   The list is the honest record of which menu items still 404, so removing an entry is part of
-  finishing a step, not a tidy-up. One to go: M-9 clears `/blogs`.
+  finishing a step, not a tidy-up. ✅ EMPTY AS OF M-9 — every menu item now resolves.
+
+  ⚠️ KEEP THE LIST AND THE TYPE. An empty array is the correct state, not dead code: the next
+  menu entry that points somewhere unbuilt belongs here, and deleting the mechanism means the next
+  person adds a link that 404s with nothing recording that they knew.
 */
-export const PENDING_ROUTES = ['/blogs'] as const;
+export const PENDING_ROUTES = [] as const;

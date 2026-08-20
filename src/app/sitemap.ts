@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next'
 import { prisma } from '@/lib/prisma'
+import { publishedFilter } from '@/lib/blog-types'
 import { SITE_URL } from '@/lib/seo'
 import { ALL_COUNTRIES } from '@/lib/countries'
 
@@ -176,7 +177,44 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       a site than one that is merely incomplete.
     */
     { url: `${SITE_URL}/careers` },
+    { url: `${SITE_URL}/blogs` },
   ]
+
+  /*
+    ⚠️ BLOG POSTS ARE ADDED SEPARATELY BECAUSE THEY ARE NOT `Page` ROWS — `pageLastModified()`
+    below cannot see them, and neither can the domain and page queries. Without this block every
+    post would be invisible to every crawler while looking perfectly fine on the site.
+
+    ⚠️ `publishedFilter()` IS THE SAME HELPER THE PUBLIC PAGES USE. A sitemap listing a draft
+    would advertise a URL that 404s — the soft-404 problem of finding #15.4 — and a sitemap
+    listing a SCHEDULED post would leak the fact that it exists before its date. One helper, three
+    call sites, so neither can be forgotten in one of them.
+
+    ⚠️ `updatedAt`, NOT `publishedAt`, AS `lastModified`. The field means "when did this page
+    last change", and a post corrected after publication has changed. Using the publication date
+    would tell a crawler nothing had moved and let the correction go unindexed.
+
+    ⚠️ AND PUBLISHING A POST DOES NOT REFRESH THIS FILE IMMEDIATELY — see the warning at the
+    top of `cache-invalidation.ts`: `revalidateTag` cannot reach the sitemap. It updates on its own
+    schedule, which is expected rather than broken.
+  */
+  try {
+    const posts = await prisma.blogPost.findMany({
+      where: publishedFilter(),
+      select: { slug: true, updatedAt: true },
+      orderBy: { publishedAt: 'desc' },
+    })
+
+    for (const post of posts) {
+      entries.push({ url: `${SITE_URL}/blogs/${post.slug}`, lastModified: post.updatedAt })
+    }
+  } catch (error) {
+    /*
+      ⚠️ A FAILED BLOG QUERY MUST NOT TAKE THE WHOLE SITEMAP DOWN. Every domain and page URL
+      below is worth more than the posts, and an empty sitemap is far worse than an incomplete one.
+    */
+    console.error('[sitemap] blog posts omitted', error)
+  }
 
   try {
     const domains = await prisma.domain.findMany({
