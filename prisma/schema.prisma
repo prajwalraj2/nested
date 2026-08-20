@@ -843,3 +843,55 @@ model JobApplication {
   @@index([jobId, createdAt])
   @@index([status, createdAt])
 }
+
+/// A blog post (M-9).
+///
+/// ⚠️ ITS OWN MODEL, NOT A `Page`. A post has a date, an author, an excerpt and a cover image, and
+/// it lives outside the domain tree — `Page` carries none of that. The same reasoning that gave
+/// `Roadmap` its own table.
+model BlogPost {
+  id String @id @default(uuid())
+
+  title String
+  /// ⚠️ GLOBALLY unique, unlike `RoadmapNode.slug` which is scoped to its roadmap. A post has
+  /// exactly one URL — `/blogs/<slug>` — so there is no scope to be unique within.
+  slug  String @unique
+
+  /// Shown on the listing and used as the meta description when set. Plain text.
+  excerpt String?
+
+  /// ⚠️ A URL, not a key. `TableImage`'s key indirection earns its keep because one image serves
+  /// 40 rows (1.68x reuse, measured). A cover belongs to exactly one post, so the indirection
+  /// would buy a join and nothing else.
+  ///
+  /// ⚠️ PRODUCED BY THE `blog-cover` PRESET, not the table-icon one — 1200x630 JPEG rather than a
+  /// 64x64 WebP. See `PRESETS` in `image-processing.ts`.
+  coverUrl String?
+  coverAlt String?
+
+  author String
+
+  /// HTML, same as roadmap sheets and rich text. ⚠️ NOT SANITISED (#35) — admin-authored, and
+  /// `ROADMAP-CONTENT-GUIDE.md` §3 and §8 apply here verbatim.
+  content String @db.Text
+
+  /// Stripped text for search and word counts. Written by the API alongside the HTML in the same
+  /// handler, so the two cannot disagree. Uses `htmlToPlainText` from `src/lib/html-text.ts`.
+  plainText String? @db.Text
+
+  category String?
+  tags     String[] @default([])
+
+  /// ⚠️ PUBLICATION IS A DATE, NOT A STATUS ENUM.
+  ///
+  /// `null` = draft. Set = published. One field instead of a status column plus a date that can
+  /// disagree with it — and filtering `publishedAt <= now()` gives scheduled posts for free, with
+  /// no extra state to model.
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The listing read: published posts, newest first.
+  @@index([publishedAt])
+}

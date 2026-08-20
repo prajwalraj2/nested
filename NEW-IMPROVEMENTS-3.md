@@ -445,10 +445,14 @@ model RateLimit {
 
 ## Phase M — The public site (#36) — PLAN (agreed 18 Aug 2026)
 
-**Shipped:** M-1 · M-2 · M-3 (18 Aug) · M-4 · M-5 · M-6 · M-7 · M-8 (19 Aug).
-**Next:** M-9 Blogs · M-10 dependency bump.
+**Shipped:** M-1 · M-2 · M-3 (18 Aug) · M-4 · M-5 · M-6 · M-7 · M-8 (19 Aug) · M-9 (20 Aug).
 
-⚠️ **One menu link still points at nothing: `/blogs`.** Down from five.
+✅ **EVERY FEATURE IN PHASE M IS BUILT.** Only **M-10**, the deliberately deferred dependency
+bump, remains.
+
+✅ **EVERY MENU LINK NOW RESOLVES.** `PENDING_ROUTES` in `site-nav-links.ts` is empty — kept, not
+deleted, because the next link pointing somewhere unbuilt belongs there and removing the mechanism
+means the next person ships a 404 with nothing recording that they knew.
 `PENDING_ROUTES` in `site-nav-links.ts` is the live record; an entry leaves it as its step ships.
 
 | Step | What | Ships alone? |
@@ -461,7 +465,7 @@ model RateLimit {
 | ~~**M-6**~~ | ~~Submissions~~ | ✅ shipped 19 Aug — ⚠️ **domain only, page cascade cut** |
 | ~~**M-7**~~ | ~~Changelog board + admin~~ | ✅ shipped 19 Aug |
 | ~~**M-8**~~ | ~~Careers — jobs, applications, R2 private storage~~ | ✅ shipped 19 Aug |
-| **M-9** | Blogs | ✅ the largest |
+| ~~**M-9**~~ | ~~Blogs~~ | ✅ shipped 20 Aug |
 | **M-10** | Dependency bump — `next` patch, plus the auth criticals | ✅ ⚡ deferred by choice, see below |
 
 ⚠️ **The order is by dependency and by risk, not by size.** M-4 comes before any form so the
@@ -764,10 +768,36 @@ R2 as well as the row.
 
 **Admin:** title, slug, excerpt, cover, author, category, tags, HTML body with preview, publish.
 
-⚠️ **Cover images cannot use the existing pipeline.** `image-processing.ts` hard-codes
-`OUTPUT_SIZE = 64` — right for a logo beside a table row, useless for a social card, which wants
-about 1200×630. **One upload endpoint with a `preset` parameter**, not a second endpoint: two
-pipelines is how they drift.
+⚠️ **"ONE UPLOAD ENDPOINT WITH A PRESET" COULD NOT BE TAKEN LITERALLY.** The existing endpoint is
+`/api/admin/table-images`, and its job includes WRITING A `TableImage` ROW and returning its id — a
+cover has no such row, because `coverUrl` stores a URL directly. A route that sometimes writes a row
+and sometimes does not, keyed on a query parameter, is worse than two thin routes. **The preset went
+into `processUpload`; the routes stayed separate.** What must not be duplicated is the PIPELINE —
+magic-byte sniff, SVG/GIF rejection, pixel ceiling, re-encode — and that is now shared.
+✅ `processUpload` defaults to `table-icon`, so the existing upload path is byte-for-byte unchanged.
+
+⚠️ **COVERS ARE JPEG, NOT WEBP, AND THIS IS THE CHOICE MOST LIKELY TO LOOK WRONG.** WebP is
+smaller and every browser reads it — but a cover's main job is `og:image`, and WebP support across
+social platforms is uneven. A card that renders on the site and comes out blank on X is a bad trade
+for a few kilobytes.
+
+⚠️ **`flatten` BEFORE THE JPEG ENCODE, BECAUSE JPEG HAS NO ALPHA CHANNEL.** Without it a
+transparent PNG encodes with BLACK where the transparency was. Verified rather than assumed: a
+transparent source through both presets gives `table-icon` corner `rgb(0,0,0)` with `hasAlpha=true`,
+and `blog-cover` corner `rgb(255,255,255)` with `hasAlpha=false`.
+
+⚠️ **`next/image` THROWS ON AN UNCONFIGURED REMOTE HOST — IT DOES NOT SKIP THE IMAGE.** Hit for
+real: the first cover uploaded returned **500 on the whole `/blogs` listing**. This site had no
+`images` config at all, because every other remote image here uses a plain `<img>` (those are
+already 64px thumbnails, so optimising them twice buys nothing). A 1200×630 cover is the opposite
+case. Two changes, and the second is the one that matters:
+
+  1. `next.config.ts` — `remotePatterns` for `*.public.blob.vercel-storage.com`. A single `*`, not
+     `**`: the Blob store id is exactly one subdomain segment.
+  2. ⚠️ **`isSupportedCoverUrl` REJECTS AN UNRENDERABLE COVER AT WRITE TIME.** Allowlisting alone
+     leaves the 500 one bad `coverUrl` away. It PARSES the URL rather than string-matching —
+     `https://evil.com/?x=.public.blob.vercel-storage.com` passes an `endsWith` and is not the
+     right host. **Change one of these two rules and you must change the other.**
 
 **Public:**
 
@@ -778,6 +808,32 @@ pipelines is how they drift.
 - ⚠️ **`publishedAt <= now()`** on every public read, so a future date schedules rather than leaks.
 - Posts belong in `sitemap.xml` — ⚠️ and `pageLastModified()` does not cover them, because they are
   not `Page` rows. That file's own warning applies again.
+
+⚠️ **`publishedFilter()` MUST BE A FUNCTION, NOT A CONSTANT.** A module-level `{ lte: new Date() }`
+is evaluated once at import, so a long-lived serverless instance keeps comparing against its boot
+time and a scheduled post never appears. One helper, used by the page, its metadata AND the sitemap,
+so a draft cannot leak through whichever was forgotten.
+
+⚠️ **THE PATCH BUILDS `data` KEY BY KEY, TESTING `undefined` NOT FALSINESS.** `null` is meaningful
+on four fields — it clears an excerpt, removes a cover, or UNPUBLISHES. A `?? null` makes
+unpublishing impossible while looking correct. #28 again.
+
+⚠️ **THE COVER IS NOT DELETED FROM BLOB WHEN A POST IS — the opposite call to a CV.** Covers are
+named by content hash, so the same picture on two posts is one object and deleting it with one would
+break the other. A CV is one person's document, referenced once, and leaving it is a privacy
+failure. Different data, different rule.
+
+⚠️ **THE LISTING USES REAL LINKS FOR PAGINATION, NOT `onClick`.** A crawler cannot follow a
+button, and every post past the first ten would be unreachable — which defeats the reason the page
+is server-rendered.
+
+⚠️ **`admin/blogs/` IS DELIBERATELY OUTSIDE THE `dangerouslySetInnerHTML` BAN**, same call as
+`admin/changelog`. Posts are admin-authored and the editor's preview needs raw HTML. That rule
+exists because STRANGERS write feedback, submissions and applications.
+
+⚠️ **KNOWN AND NOT YET FIXED: re-saving an already-published post pushes `publishedAt` forward.**
+The checkbox is a boolean and the column is a date, so "Published" always stamps *now*. The fix is
+to preserve the original when the post was already live. Recorded rather than left silently wrong.
 
 **Test:** a draft is invisible publicly and 404s by URL; a future `publishedAt` stays hidden until
 it passes; ⚠️ `curl` a post and grep for a sentence from the body — **it is in the HTML**; the cover

@@ -59,6 +59,39 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['sharp'],
 
   /**
+   * Remote hosts `next/image` is allowed to load and optimise (M-9).
+   * ==========================================================================
+   *
+   * ⚠️ THIS SITE HAD NO `images` CONFIG AT ALL UNTIL BLOG COVERS, and the reason is worth knowing:
+   * every other remote image here — table thumbnails, `ItemIcon`, the admin grid — uses a plain
+   * `<img>`. `DataTable`'s own comment explains why: those objects are ALREADY 64px WebP
+   * thumbnails produced by our upload pipeline, so putting them through the optimiser a second
+   * time would cost a request and save nothing.
+   *
+   * ⚠️ A BLOG COVER IS THE OPPOSITE CASE, which is why it does not follow that precedent. It is a
+   * 1200x630 JPEG rendered at anything from a phone's 360px to a full-width article, so serving
+   * one size to everybody wastes most of the bytes on most of the visits.
+   *
+   * ⚠️ A SINGLE `*`, NOT `**`. The Vercel Blob store id is exactly one subdomain segment
+   * (`<store>.public.blob.vercel-storage.com`), and `*` matches exactly one — so this permits our
+   * store and any future one, while `**` would additionally permit arbitrarily nested hosts for no
+   * benefit. Narrower is free here.
+   *
+   * ⚠️ THE SAME RULE IS ENFORCED WHEN A COVER IS SAVED — see `isSupportedCoverUrl` in
+   * `lib/blog-types.ts`, used by both blog API routes. That is not belt-and-braces: an unmatched
+   * host makes `next/image` THROW, which 500s the entire listing page rather than dropping one
+   * image. Rejecting the URL at write time is what keeps an unrenderable cover from ever existing.
+   */
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '*.public.blob.vercel-storage.com',
+      },
+    ],
+  },
+
+  /**
    * Force sharp's native packages into the two routes that use it.
    *
    * ⚠️ THE FIRST ATTEMPT NAMED ONLY `@img/sharp-linux-x64` AND GOT HALFWAY:
