@@ -9,6 +9,7 @@ import { AdminPageHeader } from '@/components/admin/layout/AdminPageHeader';
 import { StatsCard } from '@/components/admin/dashboard/StatsCard';
 // Finding #22.4 — a page's public URL needs its parent chain walked, not two slugs joined.
 import { buildPageUrl, toPageMap } from '@/lib/page-path';
+import { resolveTableImages } from '@/lib/table-image-usage';
 
 /**
  * Admin Table Edit Page
@@ -94,6 +95,20 @@ export default async function TableEditPage({ params }: PageProps) {
     notFound();
   }
 
+  /*
+    ⚠️ `(table.data as ...).rows` RATHER THAN A TYPED READ, because `Table.data` is a Prisma `Json`
+    column validated by nobody. The cast is narrow and local; `resolveTableImages` tolerates junk
+    (a non-string field is skipped) rather than trusting the shape.
+
+    ⚠️ ALL rows, not a filtered set — this is the admin, which must see every row including ones
+    hidden from every visitor by `targetCountries`. The public service passes its FILTERED rows for
+    the opposite reason; see the note on `resolveTableImages`.
+  */
+  const images = await resolveTableImages(
+    ((table.data as { rows?: unknown[] } | null)?.rows ?? []) as never,
+    table.schema as never
+  );
+
   return (
     <div className="space-y-6">
       
@@ -168,8 +183,21 @@ export default async function TableEditPage({ params }: PageProps) {
         />
       </div>
 
-      {/* Main Table Editor */}
-      <TableEditor table={table} />
+      {/*
+        Main Table Editor.
+
+        ⚠️ `images` IS RESOLVED HERE, ON THE SERVER, AND NOT FETCHED BY THE EDITOR (N-1).
+
+        Rows store a `TableImage.key`, never a URL, so the row list had no way to draw a thumbnail
+        — you could only tell whether a row had a picture by opening its dialog. `RowImagePicker`
+        does fetch the whole image library, but that endpoint also computes usage across every
+        table (`getAllImageUsage` scans 8,133 rows), which is a heavy call to make for four URLs.
+
+        This page is already a server component doing its own Prisma read, so resolving here costs
+        one extra query and no new endpoint. `resolveTableImages` is the SAME function the public
+        service uses, so the two screens cannot disagree about which image belongs to which row.
+      */}
+      <TableEditor table={table} images={images} />
 
     </div>
   );

@@ -28,8 +28,9 @@ import { unstable_cache } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { CACHE_DURATIONS, CACHE_TAGS } from '@/lib/cache';
 import { filterRowsByCountry, getPublicSchema, getPublicRows } from '@/lib/table-utils';
+import { resolveTableImages } from '@/lib/table-image-usage';
 import type { TableWithPage } from './types';
-import type { TableSchema, TableData, TableImageMap } from '@/types/table';
+import type { TableSchema, TableData } from '@/types/table';
 
 /** The columns every table read needs. Extracted so the two readers cannot drift apart. */
 const tableWithPageSelect = {
@@ -144,46 +145,19 @@ export const TableService = {
     /**
      * Resolve this table's image keys to URLs (K-5c).
      *
-     * ⚠️ SERVER-SIDE, AND ONLY THE KEYS THIS TABLE USES. Rows store a `TableImage.key`, never
-     * a URL — that indirection is what makes one image serve 40 rows and what makes changing
-     * storage provider a one-column rewrite. The browser therefore needs a translation, and
-     * doing it here costs one query instead of forty.
+     * ⚠️ THE LOGIC MOVED TO `resolveTableImages` IN N-1 AND IS NOW SHARED WITH THE ADMIN. It used
+     * to be inline here, including a hand-rebuilt copy of `imageKeyFields`. See the long note on
+     * that function for why one copy matters and what a missing key means.
      *
-     * ⚠️ Deliberately AFTER the country filter. A row hidden from this visitor must not
-     * contribute its key, or the response would disclose that content exists for other
-     * countries — the same reasoning that keeps `filterRowsByCountry` outside the cache.
+     * ⚠️ STILL CALLED AFTER THE COUNTRY FILTER, AND THAT ORDERING IS NOT INCIDENTAL. A row hidden
+     * from this visitor must not contribute its key, or the response would disclose that content
+     * exists for other countries — the same reasoning that keeps `filterRowsByCountry` outside the
+     * cache above. `publicRows`, never `data.rows`.
      *
-     * ⚠️ Not inside `getTableFromDB`'s cache, for the same reason: the cache key omits the
-     * country. The extra query only runs for tables that actually declare an image column,
-     * which is none until an admin configures one.
+     * ⚠️ Deliberately outside `getTableFromDB`'s cache, whose key omits the country. The extra
+     * query only runs for tables that declare an image column — 5 of 2,685 columns today.
      */
-    const imageFields = publicSchema.columns
-      .map((col) => col.meta?.imageColumn)
-      .filter((f): f is string => typeof f === 'string' && f.length > 0);
-
-    let images: TableImageMap = {};
-    if (imageFields.length > 0) {
-      const keys = new Set<string>();
-      for (const row of publicRows) {
-        for (const field of imageFields) {
-          const value = row[field];
-          if (typeof value === 'string' && value.trim() !== '') keys.add(value.trim());
-        }
-      }
-      if (keys.size > 0) {
-        const found = await prisma.tableImage.findMany({
-          where: { key: { in: [...keys] } },
-          select: { key: true, url: true },
-        });
-        images = Object.fromEntries(found.map((i) => [i.key, i.url]));
-        /*
-          ⚠️ A key with no matching image is simply absent from the map, and the renderer
-          shows nothing rather than a broken-image box. That is the same choice `ItemIcon`
-          made in Phase J: on the public site a missing picture must never become visible
-          damage. The admin screen is where a dangling reference gets surfaced.
-        */
-      }
-    }
+    const images = await resolveTableImages(publicRows, publicSchema);
 
     return {
       images,

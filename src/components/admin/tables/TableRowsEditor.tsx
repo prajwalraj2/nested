@@ -115,14 +115,80 @@ import type { TableColumn, TableData, TableRow, TableSchema } from '@/types/tabl
  * and new rows inherit the server's "ALL" default via `ensureRowsHaveTargetCountries`.
  */
 
+/**
+ * One row's image in the admin list (N-1).
+ *
+ * ⚠️ THREE STATES, NOT TWO — and the third is the reason this component exists rather than an
+ * inline `<img>`:
+ *
+ *   no key            -> nothing. The row simply has no picture.
+ *   key, resolved     -> the thumbnail, framed like the public table's square shape.
+ *   ⚠️ key, UNRESOLVED -> a visible marker. The row names an image that is not in the library.
+ *
+ * That last case is invisible on the public site by design: a missing image renders as nothing, so
+ * a dangling reference and "no image" look identical out there. `getPublicTable`'s own comment says
+ * the admin is where it gets surfaced — this is the code that makes that true rather than aspirational.
+ */
+function RowThumbnail({ imageKey, images }: { imageKey: string; images: Record<string, string> }) {
+  if (!imageKey) return null;
+
+  const url = images[imageKey];
+
+  if (!url) {
+    return (
+      <span
+        className="border-destructive/50 text-destructive flex size-8 shrink-0 items-center justify-center rounded-[4px] border border-dashed text-[9px] font-semibold"
+        title={`No image found for key "${imageKey}"`}
+      >
+        ?
+      </span>
+    );
+  }
+
+  return (
+    /*
+      ⚠️ MATCHED TO THE PUBLIC TABLE'S `square` FRAME, AND THAT MATCHING IS THE POINT — the reason
+      `resolveTableImages` is shared is so this screen cannot show a different picture from the live
+      page, and showing the same picture differently framed defeats half of it.
+
+      Both dropped the 3px inset they started with: on real logos it made a 32px image read like a
+      24px one. ⚠️ IF `IMAGE_SHAPE_CLASS.square` IN `table/DataTable.tsx` CHANGES, CHANGE THIS TOO.
+
+      Plain `<img>` for the same reason the public table uses one: the object is already a 64px WebP
+      from the upload endpoint, so `next/image` would re-encode a finished image and bill a
+      transformation for nothing.
+    */
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src={url}
+      alt=""
+      width={32}
+      height={32}
+      loading="lazy"
+      decoding="async"
+      title={imageKey}
+      className="border-border bg-muted/40 size-8 shrink-0 rounded-[4px] border object-contain"
+    />
+  );
+}
+
 type TableRowsEditorProps = {
   schema: TableSchema;
   data: TableData | null;
+  /**
+   * Image key -> URL, resolved server-side for the keys this table references (N-1).
+   *
+   * ⚠️ A KEY ABSENT FROM THIS MAP IS A DANGLING REFERENCE, AND THIS SCREEN IS THE ONLY PLACE IT
+   * CAN SURFACE. The public renderer deliberately shows nothing for a missing image — a broken
+   * picture must never become visible damage — which means a row pointing at a deleted image looks
+   * identical to a row with no image at all out there. Here they are distinguished.
+   */
+  images: Record<string, string>;
   /** Persists the full rows array. Resolves to an error message, or `null` on success. */
   onSave: (rows: TableRow[]) => Promise<string | null>;
 };
 
-export function TableRowsEditor({ schema, data, onSave }: TableRowsEditorProps) {
+export function TableRowsEditor({ schema, data, images, onSave }: TableRowsEditorProps) {
   const columns = schema?.columns ?? [];
 
   /**
@@ -274,7 +340,23 @@ export function TableRowsEditor({ schema, data, onSave }: TableRowsEditorProps) 
                 <TableRowUI key={row.id}>
                   {columns.map((column) => (
                     <TableCell key={column.id} className="max-w-[24rem] truncate">
-                      <CellValue value={row[column.id]} column={column} />
+                      {/*
+                        ⚠️ THE THUMBNAIL RENDERS IN THE COLUMN THAT *DECLARES* THE IMAGE, matching
+                        the public table exactly — an image is a companion to a column, not a
+                        column of its own (§29.6(d)). Putting it in a fixed first column would
+                        show it somewhere different from where the live page shows it.
+                      */}
+                      <span className="flex min-w-0 items-center gap-2">
+                        {column.meta?.imageColumn && (
+                          <RowThumbnail
+                            imageKey={String(row[column.meta.imageColumn] ?? '').trim()}
+                            images={images}
+                          />
+                        )}
+                        <span className="min-w-0 flex-1 truncate">
+                          <CellValue value={row[column.id]} column={column} />
+                        </span>
+                      </span>
                     </TableCell>
                   ))}
 
