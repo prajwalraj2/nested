@@ -61,9 +61,17 @@ type TableWithPage = {
 
 type TableEditorProps = {
   table: TableWithPage;
+  /**
+   * Image key -> URL for the keys this table references (N-1).
+   *
+   * ⚠️ Resolved by the SERVER PAGE, not here. See the note at its `<TableEditor>` call site for
+   * why this is a prop rather than a fetch — and note it is the same `resolveTableImages` the
+   * public table uses, so the admin cannot show a different picture from the live page.
+   */
+  images: Record<string, string>;
 };
 
-export function TableEditor({ table }: TableEditorProps) {
+export function TableEditor({ table, images }: TableEditorProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('data');
   const [isLoading, setIsLoading] = useState(false);
@@ -406,6 +414,7 @@ export function TableEditor({ table }: TableEditorProps) {
             <CardContent>
               {table.schema ? (
                 <TableRowsEditor
+                  images={images}
                   schema={table.schema}
                   data={table.data}
                   onSave={handleSaveRows}

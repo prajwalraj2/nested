@@ -146,3 +146,61 @@ export async function getImageUsage(key: string): Promise<ImageUsage> {
   const all = await getAllImageUsage();
   return all.get(key) ?? { count: 0, places: [] };
 }
+
+/**
+ * Resolve one table's image keys to URLs (N-1).
+ * ============================================================================
+ *
+ * ⚠️ EXTRACTED FROM `TableService.getPublicTable`, WHICH DID THIS INLINE — and the extraction
+ * removed a real duplication, not just moved code. That version rebuilt `imageKeyFields`'s logic
+ * by hand:
+ *
+ *     schema.columns.map((col) => col.meta?.imageColumn).filter(...)
+ *
+ * Two copies of "which fields hold an image key" is exactly the kind of pair that drifts the day
+ * `meta` grows a second image-bearing field. Now there is one.
+ *
+ * ⚠️ THE ADMIN NEEDS THIS TOO, WHICH IS WHY IT IS SHARED RATHER THAN JUST TIDIED. Rows store a
+ * `TableImage.key`, never a URL, so the admin row list could not show a thumbnail at all — the
+ * admin route resolved nothing. One function, two callers, no chance of the two screens disagreeing
+ * about which image belongs to which row.
+ *
+ * ⚠️ ONE QUERY, NOT ONE PER ROW. A 40-row table with an image column would otherwise translate 40
+ * names into URLs one at a time.
+ *
+ * ⚠️ CALL IT AFTER ANY COUNTRY FILTERING, NEVER BEFORE. A row hidden from this visitor must not
+ * contribute its key, or the response discloses that content exists for other countries. The public
+ * service does exactly this; anything new that calls this must too.
+ *
+ * ⚠️ A KEY WITH NO MATCHING IMAGE IS SIMPLY ABSENT from the returned map. The public renderer then
+ * shows nothing rather than a broken-image box — the same choice `ItemIcon` made in Phase J, on the
+ * grounds that a missing picture must never become visible damage. **The consequence is that the
+ * PUBLIC SIDE CAN NEVER REVEAL A DANGLING KEY**, so the admin is the only place it can surface;
+ * that is why the admin row list compares its rows against this map rather than trusting it.
+ */
+export async function resolveTableImages(
+  rows: TableRow[],
+  schema: TableSchema | null | undefined
+): Promise<Record<string, string>> {
+  const fields = imageKeyFields(schema);
+
+  // No column declares an image companion — no query at all. True of 651 of 656 tables today.
+  if (fields.length === 0) return {};
+
+  const keys = new Set<string>();
+  for (const row of rows) {
+    for (const field of fields) {
+      const value = row[field];
+      if (typeof value === 'string' && value.trim() !== '') keys.add(value.trim());
+    }
+  }
+
+  if (keys.size === 0) return {};
+
+  const found = await prisma.tableImage.findMany({
+    where: { key: { in: [...keys] } },
+    select: { key: true, url: true },
+  });
+
+  return Object.fromEntries(found.map((image) => [image.key, image.url]));
+}

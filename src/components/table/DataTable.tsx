@@ -68,35 +68,64 @@ import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff } from "lucide-react"
  */
 
 /**
- * `col.align` -> a Tailwind class (K-3).
+ * Row-image shapes and their presentation (K-5c, frame added in N-1).
  *
- * ⚠️ Full literals, for the same reason as `BADGE_COLOR_CLASSES`: Tailwind scans source for
- * class strings and never evaluates code, so `text-${align}` would emit no CSS at all.
- *
- * Every one of the 2,675 stored columns currently says `left`, so wiring this changes
- * nothing visible today. It exists so the K-6 editor has somewhere to write.
- */
-/**
- * Row-image shapes (K-5c).
- *
- * ⚠️ 1:1 ONLY, on the user's instruction. `cover` — a 2:3 portrait for book jackets — is
- * written below and commented out, because enabling it is not just a class change:
+ * ⚠️ 1:1 ONLY, on the user's instruction. `cover` — a 2:3 portrait for book jackets — is written
+ * below and commented out, because enabling it is not just a class change:
  *
  *     a 2:3 cover 32px wide is 48px TALL,
  *     so a book table sits at `comfortable` row height whether or not that is chosen.
  *
- * Shape and density are therefore coupled, which is why it was deferred rather than merely
- * left unbuilt. Turning it on means uncommenting the entry AND widening `imageShape` in
+ * Shape and density are therefore coupled, which is why it was deferred rather than merely left
+ * unbuilt. Turning it on means uncommenting the entry AND widening `imageShape` in
  * `types/table.ts`.
+ *
+ * ⚠️ THE FRAME IS ON `square` ONLY, AND THIS MAP IS WHY THAT COSTS NOTHING. A circular avatar
+ * inside a bordered box looks like a mistake, and square-only was the ask — keeping the classes
+ * here rather than in the JSX means no conditional and no way to frame the wrong shape by accident.
+ *
+ * ⚠️ NO PADDING, DELIBERATELY — AND THE FIRST VERSION HAD SOME. `p-[3px]` was added so the border
+ * sat clear of the artwork; on real logos it just made a 32px picture look like a 24px one, and it
+ * was removed after looking at it. `box-sizing: border-box` means the 1px border alone costs 2px of
+ * content and ROW HEIGHTS DO NOT MOVE, which is the property worth protecting here: `compact`
+ * density would feel a 4px increase on every row.
+ *
+ * ⚠️ THE INSET WAS RECONSIDERED AND DECLINED AGAIN (21 Aug 2026), so do not re-add it as an
+ * oversight. The argument FOR it is real and worth knowing: `object-contain` in a square box
+ * letterboxes a portrait book cover, a 16:9 video thumbnail and a square logo by different amounts,
+ * so without an inset the artwork touches the border on two sides and floats from it on the other
+ * two — a ragged column. An inset gives every shape an identical frame. It was declined because at
+ * 32px the smaller picture cost more than the tidiness bought. **If the frames ever look ragged
+ * once video thumbnails are in there, this is the knob, and going to `h-9 w-9` first is better than
+ * shrinking the image.**
+ *
+ * ⚠️ `RowThumbnail` IN `admin/tables/TableRowsEditor.tsx` MUST MATCH THIS. The admin row list draws
+ * the same picture for the same row, and the whole point of sharing `resolveTableImages` was that
+ * the two screens cannot disagree. If the frame changes here, change it there.
+ *
+ * Tokens, not fixed greys: `border-border` and `bg-muted/40` are the pair the admin Images grid
+ * uses, so the screens match in both themes rather than by coincidence in one.
  *
  * Full literals, as ever: Tailwind scans source for class strings and never evaluates code.
  */
 const IMAGE_SHAPE_CLASS: Record<'circle' | 'square', string> = {
   circle: 'rounded-full',
-  square: 'rounded-[4px]',
+  square: 'rounded-[4px] border border-border bg-muted/40',
   // cover: 'rounded-[3px] aspect-[2/3] h-auto w-6',   // see the note above before enabling
 };
 
+/**
+ * `col.align` -> a Tailwind class (K-3).
+ *
+ * ⚠️ Full literals, for the same reason as `BADGE_COLOR_CLASSES`: Tailwind scans source for class
+ * strings and never evaluates code, so `text-${align}` would emit no CSS at all.
+ *
+ * Every one of the 2,685 stored columns currently says `left`, so wiring this changes nothing
+ * visible today. It exists so the K-6 editor has somewhere to write.
+ *
+ * ⚠️ This comment used to sit ABOVE the shape map rather than above this one — three doc blocks
+ * stacked over a single const, describing two different things. Moved so each says what it is over.
+ */
 const ALIGN_CLASS: Record<'left' | 'center' | 'right', string> = {
   left: 'text-left',
   center: 'text-center',
