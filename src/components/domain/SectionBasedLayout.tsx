@@ -15,6 +15,23 @@ type Domain = {
   pageType: string;
   /** Icon id — used for the heading when this is the domain root. */
   icon?: string | null;
+  /**
+   * When a person last reviewed this domain (N-5).
+   *
+   * ⚠️ SECTION-BASED PAGES WERE ADDED TO THE BADGE AFTER THE FIRST PASS, on request, and the
+   * original reasoning for leaving them out is worth recording because it was wrong in a
+   * specific way. The rule was "content pages get the badge, navigation pages do not", and a
+   * section grid looked like navigation — it is mostly links.
+   *
+   * But a domain root IS reviewed as a unit: the sections, what is in them, what is missing.
+   * Saying "this domain was reviewed in Aug 2026" on the page that represents the domain is
+   * the most useful place to say it, because it is the page a visitor lands on first.
+   *
+   * ⚠️ `SubcategorySelector` STILL DOES NOT GET IT, and that is the line: it renders one
+   * section's children as a chooser, so it is a step inside navigation rather than a page
+   * anyone reviews. See the note on `reviewedAt` in `PageHeading`.
+   */
+  reviewedAt?: Date | string | null;
 };
 
 type Page = {
@@ -114,7 +131,7 @@ export function SectionBasedLayout({
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <PageHeading title={title} icon={headingIcon} />
+        <PageHeading title={title} icon={headingIcon} reviewedAt={domain.reviewedAt} />
       </div>
 
       {/* Main Content - Row-Based 3-Column Layout */}

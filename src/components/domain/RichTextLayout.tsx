@@ -2,10 +2,19 @@
 
 import { PageHeading } from './PageHeading';
 
+/**
+ * The domain, as the content layouts need it.
+ *
+ * ⚠️ `reviewedAt` IS THE DOMAIN'S, NOT THE PAGE'S (N-5). One button marks a whole domain's pass,
+ * so every page under it shows the same date. See the note on `Domain.reviewedAt` in the schema for
+ * why it does not live on the three content models.
+ */
 type Domain = {
   id: string;
   name: string;
   slug: string;
+  /** Rendered as "Reviewed <month> <year>" when recent enough. */
+  reviewedAt?: Date | string | null;
 };
 
 type RichTextContent = {
@@ -38,7 +47,7 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
     <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
-        <PageHeading title={page.title} icon={page.icon} spacing="loose" />
+        <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} spacing="loose" />
 
         {/*
           THIS CARD FOLLOWS THE THEME.

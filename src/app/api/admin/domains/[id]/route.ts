@@ -249,6 +249,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         */
         icon: body.icon !== undefined ? body.icon : existingDomain.icon,
         targetCountries: validTargetCountries
+        /*
+          ⚠⚠ DO NOT ADD `reviewedAt` TO THIS LIST. ⚠⚠
+
+          This object is a REBUILD, not a patch: every column the domain should keep has to be
+          named here, and anything omitted is written as whatever the list says. That is why
+          `reviewedAt` is handled by a narrow branch in `PATCH` instead — if it were listed here
+          and someone later removed the line, or if it is simply never added, an ordinary name
+          edit silently discards the review date.
+
+          Ten separate occurrences of exactly this bug are recorded in NEW-IMPROVEMENTS*.md. The
+          field is intentionally absent.
+        */
       },
       include: {
         category: {
@@ -422,6 +434,49 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         },
         { status: 404 }
       );
+    }
+
+    /**
+     * Mark this domain reviewed, or clear the mark (N-5).
+     *
+     * ⚠️ A NARROW BRANCH THAT WRITES EXACTLY ONE COLUMN — deliberately in PATCH and deliberately
+     * NOT in the PUT above. That PUT rebuilds its `data` from an explicit field list, and a field
+     * missing from such a list is silently dropped: adding `reviewedAt` there would mean editing a
+     * domain's NAME wiped its review date, with no error anywhere. That bug class has appeared ten
+     * times in this project; this is the shape that avoids it.
+     *
+     * ⚠️ THE SERVER STAMPS THE TIME, THE CLIENT DOES NOT SEND IT. A client-supplied date is a
+     * client-supplied claim — and the whole point of this field is that it records something real.
+     * `{ reviewed: true }` means now; `{ reviewed: false }` clears it.
+     *
+     * ⚠️ REVIEWING IS NOT EDITING. Nothing else on the row changes, and `updatedAt` moving is an
+     * unavoidable side effect of any write — which is exactly why the two fields are separate.
+     */
+    if ('reviewed' in body) {
+      if (typeof body.reviewed !== 'boolean') {
+        return NextResponse.json(
+          { success: false, message: '`reviewed` must be true or false.' },
+          { status: 400 }
+        );
+      }
+
+      const updatedDomain = await prisma.domain.update({
+        where: { id },
+        data: { reviewedAt: body.reviewed ? new Date() : null },
+        include: {
+          category: {
+            select: { id: true, name: true, slug: true, icon: true, columnPosition: true }
+          }
+        }
+      });
+
+      /*
+        ⚠️ THE BADGE IS PUBLIC, so this is not an admin-only change. Without invalidation the
+        badge would appear up to the cache duration later, which reads as the button not working.
+      */
+      invalidateDomains();
+
+      return NextResponse.json({ success: true, domain: updatedDomain });
     }
 
     /**

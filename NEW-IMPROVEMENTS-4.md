@@ -246,7 +246,7 @@ document and the code.
 | ~~**N-2**~~ | ~~Row ordering~~ | ✅ shipped 22 Aug |
 | ~~**N-3**~~ | ~~Row tags~~ | ✅ shipped 22 Aug |
 | ~~**N-4**~~ | ~~Companion fields in CSV export~~ | ✅ shipped 22 Aug |
-| **N-5** | `reviewedAt` on `Domain`, badge on content pages, stale list | ✅ |
+| ~~**N-5**~~ | ~~`reviewedAt` on `Domain`, badge on content pages, stale list~~ | ✅ shipped 22 Aug — ⚠️ **the only migration in Phase N** |
 
 ⚠️ **N-1 to N-4 are table-internal and low risk. N-5 touches the public rendering of every content
 page**, which is why it is last rather than tangled with the table work.
@@ -406,6 +406,66 @@ on every page in that domain; ⚠️ **editing a table does NOT change the badge
 are separate; ⚠️ the badge disappears once it passes the staleness threshold; the stale list orders
 oldest first; ⚠️ **the badge and `sitemap.xml` do not contradict each other**, which was the whole
 objection to the mock.
+
+#### ✅ What shipped, 22 Aug
+
+| Piece | Where |
+| --- | --- |
+| The threshold, the label and the staleness rule — **one file, shared** | `src/lib/review-dates.ts` |
+| `Domain.reviewedAt DateTime?` + migration | `prisma/schema.prisma`, `20260822100000_add_domain_reviewed_at` |
+| `PATCH { reviewed: boolean }` — ⚠️ **the server stamps the time**, the client only asks | `api/admin/domains/[id]/route.ts` |
+| The badge, under the `<h1>` | `components/domain/PageHeading.tsx` |
+| Threaded through all three layouts (7 `PageHeading` call sites) | `TableLayout` ×4, `RoadmapLayout` ×2, `RichTextLayout` ×1 |
+| Row menu: **Mark reviewed** / **Clear review date** | `admin/domains/DomainsTable.tsx` |
+| **Mark all listed as reviewed** + confirm dialog | same |
+| **Review** filter: Any / Needs review / Recently reviewed | `admin/domains/DomainFilters.tsx`, `admin/domains/page.tsx` |
+
+⚠️ **Two traps found while building it, both worth remembering:**
+
+1. **The review filter must nest inside `AND`, not be assigned to `where.OR`.** The search filter
+   already owns `whereConditions.OR`; a second assignment would have **replaced** it, so searching
+   and filtering by review together would have silently ignored the search term. No error — the same
+   shape as the eleven field-list bugs, in a different costume.
+2. **`transformedDomains` in `admin/domains/page.tsx` had to be told about `reviewedAt`** — the
+   **eleventh** instance of rebuild-by-explicit-field-list dropping a new column.
+
+**Not** a trap, though it looked like one: `table.service.ts` selects only `id, name, slug` for
+`page.domain`. That feeds the *table* fetch; the layouts get their `domain` from
+`DomainService.getWithPages`, which uses `include` and is spread into `domainForComponents`. So
+`reviewedAt` arrives intact and no change was needed there.
+
+#### ✅ N-5b — badge placement, revised 22 Aug
+
+The first version put the badge in a `<p>` between the `<h1>` and the divider. That **pushed the
+rule down by a line on every content page** — and the rule sitting directly under the title, with
+Share riding just above it, is part of the page's structure, not spare space.
+
+| | Before | After |
+| --- | --- | --- |
+| Position | under the `<h1>`, above the rule | right-hand side of the heading row, left of **Share** |
+| Vertical cost | one line, every page | none — the rule is back exactly where it was |
+| Size | `text-xs` | `text-sm` |
+| Format | "Reviewed August 2026" | "⟳ Reviewed Aug 2026" — refresh glyph, short month |
+| Section-based pages | ✗ | ✅ **added** |
+
+- ⚠️ **The condition on the action group had to gain `reviewLabel`.** It rendered only for
+  `actions || share`, so on a page with `share={false}` the badge would have had no container and
+  **silently vanished** — nothing rendered, nothing errored.
+- ⚠️ **Hidden below `sm`.** On a phone the title already wraps two or three lines; the date is
+  reassurance, not information the page depends on.
+- ⚠️ **Short month is a horizontal-space decision**, not a precision one. Beside a button and a
+  wrapping `<h1>`, "September" costs six characters that "Sep" does not.
+- ⚠️ **The refresh icon conventionally means *updated*, and this badge deliberately says
+  *reviewed*.** Used because it is the glyph in the mockup; `CalendarCheck` (already the admin row
+  menu's icon for this action) is a one-word swap if it ever reads wrong.
+- **`SubcategorySelector` and the `/domain` listing still do not get it** — that is the line:
+  section-based pages are a domain reviewed as a unit; those two are navigation.
+
+The space under the `<h1>` is now free, which is where the **one-line page description** goes next.
+
+⚠️ **A badge can legitimately read up to three months old.** At 89 days the badge still shows, so in
+late August a domain reviewed in May renders "Reviewed May 2026". That is the honest date and the
+point of the feature — but it is worth knowing before it looks like a bug.
 
 ---
 

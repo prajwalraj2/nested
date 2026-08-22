@@ -17,7 +17,11 @@ import type { PageWithContent, PageBasic } from '@/services/types';
  * document at all (finding #30). A roadmap ships indexable on day one.
  */
 
-type Domain = { id: string; name: string; slug: string };
+/**
+ * ⚠️ `reviewedAt` IS THE DOMAIN'S, NOT THE PAGE'S (N-5). One button marks a whole domain's pass,
+ * so every page under it carries the same date.
+ */
+type Domain = { id: string; name: string; slug: string; reviewedAt?: Date | string | null };
 
 type Props = {
   page: PageWithContent & { title: string; icon?: string | null };
@@ -48,7 +52,7 @@ export function RoadmapLayout({ page, domain, siblingRoles, currentPath, openTop
     return (
       <div className="min-h-screen">
         <div className="mx-auto max-w-5xl px-6 py-8">
-          <PageHeading title={page.title} icon={page.icon} spacing="loose" />
+          <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} spacing="loose" />
           <div className="border-border rounded-lg border border-dashed py-16 text-center">
             <p className="font-medium">Coming soon</p>
             <p className="text-muted-foreground mx-auto mt-1 max-w-md text-sm">
@@ -100,7 +104,7 @@ export function RoadmapLayout({ page, domain, siblingRoles, currentPath, openTop
           purpose — the page is "Frontend" in the sidebar and breadcrumb, the roadmap can be
           "Frontend Developer" on the page itself.
         */}
-        <PageHeading title={roadmap.title || page.title} icon={page.icon} share />
+        <PageHeading reviewedAt={domain.reviewedAt} title={roadmap.title || page.title} icon={page.icon} share />
 
         {roadmap.description && (
           <p className="text-muted-foreground -mt-6 mb-8 max-w-prose">{roadmap.description}</p>
