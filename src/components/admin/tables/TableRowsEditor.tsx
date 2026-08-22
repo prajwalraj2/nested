@@ -57,6 +57,7 @@ import { generateRowId, TARGET_COUNTRIES_COLUMN_ID,
   renumberDisplayOrder
 } from '@/lib/table-utils';
 import { RowImagePicker } from './RowImagePicker';
+import { badgeClassFor } from '@/lib/badge-colors';
 import type { TableColumn, TableData, TableRow, TableSchema } from '@/types/table';
 
 /**
@@ -397,6 +398,24 @@ export function TableRowsEditor({ schema, data, images, onSave }: TableRowsEdito
                         show it somewhere different from where the live page shows it.
                       */}
                       <span className="flex min-w-0 items-center gap-2">
+                        {column.meta?.tagField &&
+                          String(row[column.meta.tagField] ?? '').trim() !== '' && (
+                            /*
+                              ⚠️ SHOWN IN THE LIST, not only in the dialog — same reason as the
+                              thumbnail: without it you cannot tell which rows carry a tag without
+                              opening each one. Coloured from the stored map so it matches the
+                              public pill exactly.
+                            */
+                            <span
+                              className={`inline-block shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] leading-none font-semibold ${badgeClassFor(
+                                String(row[column.meta.tagField]).trim(),
+                                {},
+                                column.meta.tagColors,
+                              )}`}
+                            >
+                              {String(row[column.meta.tagField]).trim()}
+                            </span>
+                          )}
                         {column.meta?.imageColumn && (
                           <RowThumbnail
                             imageKey={String(row[column.meta.imageColumn] ?? '').trim()}
@@ -716,6 +735,57 @@ function RowDialog({ columns, row, onSubmit, onCancel }: RowDialogProps) {
                       }))
                     }
                   />
+                </div>
+              )}
+
+              {/*
+                ⚠️ FREE TEXT, WITH THE KNOWN TAGS OFFERED AS A DATALIST rather than a closed
+                dropdown. The requirement was explicitly free text, so a `<select>` would be wrong
+                — but typing "recomended" once creates a tag that will never match the colour set
+                for "Recommended", and nothing would warn you. A datalist keeps the field free
+                while making the existing spelling the path of least resistance.
+
+                The suggestions come from `tagColors`' keys, which is the list of tags the schema
+                has a colour for — the closest thing to a canonical set that exists here.
+              */}
+              {column.meta?.tagField && (
+                <div className="mt-2 space-y-1.5">
+                  <Label htmlFor={`tag-${column.id}`} className="text-xs text-muted-foreground">
+                    Tag above {column.name}
+                  </Label>
+                  <Input
+                    id={`tag-${column.id}`}
+                    list={`tag-options-${column.id}`}
+                    value={String(values[column.meta.tagField] ?? '')}
+                    placeholder="Recommended, Most Bought, … (leave blank for none)"
+                    onChange={(e) =>
+                      setValues((prev) => ({
+                        ...prev,
+                        /*
+                          ⚠️ Empty string, not `undefined` — same reason as the image field above:
+                          the row is written wholesale as JSON and `undefined` disappears on
+                          serialisation, so clearing a tag would leave the old one stored.
+                        */
+                        [column.meta!.tagField!]: e.target.value,
+                      }))
+                    }
+                  />
+                  <datalist id={`tag-options-${column.id}`}>
+                    {Object.keys(column.meta.tagColors ?? {}).map((t) => (
+                      <option key={t} value={t} />
+                    ))}
+                  </datalist>
+                  {/*
+                    ⚠️ Warns when the typed tag has no colour — it will render grey rather than
+                    the intended colour, which is easy to miss on a page you are not looking at.
+                  */}
+                  {String(values[column.meta.tagField] ?? '').trim() !== '' &&
+                    !Object.hasOwn(column.meta.tagColors ?? {}, String(values[column.meta.tagField]).trim()) && (
+                      <p className="text-muted-foreground text-xs">
+                        No colour set for this tag — it will show grey. Add one in Schema &amp;
+                        Settings.
+                      </p>
+                    )}
                 </div>
               )}
             </div>

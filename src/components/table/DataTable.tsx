@@ -424,6 +424,14 @@ export function DataTable({
             ? images?.[String(row.original?.[col.meta.imageColumn] ?? '').trim()]
             : undefined,
           imageShape: col.meta?.imageShape ?? 'square',
+          /*
+            The tag belongs to the ROW, like the image: `meta.tagField` names the field holding
+            free text. Trimmed here so a cell of spaces counts as no tag rather than an empty pill.
+          */
+          tagValue: col.meta?.tagField
+            ? String(row.original?.[col.meta.tagField] ?? '').trim() || undefined
+            : undefined,
+          tagColors: col.meta?.tagColors,
         });
       },
       enableSorting: col.sortable,
@@ -734,6 +742,10 @@ type CellOptions = {
   imageUrl?: string;
   /** Shape for that image. Defaults to `square`. */
   imageShape?: 'circle' | 'square';
+  /** This row's tag text, or undefined when it has none (N-3). */
+  tagValue?: string;
+  /** Tag text -> colour name, from `col.meta.tagColors`. */
+  tagColors?: Record<string, string> | null;
 };
 
 // Enhanced cell value formatting with interactive elements
@@ -766,9 +778,21 @@ function formatCellValue(
    * uses it (0 of 2,675 columns) and a column whose only content is a picture is exactly the
    * shape this design rejected.
    */
-  const withImage = (content: React.JSX.Element): React.JSX.Element => {
-    if (!options.imageUrl) return content;
-    return (
+  /**
+   * Wrap a cell's content with its row tag and/or image (K-5c, N-3).
+   *
+   * ⚠️ THE PILL SITS *INSIDE* THE CELL, ABOVE THE IMAGE AND TEXT — NOT OVERLAPPING THE ROW EDGE.
+   *
+   * The design showed it breaking above the row's top border. It would be CLIPPED: the table card
+   * is `overflow-hidden` and, with the sticky header on, `[data-slot=table-container]` is
+   * `overflow-y-auto` — and both of those exist on purpose, they are the K-2 sticky-header fix.
+   * Inside the cell reads almost identically and cannot clip. See NEW-IMPROVEMENTS-4.md 37.3(g).
+   *
+   * ⚠️ `items-start` ON THE COLUMN, so the pill is only as wide as its text. Without it the flex
+   * column stretches every child to full width and the pill becomes a full-width bar.
+   */
+  const withTagAndImage = (content: React.JSX.Element): React.JSX.Element => {
+    const imageRow = options.imageUrl ? (
       <span className="flex min-w-0 items-center gap-2.5">
         {/*
           ⚠️ A DISABLE DIRECTIVE MUST NOT SHARE A COMMENT WITH PROSE. The first version put
@@ -797,6 +821,30 @@ function formatCellValue(
         />
         <span className="min-w-0 flex-1">{content}</span>
       </span>
+    ) : (
+      content
+    );
+
+    if (!options.tagValue) return imageRow;
+
+    return (
+      <span className="flex min-w-0 flex-col items-start gap-1.5">
+        {/*
+          Colour comes from the STORED map, so a tag keeps its colour as new ones are added.
+          `{}` for the computed argument: there is deliberately nothing computed here — see the
+          note on `tagColors` in `types/table.ts`. An unmapped tag resolves to neutral `slate`.
+        */}
+        <span
+          className={`inline-block rounded-lg px-1.5 py-0.5 text-[10px] leading-none font-semibold ${badgeClassFor(
+            options.tagValue,
+            {},
+            options.tagColors,
+          )}`}
+        >
+          {options.tagValue}
+        </span>
+        <span className="min-w-0 max-w-full">{imageRow}</span>
+      </span>
     );
   };
 
@@ -808,7 +856,7 @@ function formatCellValue(
         .replace(/^www\./, '')        // Remove www
         .substring(0, 20) + (linkText.length > 20 ? '...' : ''); // Truncate if too long
       
-      return withImage(
+      return withTagAndImage(
         <a
           href={String(value)}
           target="_blank"
@@ -958,7 +1006,7 @@ function formatCellValue(
       const textValue = String(value);
       // Fallback truncation for any long text content
       if (textValue.length > 100) {
-        return withImage(
+        return withTagAndImage(
           <div className="max-w-[200px]">
             <span
               className="text-foreground text-sm block truncate cursor-help"
@@ -970,7 +1018,7 @@ function formatCellValue(
         );
       }
 
-      return withImage(
+      return withTagAndImage(
         <span className="text-foreground max-w-xs truncate block" title={textValue}>
           {textValue}
         </span>

@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { BADGE_COLORS, badgeClassFor } from '@/lib/badge-colors';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { 
@@ -544,6 +545,106 @@ function ColumnEditor({ column, index, canDelete, onUpdate, onDelete }: ColumnEd
           </div>
 
           {/*
+            ── Row tags (N-3) ────────────────────────────────────────────────────────
+            ⚠️ A COLUMN OPTION, NOT A COLUMN TYPE — the same call as the row image below, and
+            for the same reason. Only 3–4 rows per table are expected to carry a tag, so a
+            dedicated `Tags` column would be ~90% empty and need hiding on mobile: verbatim the
+            §29.6(d) argument that made images a companion.
+
+            Ticking this writes `meta.tagField`, naming the row field that holds the free text.
+            The id is derived from the column id so it cannot collide with a real data column.
+          */}
+          <div className="border-t pt-3">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id={`tag-${column.id}`}
+                checked={!!column.meta?.tagField}
+                onCheckedChange={(checked) =>
+                  onUpdate({
+                    meta: {
+                      ...column.meta,
+                      // `undefined`, not deletion — `updateColumn` merges. See the image note below.
+                      tagField: checked ? `${column.id}__tag` : undefined,
+                      tagColors: checked ? (column.meta?.tagColors ?? {}) : undefined,
+                    },
+                  })
+                }
+              />
+              <Label htmlFor={`tag-${column.id}`} className="text-sm">
+                Show a tag above this column
+              </Label>
+            </div>
+
+            {column.meta?.tagField && (
+              <div className="mt-3 space-y-3 pl-6">
+                <p className="text-xs text-muted-foreground">
+                  Type the tag on each row in <strong>Data View</strong>. Give a colour to each tag
+                  you use below — a tag with no colour shows grey.
+                </p>
+
+                {/*
+                  ⚠️ COLOURS ARE MANAGED HERE, NOT IN THE ROW DIALOG, because a colour belongs to a
+                  TAG NAME rather than to a row: setting it on one row would change every row using
+                  that tag. Putting it in the row dialog would make a global change look local.
+
+                  ⚠️ AND THE LIST IS TYPED, NOT DISCOVERED. This editor only has the schema — the
+                  rows live in another tab — so it cannot enumerate the tags actually in use. The
+                  cost is having to type the tag name once; the alternative was threading rows into
+                  a schema editor that has no other reason to know about them.
+                */}
+                {Object.entries(column.meta.tagColors ?? {}).map(([tagName, colour]) => (
+                  <div key={tagName} className="flex items-center gap-2">
+                    <span
+                      className={`inline-block shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${badgeClassFor(tagName, {}, column.meta?.tagColors)}`}
+                    >
+                      {tagName}
+                    </span>
+                    <select
+                      value={String(colour)}
+                      onChange={(e) =>
+                        onUpdate({
+                          meta: {
+                            ...column.meta,
+                            tagColors: { ...(column.meta?.tagColors ?? {}), [tagName]: e.target.value },
+                          },
+                        })
+                      }
+                      className="flex-1 px-2 py-1 text-sm border border-input bg-background rounded-md focus:ring-2 focus:ring-ring focus:border-ring"
+                    >
+                      {BADGE_COLORS.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { ...(column.meta?.tagColors ?? {}) };
+                        delete next[tagName];
+                        onUpdate({ meta: { ...column.meta, tagColors: next } });
+                      }}
+                      className="text-xs text-destructive hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+
+                <TagColourAdder
+                  existing={column.meta.tagColors ?? {}}
+                  onAdd={(tagName, colour) =>
+                    onUpdate({
+                      meta: {
+                        ...column.meta,
+                        tagColors: { ...(column.meta?.tagColors ?? {}), [tagName]: colour },
+                      },
+                    })
+                  }
+                />
+              </div>
+            )}
+          </div>
+
+          {/*
             ── Row image (K-5c) ──────────────────────────────────────────────────────
             ⚠️ THIS IS A COLUMN OPTION, NOT A COLUMN TYPE.
 
@@ -665,4 +766,59 @@ function nextColumnId(columns: TableColumn[], reserved: string[]): string {
   let n = 1;
   while (used.has(`col_${n}`)) n += 1;
   return `col_${n}`;
+}
+
+/**
+ * Add one tag name and its colour (N-3).
+ *
+ * ⚠️ A SEPARATE COMPONENT BECAUSE IT NEEDS ITS OWN STATE. Two inputs that must be filled before
+ * anything is written cannot live in the parent without giving every column its own pair of state
+ * slots — and this panel renders one block per column.
+ */
+function TagColourAdder({
+  existing,
+  onAdd,
+}: {
+  existing: Record<string, string>;
+  onAdd: (tagName: string, colour: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [colour, setColour] = useState<string>(BADGE_COLORS[0]);
+
+  const trimmed = name.trim();
+  // ⚠️ Blocks a duplicate rather than silently overwriting the colour already chosen for it.
+  const duplicate = trimmed !== '' && Object.hasOwn(existing, trimmed);
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Recommended"
+        className="flex-1 px-2 py-1 text-sm border border-input bg-background rounded-md focus:ring-2 focus:ring-ring focus:border-ring"
+      />
+      <select
+        value={colour}
+        onChange={(e) => setColour(e.target.value)}
+        className="px-2 py-1 text-sm border border-input bg-background rounded-md focus:ring-2 focus:ring-ring focus:border-ring"
+      >
+        {BADGE_COLORS.map((c) => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={trimmed === '' || duplicate}
+        onClick={() => {
+          onAdd(trimmed, colour);
+          setName('');
+        }}
+      >
+        {duplicate ? 'Already added' : 'Add'}
+      </Button>
+    </div>
+  );
 }
