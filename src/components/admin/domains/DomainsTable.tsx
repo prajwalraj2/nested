@@ -19,6 +19,7 @@ import {
   Pencil,
   Target,
   Trash2,
+  CalendarCheck,
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -61,6 +62,9 @@ import { DomainForm } from './DomainForm';
 import type { DomainStatus } from '@/generated/prisma';
 import { DOMAIN_STATUSES, DOMAIN_STATUS_LABELS } from '@/lib/domain-status';
 import { getIcon } from '@/lib/icon-manifest';
+// One definition of "reviewed recently", shared with the public badge — see the header of
+// `review-dates.ts` for why the admin must not carry its own copy of the threshold.
+import { isReviewStale, REVIEW_STALE_DAYS } from '@/lib/review-dates';
 
 /**
  * How each status is drawn in the table.
@@ -155,6 +159,8 @@ type Domain = {
   category: Category | null;
   pageCount: number;
   previewUrl: string;
+  /** When a person last reviewed this domain's pages (N-5). `null` = never. */
+  reviewedAt: Date | string | null;
 };
 
 type DomainsTableProps = {
@@ -183,6 +189,10 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
    */
   const [publishingId, setPublishingId] = useState<string | null>(null);
 
+  /** Bulk review is table-wide, so unlike `publishingId` it is a single flag. */
+  const [bulkReviewing, setBulkReviewing] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState(false);
+
   /**
    * Failure message shown in a banner above the table.
    *
@@ -207,6 +217,84 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
    * It now takes the target status explicitly, and the row menu offers the two states the
    * domain is not currently in.
    */
+  /**
+   * Mark a domain reviewed, or clear the mark (N-5).
+   *
+   * ⚠️ SENDS `{ reviewed: true }`, NOT A DATE. The server stamps the time — a client-supplied
+   * timestamp is a client-supplied claim, and the entire point of this field is that it records
+   * something that actually happened.
+   *
+   * ⚠️ IT GOES THROUGH `PATCH`, WHICH WRITES ONE COLUMN. The `PUT` on the same route rebuilds its
+   * update from an explicit field list, so routing this through PUT would mean a later name edit
+   * silently discarding the review date. There is a comment in that PUT saying so.
+   */
+  async function handleReviewChange(domain: Domain, reviewed: boolean) {
+    setPublishingId(domain.id);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch(`/api/admin/domains/${domain.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewed }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message ?? `Request failed (${response.status})`);
+      }
+
+      router.refresh();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not update the review date.');
+    } finally {
+      setPublishingId(null);
+    }
+  }
+
+  /**
+   * Mark every domain currently listed as reviewed (N-5).
+   *
+   * ⚠️ "CURRENTLY LISTED" MEANS AFTER FILTERING, and that is the point rather than a limitation.
+   * Paired with the "Needs review" filter it becomes "I have just been through the stale ones" —
+   * which is the actual workflow. Marking all 25 blind is the rotating-fake-date with extra steps.
+   *
+   * ⚠️ SEQUENTIAL, NOT `Promise.all`. Twenty-five parallel writes to the same table, each firing
+   * `invalidateDomains()`, is a burst of cache churn for no gain — this is a button pressed once a
+   * month, so the slower loop is free and the failure is easier to reason about.
+   *
+   * ⚠️ IT REFRESHES ONCE AT THE END rather than per domain, so the table does not re-render 25 times.
+   */
+  async function handleBulkReview() {
+    setBulkReviewing(true);
+    setErrorMessage(null);
+
+    let failed = 0;
+    for (const domain of domains) {
+      try {
+        const response = await fetch(`/api/admin/domains/${domain.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reviewed: true }),
+        });
+        if (!response.ok) failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    setBulkReviewing(false);
+    setConfirmBulk(false);
+    /*
+      ⚠️ Reports a partial failure rather than swallowing it. "12 of 14 marked" is actionable;
+      silence after a bulk write is how a half-applied change goes unnoticed.
+    */
+    if (failed > 0) {
+      setErrorMessage(`${domains.length - failed} of ${domains.length} marked — ${failed} failed.`);
+    }
+    router.refresh();
+  }
+
   async function handleStatusChange(domain: Domain, status: DomainStatus) {
     setPublishingId(domain.id);
     setErrorMessage(null);
@@ -280,6 +368,18 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
     }
   }
 
+  /**
+   * How many of the domains ON SCREEN are stale (N-5).
+   *
+   * ⚠️ NOT MEMOISED, ON PURPOSE. It is one `isReviewStale` call per row over at most a few dozen
+   * rows — a `useMemo` here costs a dependency array to keep correct and saves nothing measurable.
+   *
+   * ⚠️ COUNTED FROM `domains`, THE ALREADY-FILTERED PROP, so the sentence above the table and the
+   * button below it are talking about the same set. Counting from an unfiltered list would produce
+   * "12 need review" over a table showing three rows.
+   */
+  const staleCount = domains.filter((domain) => isReviewStale(domain.reviewedAt)).length;
+
   return (
     <>
       {errorMessage && (
@@ -290,6 +390,82 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
           <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       )}
+
+      {/*
+        BULK REVIEW BAR (N-5).
+
+        ⚠️ IT ACTS ON `domains`, WHICH IS ALREADY FILTERED by the controls above this table. That is
+        the design, not a shortcut: paired with the "Needs review" filter the button means "I have
+        just been through the stale ones", which is the real workflow. A button that stamps all 35
+        regardless of what you are looking at is the rotating fake date with extra steps.
+
+        ⚠️ RENDERED ONLY WHEN SOMETHING IS ACTUALLY STALE. With every visible domain freshly
+        reviewed there is nothing to press, and a permanently-present button invites pressing it out
+        of habit — which is exactly the habit that turns a real date back into a meaningless one.
+      */}
+      {staleCount > 0 && (
+        <div className="mx-4 mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-muted-foreground text-sm">
+            {/*
+              Singular/plural handled explicitly. "1 domains need review" is the kind of small
+              wrongness that makes an admin panel feel unfinished.
+            */}
+            {staleCount === 1
+              ? '1 of these domains needs review'
+              : `${staleCount} of these domains need review`}
+          </p>
+
+          <Button variant="outline" size="sm" onClick={() => setConfirmBulk(true)}>
+            <CalendarCheck className="size-4" aria-hidden="true" />
+            Mark all listed as reviewed
+          </Button>
+        </div>
+      )}
+
+      {/*
+        The confirm step. ⚠️ A CONFIRM RATHER THAN CHECKBOXES, deliberately — see NEW-IMPROVEMENTS-4
+        37.3(c). Checkboxes would mean building selection state, a header tri-state and a "selected"
+        count for a button pressed roughly once a month; the filter already IS the selection.
+
+        The count is repeated in the body text because that is the number being asserted, and
+        "you are about to claim you reviewed 14 domains" is the sentence that makes someone stop if
+        they have not.
+      */}
+      <AlertDialog open={confirmBulk} onOpenChange={(open) => !open && setConfirmBulk(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark {domains.length} domains as reviewed?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stamps today&apos;s date on every domain currently listed, and each one will show
+              &ldquo;Reviewed {new Date().toLocaleDateString('en-GB', {
+                month: 'long',
+                year: 'numeric',
+              })}
+              &rdquo; on its public pages for the next {REVIEW_STALE_DAYS} days. Only do this if you
+              have actually been through them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* Disabled while in flight so a second click cannot start a second sequential run. */}
+            <AlertDialogCancel disabled={bulkReviewing}>Cancel</AlertDialogCancel>
+            {/*
+              ⚠️ `onClick` WITH `event.preventDefault()` IS NOT USED HERE, so Radix closes the dialog
+              on click — but `handleBulkReview` also clears `confirmBulk` itself, which keeps the
+              state honest if the dialog is ever driven from elsewhere.
+            */}
+            <AlertDialogAction onClick={handleBulkReview} disabled={bulkReviewing}>
+              {bulkReviewing ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  Marking…
+                </>
+              ) : (
+                'Mark as reviewed'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/*
         `Table` supplies its own `relative w-full overflow-x-auto` wrapper, so the six
@@ -327,6 +503,8 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
                 onEdit={() => setEditingId(domain.id)}
                 onDelete={() => setDeletingId(domain.id)}
                 onStatusChange={(status) => handleStatusChange(domain, status)}
+                isReviewed={!isReviewStale(domain.reviewedAt)}
+                onReviewChange={(reviewed) => handleReviewChange(domain, reviewed)}
               />
             ))
           ) : (
@@ -451,9 +629,25 @@ type DomainRowProps = {
   onEdit: () => void;
   onDelete: () => void;
   onStatusChange: (status: DomainStatus) => void;
+  /**
+   * ⚠️ "REVIEWED" MEANS *RECENTLY* REVIEWED, NOT "HAS A DATE". A review from last February is
+   * stale — the public badge is already hiding it — so the menu must offer "Mark reviewed" again
+   * rather than "Clear review date". One definition, in `isReviewStale`, shared with the badge, so
+   * the admin and the public page can never disagree about whether a domain counts as reviewed.
+   */
+  isReviewed: boolean;
+  onReviewChange: (reviewed: boolean) => void;
 };
 
-function DomainRow({ domain, isPublishing, onEdit, onDelete, onStatusChange }: DomainRowProps) {
+function DomainRow({
+  domain,
+  isPublishing,
+  onEdit,
+  onDelete,
+  onStatusChange,
+  isReviewed,
+  onReviewChange,
+}: DomainRowProps) {
   // Resolved from the generated manifest; null when unset OR when the SVG has been deleted
   // from public/icons/ while rows still reference it.
   const domainIcon = getIcon(domain.icon);
@@ -657,6 +851,16 @@ function DomainRow({ domain, isPublishing, onEdit, onDelete, onStatusChange }: D
                 <ExternalLink className="size-4" aria-hidden="true" />
                 View live page
               </Link>
+            </DropdownMenuItem>
+
+            {/*
+              ⚠️ REVIEWING IS NOT EDITING, so it sits with the actions rather than inside the edit
+              form. It also says which way it will go, because a single "Reviewed" item that
+              silently toggles is the boolean-toggle mistake Phase H removed from this same menu.
+            */}
+            <DropdownMenuItem onClick={() => onReviewChange(!isReviewed)}>
+              <CalendarCheck className="size-4" aria-hidden="true" />
+              {isReviewed ? 'Clear review date' : 'Mark reviewed'}
             </DropdownMenuItem>
 
             {/*

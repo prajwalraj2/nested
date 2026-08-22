@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { ItemIcon } from './ItemIcon'
 import { cn } from '@/lib/utils'
 import { ShareButton } from './ShareButton'
+import { reviewBadgeLabel } from '@/lib/review-dates'
 
 /**
  * The heading block every public page shares: title, actions, divider.
@@ -98,6 +100,20 @@ type PageHeadingProps = {
    * geo-restricted page — see the note at the bottom of `ShareButton.tsx`).
    */
   share?: boolean
+
+  /**
+   * The DOMAIN's last review date (N-5). Renders a quiet "⟳ Reviewed Aug 2026" beside Share.
+   *
+   * ⚠️ OPT-IN, AND FOUR OF THE SIX CALLERS PASS IT: `TableLayout`, `RichTextLayout`,
+   * `RoadmapLayout` and `SectionBasedLayout`. The two that do not are the domain LISTING
+   * (`app/domain/page.tsx`, a grid of every domain — there is no single domain to date) and
+   * `SubcategorySelector` (one section's children as a chooser, a step inside navigation rather
+   * than a page anyone reviews). A review is a claim that content was checked, so a badge over a
+   * list of links would claim something that was never reviewed.
+   *
+   * ⚠️ Absent, null, or older than `REVIEW_STALE_DAYS` renders NOTHING. See `reviewBadgeLabel`.
+   */
+  reviewedAt?: Date | string | null
 }
 
 const SPACING_CLASS = {
@@ -111,7 +127,15 @@ export function PageHeading({
   spacing = 'default',
   actions,
   share = true,
+  reviewedAt,
 }: PageHeadingProps) {
+  /*
+    ⚠️ `null` MEANS RENDER NOTHING, and one check covers three situations: never reviewed,
+    reviewed too long ago, and an unparseable value. All three are cases where no claim should be
+    made, so collapsing them is correct rather than lossy. See `reviewBadgeLabel`.
+  */
+  const reviewLabel = reviewBadgeLabel(reviewedAt)
+
   return (
     <div>
       {/*
@@ -149,8 +173,50 @@ export function PageHeading({
           `pt-1.5` optically aligns the 36px control with the cap-height of a `text-3xl`
           line rather than its box, which otherwise sits noticeably high.
         */}
-        {(actions || share) && (
-          <div className="flex shrink-0 items-center gap-2 pt-1.5">
+        {/*
+          ⚠️ MOVED HERE FROM UNDER THE TITLE — this is the second placement, and the reason for the
+          change is worth keeping. The first version was a `<p>` between the `<h1>` and the divider,
+          which pushed the rule down by the height of a line on every content page. The rule sits
+          directly under the title by design (the Share button rides just above it), so the badge
+          was displacing a piece of the page's structure to say something minor.
+
+          On the right, beside Share, it costs no vertical space at all and the divider is back
+          exactly where it was. It also leaves the space under the `<h1>` free for the one-line page
+          description that is coming next.
+
+          ⚠️ `reviewLabel` HAS TO BE PART OF THIS CONDITION. The group used to render only for
+          `actions || share`, so on a page with `share={false}` and no actions the badge would have
+          had no container and silently vanished — the failure mode being nothing at all, which is
+          the hardest kind to notice.
+        */}
+        {(actions || share || reviewLabel) && (
+          <div className="flex shrink-0 items-center gap-3 pt-1.5">
+            {/*
+              ⚠️ NOT A `Badge`. A pill would read as a status chip competing with the Share button;
+              this is a quiet caption that happens to sit on the right. `whitespace-nowrap` because
+              "Reviewed Aug 2026" breaking across two lines beside a button looks like a bug.
+
+              `text-sm` rather than `text-xs`, on request — at `text-xs` it was legible but read as
+              fine print, which undersells the one thing it is there to say.
+            */}
+            {reviewLabel && (
+              <span className="text-muted-foreground hidden items-center gap-1.5 text-sm whitespace-nowrap sm:flex">
+                {/*
+                  ⚠️ HIDDEN BELOW `sm`. On a phone the title already wraps to two or three lines;
+                  adding this beside Share would squeeze both. The date is reassurance, not
+                  information the page depends on, so dropping it on the narrowest screens costs
+                  nothing — whereas a cramped heading costs something on every page.
+
+                  ⚠️ ICON NOTE: this is the refresh glyph from the mockup. It is worth knowing that
+                  a refresh icon conventionally means *updated*, and this feature deliberately says
+                  *reviewed* — reviewing and changing nothing is a real outcome (see the header of
+                  `review-dates.ts`). If it ever reads as "updated", `CalendarCheck` is a one-word
+                  swap and is already the icon used for this action in the admin row menu.
+                */}
+                <RefreshCw className="size-3.5" aria-hidden="true" />
+                {reviewLabel}
+              </span>
+            )}
             {actions}
             {share && <ShareButton variant="labelled" />}
           </div>

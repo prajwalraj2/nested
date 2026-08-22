@@ -70,6 +70,11 @@ type CurrentFilters = {
   category?: string;
   status?: string;
   pageType?: string;
+  /**
+   * `stale` | `fresh` (N-5). Kept as a loose `string` to mirror the other three: the URL is
+   * user-editable, so `?review=banana` must be ignored rather than throw.
+   */
+  review?: string;
 };
 
 type DomainFiltersProps = {
@@ -138,6 +143,18 @@ const STATUS_FILTER_OPTIONS = Object.entries(STATUS_BY_URL_PARAM).map(([param, s
 const STATUS_LABELS: Record<string, string> = Object.fromEntries(
   STATUS_FILTER_OPTIONS.map(({ param, label }) => [param, label])
 );
+
+/**
+ * The review filter's options (N-5).
+ *
+ * ⚠️ THE LABELS SAY "NEEDS REVIEW", NOT "STALE". "Stale" is the word the code uses because it is
+ * precise; "Needs review" is the word an admin acts on. The URL keeps the code's word so the
+ * parameter matches `isReviewStale`, and only the label is translated.
+ */
+const REVIEW_LABELS: Record<string, string> = {
+  stale: 'Needs review',
+  fresh: 'Recently reviewed',
+};
 
 const PAGE_TYPE_LABELS: Record<string, string> = {
   direct: 'Direct',
@@ -251,7 +268,7 @@ export function DomainFilters({ categories, currentFilters }: DomainFiltersProps
         do not carry flexbox's `min-width: auto`. The old `flex-1 min-w-48` + two `min-w-32`
         could not shrink below ~450px and pushed the whole document sideways.
       */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {/* Category */}
         <div className="space-y-1.5">
           {/*
@@ -336,6 +353,29 @@ export function DomainFilters({ categories, currentFilters }: DomainFiltersProps
           </Select>
         </div>
 
+        {/* Review state (N-5) */}
+        <div className="space-y-1.5">
+          <Label htmlFor="filter-review">Review</Label>
+          <Select
+            value={toUiValue(currentFilters.review)}
+            onValueChange={(value) => updateFilters({ review: toParamValue(value) })}
+            disabled={isPending}
+          >
+            <SelectTrigger id="filter-review" className="w-full">
+              {/* Explicit children so the trigger is not blank before hydration — see the note
+                  above STATUS_FILTER_OPTIONS for the full reason. */}
+              <SelectValue>
+                {(currentFilters.review && REVIEW_LABELS[currentFilters.review]) ?? 'Any'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_FILTER}>Any</SelectItem>
+              <SelectItem value="stale">Needs review</SelectItem>
+              <SelectItem value="fresh">Recently reviewed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/*
           Clear all. Occupies its own grid cell and is pushed to the bottom of the row with
           `self-end`, which is what the transparent full-stop label was faking.
@@ -395,6 +435,15 @@ export function DomainFilters({ categories, currentFilters }: DomainFiltersProps
               */
               label={`Status: ${STATUS_LABELS[currentFilters.status] ?? currentFilters.status}`}
               onRemove={() => updateFilters({ status: '' })}
+              disabled={isPending}
+            />
+          )}
+
+          {currentFilters.review && (
+            <FilterChip
+              /* Falls back to the raw value rather than guessing, same as the status chip. */
+              label={`Review: ${REVIEW_LABELS[currentFilters.review] ?? currentFilters.review}`}
+              onRemove={() => updateFilters({ review: '' })}
               disabled={isPending}
             />
           )}

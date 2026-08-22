@@ -35,10 +35,19 @@ function buildTableDataUrl(pageId: string): string {
   return `/api/domain/tables/by-page/${pageId}?country=${encodeURIComponent(country)}`;
 }
 
+/**
+ * The domain, as the content layouts need it.
+ *
+ * ⚠️ `reviewedAt` IS THE DOMAIN'S, NOT THE PAGE'S (N-5). One button marks a whole domain's pass,
+ * so every page under it shows the same date. See the note on `Domain.reviewedAt` in the schema for
+ * why it does not live on the three content models.
+ */
 type Domain = {
   id: string;
   name: string;
   slug: string;
+  /** Rendered as "Reviewed <month> <year>" when recent enough. */
+  reviewedAt?: Date | string | null;
 };
 
 type Page = {
@@ -123,7 +132,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
           {/* Header */}
-          <PageHeading title={page.title} icon={page.icon} />
+          <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} />
 
           {/* Table skeleton */}
           <div className="rounded-lg border border-border overflow-hidden">
@@ -188,7 +197,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <PageHeading title={page.title} icon={page.icon} />
+          <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} />
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -208,7 +217,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <PageHeading title={page.title} icon={page.icon} />
+          <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} />
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -228,7 +237,7 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
-        <PageHeading title={page.title} icon={page.icon} />
+        <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} />
 
         {/* Professional DataTable from DataTable.tsx */}
         <DataTable

@@ -1,6 +1,8 @@
 import { Globe, CheckCircle2, Filter, Lightbulb, ChevronDown } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { STATUS_BY_URL_PARAM } from '@/lib/domain-status';
+// The same 90 days the public badge uses — see `review-dates.ts` for why there is only one copy.
+import { REVIEW_STALE_DAYS } from '@/lib/review-dates';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -53,6 +55,8 @@ type SearchParams = {
   category?: string;
   status?: string;
   pageType?: string;
+  /** `stale` | `fresh` (N-5). Anything else is ignored rather than erroring. */
+  review?: string;
 };
 
 type DomainsPageProps = {
@@ -245,6 +249,37 @@ async function fetchDomainsWithFilters(searchParams: SearchParams) {
       whereConditions.pageType = searchParams.pageType;
     }
 
+    /*
+      REVIEW FILTER (N-5) — `?review=stale` / `?review=fresh`.
+
+      ⚠️ FILTERED IN THE DATABASE, NOT IN THE COMPONENT, so it composes with the other four filters
+      and with pagination if this list ever gets any. Doing it client-side would mean "3 of 35
+      shown" while the header still counted 35.
+
+      ⚠️ "STALE" IS `reviewedAt IS NULL **OR** older than the cutoff`. Never-reviewed is the most
+      important case — a filter that only found old dates would hide every domain that has never
+      been touched, which is precisely the set you are looking for.
+
+      ⚠️ IT GOES IN `AND`, NOT AS A TOP-LEVEL `OR`. The search filter above already occupies
+      `whereConditions.OR`; assigning a second `OR` here would silently REPLACE it, so searching and
+      filtering by review at the same time would quietly ignore the search term. Nesting inside
+      `AND` keeps the two independent — the twelfth time an "assign the field" shortcut would have
+      dropped something without erroring.
+
+      The cutoff is computed from the same `REVIEW_STALE_DAYS` the public badge uses, so a domain
+      that appears here is exactly a domain showing no badge.
+    */
+    if (searchParams.review === 'stale' || searchParams.review === 'fresh') {
+      const cutoff = new Date(Date.now() - REVIEW_STALE_DAYS * 24 * 60 * 60 * 1000);
+
+      whereConditions.AND = [
+        ...(whereConditions.AND ?? []),
+        searchParams.review === 'stale'
+          ? { OR: [{ reviewedAt: null }, { reviewedAt: { lt: cutoff } }] }
+          : { reviewedAt: { gte: cutoff } },
+      ];
+    }
+
     // Fetch domains with category information
     const domains = await prisma.domain.findMany({
       where: whereConditions,
@@ -316,6 +351,14 @@ async function fetchDomainsWithFilters(searchParams: SearchParams) {
       createdAt: domain.createdAt,
       category: domain.category,
       pageCount: domain._count.pages,
+      /*
+        ⚠️ ANOTHER REBUILD-BY-FIELD-LIST, AND THE ELEVENTH INSTANCE OF THE SHAPE IN THIS PROJECT.
+        Every column the table needs has to be named here; a field that exists on the row but is
+        missing from this list simply never reaches the component, and nothing errors. `reviewedAt`
+        was added for N-5 — if a future column looks mysteriously absent in the admin table, start
+        here rather than in the query.
+      */
+      reviewedAt: domain.reviewedAt,
       // Generate preview URL
       previewUrl: `/domain/${domain.slug}`
     }));

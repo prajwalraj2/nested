@@ -118,6 +118,26 @@ model Domain {
   // an entire sitemap once it decides the values are unreliable.
   updatedAt DateTime @default(now()) @updatedAt
 
+  /// When a person last REVIEWED this domain's pages (N-5).
+  ///
+  /// ⚠️ NOT `updatedAt`, AND NOT DERIVABLE FROM IT. `updatedAt` means "a row was written",
+  /// including by a bulk job — 654 of 656 tables carry a Phase K/L migration timestamp. Rendered as
+  /// a review, every page would claim human attention on the day a script ran.
+  ///
+  /// ⚠️ ON `Domain` RATHER THAN ON `Table` / `RichTextContent` / `Roadmap`. One button marks a
+  /// whole domain's pass, which is how the review actually happens, and it covers every content type
+  /// including ones added later without a field per type.
+  ///
+  /// ⚠️ RENDERED AT MONTH PRECISION ("Reviewed August 2026"), because the cadence is a monthly
+  /// pass. A day-level date would imply a precision the work does not have.
+  ///
+  /// ⚠️ WRITTEN ONLY BY THE `PATCH` ROUTE, NEVER BY `PUT`. That PUT rebuilds its update from an
+  /// explicit field list, and a field missing from such a list is silently dropped — the bug class
+  /// that has bitten this project ten times. Editing a domain's name must not wipe its review date.
+  ///
+  /// `null` = never reviewed. The badge then renders NOTHING rather than a placeholder.
+  reviewedAt DateTime?
+
   @@index([categoryId, orderInCategory])
 }
 
