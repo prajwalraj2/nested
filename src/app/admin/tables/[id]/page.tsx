@@ -10,6 +10,7 @@ import { StatsCard } from '@/components/admin/dashboard/StatsCard';
 // Finding #22.4 — a page's public URL needs its parent chain walked, not two slugs joined.
 import { buildPageUrl, toPageMap } from '@/lib/page-path';
 import { resolveTableImages } from '@/lib/table-image-usage';
+import { ensureDisplayOrderColumn } from '@/lib/table-utils';
 
 /**
  * Admin Table Edit Page
@@ -104,6 +105,22 @@ export default async function TableEditPage({ params }: PageProps) {
     hidden from every visitor by `targetCountries`. The public service passes its FILTERED rows for
     the opposite reason; see the note on `resolveTableImages`.
   */
+  /*
+    ⚠️ ENSURED ON READ, NOT ONLY ON WRITE — otherwise the column is undiscoverable.
+
+    `displayOrder` lives inside a `Json` blob, so there is no migration: the 656 existing tables
+    acquire it the first time something saves. That left a hole — opening `Schema & Settings` on an
+    untouched table showed no Display Order column, so there was nothing to tell you the feature
+    existed or to type a value into.
+
+    Adding it here means it is visible immediately, and the first save of ANYTHING on this table
+    persists it. ⚠️ The column shown is therefore not necessarily stored yet; that is deliberate and
+    self-healing, and both write paths (`tables/[id]` PUT and `tables/[id]/data` PUT) apply the same
+    function, so it cannot be saved without it.
+  */
+  const schemaWithDisplayOrder = ensureDisplayOrderColumn(table.schema as never);
+  const tableForEditor = { ...table, schema: schemaWithDisplayOrder };
+
   const images = await resolveTableImages(
     ((table.data as { rows?: unknown[] } | null)?.rows ?? []) as never,
     table.schema as never
@@ -197,7 +214,7 @@ export default async function TableEditPage({ params }: PageProps) {
         one extra query and no new endpoint. `resolveTableImages` is the SAME function the public
         service uses, so the two screens cannot disagree about which image belongs to which row.
       */}
-      <TableEditor table={table} images={images} />
+      <TableEditor table={tableForEditor} images={images} />
 
     </div>
   );

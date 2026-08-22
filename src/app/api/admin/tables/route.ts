@@ -6,7 +6,7 @@ import { requireAdmin } from '@/lib/api-auth';
 // Needed because creating a table also flips Page.contentType — see the call site.
 import { invalidatePages } from '@/lib/cache-invalidation';
 import type { CreateTableRequest, TableListResponse } from '@/types/table';
-import { ensureTargetCountriesColumn, ensureRowsHaveTargetCountries } from '@/lib/table-utils';
+import { ensureTargetCountriesColumn, ensureRowsHaveTargetCountries, ensureDisplayOrderColumn } from '@/lib/table-utils';
 
 /**
  * API Routes for Table Management
@@ -170,8 +170,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure targetCountries column exists in schema
-    const schemaWithTargetCountries = ensureTargetCountriesColumn(schema);
+    /*
+      ⚠️ BOTH SYSTEM COLUMNS, AND THEY MUST BE APPLIED TOGETHER (N-2). A table created without
+      `displayOrder` has no way to express an order until someone edits its schema by hand, and the
+      admin's move buttons would have nothing to write into.
+    */
+    const schemaWithTargetCountries = ensureDisplayOrderColumn(
+      ensureTargetCountriesColumn(schema)
+    );
     
     // Ensure all rows have targetCountries value (default to ALL)
     const dataWithTargetCountries = data ? {

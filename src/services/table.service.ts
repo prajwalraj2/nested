@@ -27,7 +27,12 @@ import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { CACHE_DURATIONS, CACHE_TAGS } from '@/lib/cache';
-import { filterRowsByCountry, getPublicSchema, getPublicRows } from '@/lib/table-utils';
+import {
+  filterRowsByCountry,
+  getPublicSchema,
+  getPublicRows,
+  sortRowsByDisplayOrder,
+} from '@/lib/table-utils';
 import { resolveTableImages } from '@/lib/table-image-usage';
 import type { TableWithPage } from './types';
 import type { TableSchema, TableData } from '@/types/table';
@@ -138,9 +143,26 @@ export const TableService = {
      */
     const filteredRows = filterRowsByCountry(data.rows || [], userCountry);
 
-    // Remove targetCountries column from public view
+    /*
+      ⚠️ THE ORDER OF THESE THREE STEPS IS NOT INTERCHANGEABLE (N-2).
+
+          filter by country  -> reads `targetCountries`
+          sort by displayOrder -> reads `displayOrder`
+          strip system fields -> REMOVES BOTH
+
+      Strip first and the next step silently loses its key: the table renders in array order with
+      no error anywhere. Sort before filtering and the work is wasted on rows about to be dropped.
+
+      ⚠️ SORTING AFTER FILTERING IS ALSO WHAT MAKES ONE ORDER COLUMN SERVE EVERY COUNTRY. An
+      Indian visitor's rows are numbered 1,2,3 and an American's 1,2 — the duplicate `1`s never
+      collide because each visitor only ever sees their own set. That is why per-country ordering
+      was not built; see NEW-IMPROVEMENTS-4.md decision 37.3(d).
+    */
+    const orderedRows = sortRowsByDisplayOrder(filteredRows);
+
+    // Remove every system column from the public view — see `SYSTEM_COLUMN_IDS`.
     const publicSchema = getPublicSchema(schema);
-    const publicRows = getPublicRows(filteredRows);
+    const publicRows = getPublicRows(orderedRows);
 
     /**
      * Resolve this table's image keys to URLs (K-5c).

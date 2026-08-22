@@ -23,6 +23,8 @@ import {
 } from '@/types/table';
 import { transformCsvToTableData, validateColumnValue,
   getImportTargets,
+  ensureTargetCountriesColumn,
+  ensureDisplayOrderColumn
 } from '@/lib/table-utils';
 
 /**
@@ -50,12 +52,40 @@ type CSVUploadInterfaceProps = {
   onDataUpload: (data: TableData, file?: File) => void;
 };
 
-export function CSVUploadInterface({ 
-  schema, 
-  existingData, 
-  onDataUpload 
+export function CSVUploadInterface({
+  schema: incomingSchema,
+  existingData,
+  onDataUpload
 }: CSVUploadInterfaceProps) {
-  
+
+  /**
+   * The schema WITH its system columns guaranteed (N-2 fix).
+   * ==========================================================================
+   *
+   * ⚠️ THE PROP CANNOT BE TRUSTED TO CONTAIN THEM, AND DURING TABLE CREATION IT DOES NOT.
+   * `ensureTargetCountriesColumn` and `ensureDisplayOrderColumn` run SERVER-SIDE in the POST
+   * route — after this wizard. So at mapping time the schema here is only the columns the user
+   * typed, and `Target Countries` / `Display Order` headers in their CSV have nothing to map onto.
+   *
+   * The symptom was precise and confusing: the mapping step read **"4 of 6 mapped"** with both
+   * system headers showing *"Skip this column"*, yet the created table still had `ALL` in Target
+   * Countries. ⚠️ That inconsistency is the tell — `transformCsvToTableData` carries a SPECIAL-CASE
+   * header lookup for `targetCountries` that ignores the mapping entirely, so it survived while
+   * `displayOrder`, which has no such special case, was silently dropped.
+   *
+   * ⚠️ SO THE EARLIER CONCLUSION THAT "displayOrder NEEDS NO SPECIAL CSV HANDLING" WAS ONLY HALF
+   * TRUE: correct on the edit path, where the stored schema already has the column, and wrong on
+   * the create path, where it does not exist yet.
+   *
+   * Ensuring here fixes all three consumers at once — the auto-mapper, the target dropdown, and
+   * the transform — rather than adding a second special case. ⚠️ It deliberately does NOT change
+   * what the schema EDITOR shows; this object is local to the import step.
+   */
+  const schema = useMemo(
+    () => ensureDisplayOrderColumn(ensureTargetCountriesColumn(incomingSchema)),
+    [incomingSchema]
+  );
+
   // State management
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'parsing' | 'previewing' | 'complete'>('idle');
   const [file, setFile] = useState<File | null>(null);

@@ -178,8 +178,12 @@ stored `tagColors` map means orange is chosen once for "Recommended" and stays.
 ### (i) ⚠️ A gap found while checking the above: companion fields are missing from CSV export
 
 `exportTableToCsv` loops over `schema.columns` only. **Image keys are already lost on export today**
-— export a table, re-import it, and every picture is gone. Order and tags would inherit the same
-hole. Fixed in the same phase.
+— export a table, re-import it, and every picture is gone.
+
+⚠️ **CORRECTION, MEASURED DURING N-2: `displayOrder` AND `targetCountries` DO EXPORT.** Both are
+real COLUMNS, so they are in `schema.columns` and survive a round trip — verified. The gap is
+narrower than first written: it applies only to COMPANION FIELDS, which today means image keys and
+tomorrow means tags. N-4 is correspondingly smaller.
 
 ### (j) One shared image resolver, used by public AND admin
 
@@ -238,8 +242,8 @@ document and the code.
 
 | Step | What | Ships alone? |
 | --- | --- | --- |
-| **N-1** | Square image frame + admin row thumbnails + shared image resolver | ✅ ⚡ smallest, and visible immediately |
-| **N-2** | Row ordering — internal column, CSV target, admin move up/down | ✅ |
+| ~~**N-1**~~ | ~~Square image frame + admin row thumbnails + shared image resolver~~ | ✅ shipped 21 Aug |
+| ~~**N-2**~~ | ~~Row ordering~~ | ✅ shipped 22 Aug |
 | **N-3** | Row tags — companion field, stored colours, in-cell pill | ✅ |
 | **N-4** | Companion fields in CSV export | ✅ small — N-2 and N-3 both want it |
 | **N-5** | `reviewedAt` on `Domain`, badge on content pages, stale list | ✅ |
@@ -293,6 +297,39 @@ changelog board reuses.
 ⚠️ **This is the DEFAULT order, not a lock.** Sorting is enabled on all 656 tables, so a visitor
 clicking a column header replaces it. Correct behaviour, and worth stating so it is not reported as
 a bug.
+
+### ⚠️ Two bugs found by testing, both invisible without it
+
+**1. THE VALUES EXISTED BUT THE COLUMN DID NOT.** `moveRow` writes `displayOrder` into each row and
+saves through the **data** endpoint — which only ever wrote `data`, never `schema`. So rows carried a
+field the schema never declared: sorting worked (it reads the row field directly), but
+`Schema & Settings` had nothing to show, the rows editor could not display it, and a CSV header had
+no column to map onto. Confirmed in the database: `schema declares displayOrder? false` with
+`9 / 9 rows carrying a value`.
+
+**Fix:** the data route now ensures the column it writes values for — only when it actually changed,
+so an ordinary row save does not rewrite the schema blob. And the admin page ensures it on READ,
+because otherwise the column is undiscoverable on a table nobody has saved yet.
+
+**2. ⚠️ THE CREATE WIZARD SILENTLY DROPPED IT — AND `targetCountries` MASKED THE BUG.** Both
+`ensure*` functions run SERVER-SIDE in the POST route, i.e. AFTER the wizard. So during creation
+`CSVUploadInterface` holds only the columns the user typed, and the mapping step read
+**"4 of 6 mapped"** with both system headers on *"Skip this column"*.
+
+Yet the created table still had `ALL` in Target Countries. ⚠️ **That inconsistency is the tell:**
+`transformCsvToTableData` carries a special-case header lookup for `targetCountries` that ignores
+the mapping entirely, so it survived while `displayOrder` was dropped.
+
+⚠️ **THIS FALSIFIED HALF OF DECISION (f).** "No special-case CSV code was needed" is true on the
+EDIT path, where the stored schema has the column, and false on the CREATE path, where it does not
+exist yet. **Fix:** one derived schema in `CSVUploadInterface`, ensured locally — which repairs the
+auto-mapper, the target dropdown and the transform at once, rather than adding a second special
+case. Measured before and after: `4 of 6 mapped, displayOrder = undefined` → `6 of 6 mapped,
+displayOrder = 1`.
+
+⚠️ **`csv-examples/display-order/` HOLDS SIX SAMPLE FILES AND A README**, one per behaviour —
+including `6-no-order-column.csv`, which **WIPES the order** because `operation: 'replace'`
+overwrites every row and a file with no order column writes none. Nothing errors. Export first.
 
 **Test:** rows appear in the set order; ⚠️ **the `Order` column is absent from the public page** —
 check the rendered columns and the API response; an Indian and a US visitor each see their own rows

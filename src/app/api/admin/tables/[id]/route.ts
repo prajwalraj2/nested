@@ -6,7 +6,7 @@ import { requireAdmin } from '@/lib/api-auth';
 // Needed because deleting a table can reset Page.contentType — see the call site.
 import { invalidatePages } from '@/lib/cache-invalidation';
 // Same helper POST has always used — see the note in the PUT handler for why PUT needs it too.
-import { ensureTargetCountriesColumn } from '@/lib/table-utils';
+import { ensureTargetCountriesColumn, ensureDisplayOrderColumn } from '@/lib/table-utils';
 import type { UpdateTableRequest } from '@/types/table';
 
 /**
@@ -155,7 +155,14 @@ export async function PUT(
        * ⚠️ This is safe for the public site: `getPublicSchema()` / `getPublicRows()` strip the
        * column and the row key by id before anything is served (table-utils.ts:599/612).
        */
-      updateData.schema = ensureTargetCountriesColumn(body.schema);
+      /*
+        ⚠️ BOTH, for the same reason as the create route — and this path matters more: it is how
+        the 656 EXISTING tables acquire `displayOrder`. They gain it the first time their schema is
+        saved, not by a migration, because the column lives inside a `Json` blob.
+      */
+      updateData.schema = ensureDisplayOrderColumn(
+        ensureTargetCountriesColumn(body.schema)
+      );
     }
 
     if (body.data !== undefined) {

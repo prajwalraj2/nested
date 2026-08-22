@@ -783,29 +783,162 @@ export function filterRowsByCountry(rows: TableRow[], userCountry: string): Tabl
   });
 }
 
+// =============================================================================
+// Display order (N-2)
+// =============================================================================
+
 /**
- * Removes targetCountries column from schema for public display
- * The column data is still used for filtering, but shouldn't be shown to users
- * 
- * @param schema - The table schema
- * @returns Schema without the targetCountries column
+ * The admin-controlled row order.
+ *
+ * ⚠️ SECOND INSTANCE OF THE `targetCountries` PATTERN, deliberately — a real column in the schema,
+ * added automatically, stripped before the public sees it. Not a companion field like a row image,
+ * because unlike an image this has to be editable in the admin grid and mappable from a CSV header
+ * by the ordinary route.
+ *
+ * ⚠️ WHY A COLUMN AND NOT JUST THE ARRAY ORDER. The array order IS already the display order, so
+ * the concept needs no storage at all — but a CSV cannot express "put me third" without a value to
+ * write, and a re-import would silently discard whatever the admin had arranged. The column is what
+ * survives an import.
  */
-export function getPublicSchema(schema: TableSchema): TableSchema {
+export const DISPLAY_ORDER_COLUMN_ID = 'displayOrder';
+
+/**
+ * Every column that exists for the admin and must NEVER reach the public payload.
+ *
+ * ⚠️ A LIST, NOT TWO HARD-CODED CHECKS — and that is the whole reason it exists. `getPublicSchema`
+ * and `getPublicRows` named `targetCountries` inline, in two separate places. Adding `displayOrder`
+ * meant either four edits or one list, and the failure mode of missing one is SILENT: the column
+ * simply appears on 656 public pages and nothing errors.
+ *
+ * ⚠️ ADD A SYSTEM COLUMN HERE AND BOTH STRIPPERS PICK IT UP. That is the only place it needs saying.
+ */
+export const SYSTEM_COLUMN_IDS: readonly string[] = [
+  TARGET_COUNTRIES_COLUMN_ID,
+  DISPLAY_ORDER_COLUMN_ID,
+];
+
+/**
+ * The displayOrder system column.
+ *
+ * ⚠️ `type: 'number'` EARNS SOMETHING CONCRETE: `transformValue` already coerces a CSV cell to a
+ * number for this type and yields `null` for an empty one — exactly the semantics wanted, where
+ * blank means "no opinion" rather than zero. **No special-case CSV code was needed as a result**,
+ * unlike `targetCountries`, which needs its own header lookup because it must default to `ALL`.
+ */
+export function createDisplayOrderColumn(): TableColumn {
+  return {
+    id: DISPLAY_ORDER_COLUMN_ID,
+    name: 'Display Order',
+    type: 'number',
+    /*
+      All three false: this column is stripped before it reaches the public table, so these only
+      ever matter to the admin grid — where sorting BY the order column would be circular.
+    */
+    sortable: false,
+    filterable: false,
+    searchable: false,
+    required: false,
+    align: 'left',
+    validation: [],
+    isSystem: true,
+    isHidden: true,
+  } as TableColumn & { isSystem?: boolean; isHidden?: boolean };
+}
+
+/** Guarantees the displayOrder column exists, appended last. */
+export function ensureDisplayOrderColumn(schema: TableSchema): TableSchema {
+  if (schema.columns.some(col => col.id === DISPLAY_ORDER_COLUMN_ID)) return schema;
+
   return {
     ...schema,
-    columns: schema.columns.filter(col => col.id !== TARGET_COUNTRIES_COLUMN_ID),
+    /*
+      ⚠️ APPENDED LAST, WHICH ALSO MAKES THE CSV AUTO-MAPPER SAFER. `autoMapColumns` uses `.find()`
+      — first match wins — on a substring test, so a real column called "Order Type" is matched by
+      a CSV header of "Order" BEFORE this one. That is the right precedence: a column the admin
+      created beats a system column they did not.
+    */
+    columns: [...schema.columns, createDisplayOrderColumn()],
+    updatedAt: new Date().toISOString(),
   };
 }
 
 /**
- * Removes targetCountries field from rows for public display
- * 
- * @param rows - Array of table rows
- * @returns Rows without targetCountries field
+ * Sort rows into the admin's chosen order.
+ *
+ * ⚠️ STABLE, WITH BLANKS LAST. Both halves were asked for explicitly.
+ *
+ *   • **Ties keep their existing relative position.** Two rows both numbered `1` render in the
+ *     order they already occupy — deterministic, identical on every load. Ties were accepted
+ *     explicitly on the grounds that the order between them does not matter.
+ *     ⚠️ "Existing position" means position in the STORED ARRAY, so deleting and re-adding a row
+ *     moves it to the end and can flip a tie. Distinct numbers are the fix when it matters.
+ *
+ *   • **No value sorts LAST, not first.** A blank means "no opinion" — but `Number(null)` is `0`,
+ *     which would sort every unnumbered row ABOVE everything deliberately placed. That inversion
+ *     is the bug this function exists to avoid, and it is why the guard is explicit instead of
+ *     relying on numeric coercion.
+ *
+ * ⚠️ `Array.prototype.sort` is stable by specification (ES2019 onward), so the tie behaviour above
+ * is a language guarantee rather than an implementation detail worth re-testing per engine.
+ *
+ * ⚠️ NON-MUTATING. `getPublicTable` holds rows that came out of a cross-request cache, and sorting
+ * one of those in place would reorder the cached value for every later reader.
+ */
+export function sortRowsByDisplayOrder(rows: TableRow[]): TableRow[] {
+  const rank = (row: TableRow): number => {
+    const raw = row[DISPLAY_ORDER_COLUMN_ID];
+    if (raw === null || raw === undefined || raw === '') return Number.POSITIVE_INFINITY;
+    const n = Number(raw);
+    // A non-numeric value is "no opinion" too, not 0 — same reason as a blank.
+    return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+  };
+
+  return [...rows].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * Renumber every row sequentially from 1, in its current array position.
+ *
+ * ⚠️ THE WHOLE TABLE, NEVER A SWAP OF TWO ROWS. Swapping assumes contiguous numbers, and they are
+ * not: a CSV can arrive as 1, 5, 9, and deleting a row leaves a gap. With gaps a swap can move a
+ * row past two neighbours at once or appear to do nothing, and it degrades further with every edit.
+ * Same conclusion `renumber()` in `roadmap-tree.ts` reached for roadmap nodes and the changelog.
+ *
+ * ⚠️ 1-BASED, unlike `renumber()`. These values are typed by a person into a spreadsheet, and a
+ * column of positions starting at 0 invites an off-by-one every time it is edited by hand.
+ *
+ * ⚠️ IT DESTROYS DELIBERATE TIES, and that is the accepted trade. Pressing a move button is a
+ * statement that the exact sequence matters; if two rows should share a number, set it in the CSV
+ * and do not reorder them by hand afterwards.
+ */
+export function renumberDisplayOrder(rows: TableRow[]): TableRow[] {
+  return rows.map((row, index) => ({ ...row, [DISPLAY_ORDER_COLUMN_ID]: index + 1 }));
+}
+
+/**
+ * Removes every system column from a schema for public display.
+ *
+ * The data is still used — `targetCountries` to filter, `displayOrder` to sort — but neither is
+ * something a visitor should see or be able to sort by.
+ */
+export function getPublicSchema(schema: TableSchema): TableSchema {
+  return {
+    ...schema,
+    columns: schema.columns.filter(col => !SYSTEM_COLUMN_IDS.includes(col.id)),
+  };
+}
+
+/**
+ * Removes every system field from rows for public display.
+ *
+ * ⚠️ CALL THIS **LAST**, AFTER FILTERING AND SORTING. Both of those read a system field, so
+ * stripping first removes the key the next step needs — and the symptom is an unsorted table rather
+ * than an error. `getPublicTable` states the ordering at its call site.
  */
 export function getPublicRows(rows: TableRow[]): TableRow[] {
   return rows.map(row => {
-    const { [TARGET_COUNTRIES_COLUMN_ID]: _, ...publicRow } = row;
+    const publicRow: TableRow = { ...row };
+    for (const id of SYSTEM_COLUMN_IDS) delete publicRow[id];
     return publicRow;
   });
 }

@@ -4,7 +4,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 import { invalidatePages } from '@/lib/cache-invalidation';
-import { exportTableToCsv, exportTableToJson, ensureRowsHaveTargetCountries } from '@/lib/table-utils';
+import {
+  exportTableToCsv,
+  exportTableToJson,
+  ensureRowsHaveTargetCountries,
+  ensureDisplayOrderColumn,
+} from '@/lib/table-utils';
+import type { TableSchema } from '@/types/table';
 import type { TableData } from '@/types/table';
 
 /**
@@ -182,6 +188,23 @@ export async function PUT(
     // Ensure all rows have targetCountries value
     const rowsWithTargetCountries = ensureRowsHaveTargetCountries(data.rows);
 
+    /*
+      ⚠️ THE SCHEMA IS TOUCHED HERE, IN THE *DATA* ROUTE, AND THAT IS THE FIX FOR A REAL BUG.
+
+      `moveRow` in the admin writes a `displayOrder` value into each row and saves through THIS
+      endpoint — which only ever wrote `data`. So the rows gained a field the schema never declared:
+      sorting worked (it reads the row field directly), but `Schema & Settings` had nothing to show,
+      the rows editor could not display the value, and a CSV header had no column to map onto.
+      Writing a value for a column that does not exist was the bug.
+
+      ⚠️ ONLY WRITTEN WHEN IT ACTUALLY CHANGED. `ensureDisplayOrderColumn` returns the SAME object
+      when the column is already present, so the identity check below keeps an ordinary row save
+      from rewriting the schema blob — and from bumping the schema's own `updatedAt` on every edit.
+    */
+    const existingSchema = existingTable.schema as TableSchema;
+    const schemaWithDisplayOrder = ensureDisplayOrderColumn(existingSchema);
+    const schemaChanged = schemaWithDisplayOrder !== existingSchema;
+
     switch (operation) {
       case 'replace':
         // Replace all data
@@ -218,7 +241,13 @@ export async function PUT(
     // Update the table (serialize to ensure Prisma compatibility)
     const updatedTable = await prisma.table.update({
       where: { id: tableId },
-      data: { data: JSON.parse(JSON.stringify(newData)) },
+      data: {
+        data: JSON.parse(JSON.stringify(newData)),
+        // See above: only when the column was actually missing.
+        ...(schemaChanged
+          ? { schema: JSON.parse(JSON.stringify(schemaWithDisplayOrder)) }
+          : {}),
+      },
       include: {
         page: {
           include: {
