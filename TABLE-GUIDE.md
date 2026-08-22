@@ -28,6 +28,22 @@ out of the source, and the file/line references let you re-check any of it.
 
 ---
 
+## ⚠️ Two features are documented separately
+
+Added in Phase N and covered by their own guides rather than folded in here, because each has its
+own CSV rules and its own set of traps:
+
+| Guide | Covers |
+| --- | --- |
+| `guides/ROW-ORDERING-GUIDE.md` | **Display Order** — which row appears first, including per country |
+| `guides/ROW-TAGS-GUIDE.md` | **Row tags** — the coloured pill on individual rows |
+
+⚠️ **Both add a column to what an export contains**, so §3 (Preparing your CSV) and the column
+reference below do not describe every header you will see in a freshly exported file. `Display Order`
+is a real column; `<Column> (tag)` and `<Column> (image key)` are companion fields.
+
+---
+
 ## 1. How tables fit together
 
 ```

@@ -434,8 +434,38 @@ export type ImportTarget = {
   id: string;
   /** What the person choosing sees. */
   label: string;
-  kind: 'column' | 'image';
+  kind: 'column' | 'image' | 'tag';
 };
+
+/**
+ * Which row fields hold a tag (N-3).
+ *
+ * ⚠️ Mirrors `imageKeyFields` in `table-image-usage.ts`. Read from `col.meta.tagField`, never
+ * from a column type — a tag is a companion to a column, not a column.
+ */
+export function tagFields(schema: TableSchema | null | undefined): string[] {
+  return (schema?.columns ?? [])
+    .map(col => col.meta?.tagField)
+    .filter((f): f is string => typeof f === 'string' && f.length > 0);
+}
+
+/**
+ * The CSV header for a companion field (N-4).
+ *
+ * ⚠️ ONE FUNCTION, USED BY EXPORT *AND* BY THE IMPORT MATCHER. Export writes this string and
+ * `autoMapColumns` recognises it; if the two disagreed, a round trip would need manual remapping —
+ * or worse, would match the wrong target. Change it here and both move together.
+ *
+ * ⚠️ ASCII ONLY, AND THAT IS NOT COSMETIC. The earlier label used an em dash. Excel on this machine
+ * reads these exports as Latin-1 — a real export showed `Josef MÃ¼ller-Brockmann` — so an em dash
+ * comes back as `â€"`, the header stops matching, and the field silently fails to import.
+ *
+ * ⚠️ The parenthesised shape also matches how columns are already labelled in the import dropdown
+ * (`Book Name (text)`), so the two read as one convention rather than two.
+ */
+export function companionHeaderFor(columnName: string, kind: 'image' | 'tag'): string {
+  return `${columnName} (${kind === 'image' ? 'image key' : 'tag'})`;
+}
 
 export function getImportTargets(schema: TableSchema): ImportTarget[] {
   const targets: ImportTarget[] = [];
@@ -449,8 +479,22 @@ export function getImportTargets(schema: TableSchema): ImportTarget[] {
         id: column.meta.imageColumn,
         // Says what to put in it. "Course Name image" alone would leave someone guessing
         // whether it wants a URL, a filename or a key.
-        label: `${column.name} — image key`,
+        // ⚠️ Identical to the CSV export header — see `companionHeaderFor`.
+        label: companionHeaderFor(column.name, 'image'),
         kind: 'image',
+      });
+    }
+
+    /*
+      ⚠️ A TAG IS IMPORTABLE FOR FREE BECAUSE THIS FUNCTION ALREADY OFFERS NON-COLUMN TARGETS.
+      That was checked before it was promised: the image field proved the mechanism, and a tag is
+      one more entry in the same list rather than a new code path.
+    */
+    if (column.meta?.tagField) {
+      targets.push({
+        id: column.meta.tagField,
+        label: companionHeaderFor(column.name, 'tag'),
+        kind: 'tag',
       });
     }
   }
@@ -471,6 +515,8 @@ export function transformCsvToTableData(
       .map(col => col.meta?.imageColumn)
       .filter((f): f is string => typeof f === 'string' && f.length > 0)
   );
+  /** Tag fields, same reasoning (N-3). */
+  const tagFieldSet = new Set(tagFields(schema));
   
   // Check if CSV has targetCountries column (case-insensitive)
   const targetCountriesHeaderIndex = headers.findIndex(header => 
@@ -497,6 +543,17 @@ export function transformCsvToTableData(
       const column = schema.columns.find(col => col.id === targetId);
       if (column) {
         tableRow[targetId] = transformValue(row[colIndex], column.type);
+        return;
+      }
+
+      if (tagFieldSet.has(targetId)) {
+        /*
+          ⚠️ STORED AS TRIMMED FREE TEXT, never through `transformValue` — which types by COLUMN
+          and has no column to type a companion field by. An empty cell writes an empty string
+          rather than being skipped, so a CSV can deliberately CLEAR a tag, exactly as it can
+          clear an image.
+        */
+        tableRow[targetId] = String(row[colIndex] ?? '').trim();
         return;
       }
 
@@ -628,22 +685,60 @@ export function getTableStats(data: TableData): {
 // Export Utilities
 // =============================================================================
 
+/**
+ * Export to CSV, including companion fields (N-4).
+ *
+ * ⚠️ THIS USED TO ITERATE `schema.columns` ONLY, WHICH SILENTLY LOST IMAGES. A table with row
+ * pictures exported, re-imported, came back with every image gone — no error, because a missing
+ * image renders as nothing by design. Tags would have inherited exactly the same hole.
+ *
+ * ⚠️ A COMPANION HEADER SITS IMMEDIATELY AFTER ITS PARENT COLUMN, so the pair reads together in a
+ * spreadsheet rather than the extras being stranded at the far right.
+ *
+ * ⚠️ `exportTableToJson` NEEDED NO CHANGE — it emits `data.rows` wholesale, so companion fields
+ * were always in it. Checked rather than assumed; the gap was CSV-only.
+ */
 export function exportTableToCsv(data: TableData, schema: TableSchema): string {
-  const headers = schema.columns.map(col => col.name);
-  const csvRows = [
-    headers.join(','),
-    ...data.rows.map(row => 
-      schema.columns.map(col => {
-        const value = row[col.id] ?? '';
-        // Escape commas and quotes in CSV
-        return typeof value === 'string' && (value.includes(',') || value.includes('"')) 
-          ? `"${value.replace(/"/g, '""')}"` 
-          : value;
-      }).join(',')
-    )
-  ];
-  
-  return csvRows.join('\n');
+  /*
+    Header plus a value-reader, built together so the two can never drift out of alignment — the
+    failure mode of two parallel arrays is a file whose columns are shifted by one.
+  */
+  const fields: Array<{ header: string; read: (row: TableRow) => unknown }> = [];
+
+  for (const column of schema.columns) {
+    fields.push({ header: column.name, read: (row) => row[column.id] });
+
+    const imageField = column.meta?.imageColumn;
+    if (imageField) {
+      fields.push({
+        header: companionHeaderFor(column.name, 'image'),
+        read: (row) => row[imageField],
+      });
+    }
+
+    const tagField = column.meta?.tagField;
+    if (tagField) {
+      fields.push({
+        header: companionHeaderFor(column.name, 'tag'),
+        read: (row) => row[tagField],
+      });
+    }
+  }
+
+  /*
+    ⚠️ APPLIED TO HEADERS TOO, NOT ONLY VALUES. A companion header contains parentheses today and
+    could contain a comma the moment a column is named "Tools, Free" — an unescaped header breaks
+    every row beneath it.
+  */
+  const escape = (value: unknown): string => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+
+  return [
+    fields.map((f) => escape(f.header)).join(','),
+    ...data.rows.map((row) => fields.map((f) => escape(f.read(row))).join(',')),
+  ].join('\n');
 }
 
 export function exportTableToJson(data: TableData, schema: TableSchema): string {
