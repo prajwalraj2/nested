@@ -190,6 +190,11 @@ export function CSVUploadInterface({
       .filter(col => col.meta?.imageColumn)
       .map(col => ({ id: col.meta.imageColumn as string, columnName: String(col.name) }));
 
+    /** Tag fields, matched by the `(tag)` suffix the export writes. See the note below. */
+    const tagFieldList = schemaColumns
+      .filter(col => col.meta?.tagField)
+      .map(col => ({ id: col.meta.tagField as string, columnName: String(col.name) }));
+
     csvHeaders.forEach(csvHeader => {
       const header = csvHeader.toLowerCase();
       const saysImage = /(image|logo|icon|picture|photo|thumbnail)/.test(header);
@@ -199,6 +204,26 @@ export function CSVUploadInterface({
         // ("Course Name Image"); otherwise the only one, if there is only one.
         const named = imageFields.find(f => header.includes(f.columnName.toLowerCase()));
         const target = named ?? (imageFields.length === 1 ? imageFields[0] : undefined);
+        if (target) {
+          mapping[csvHeader] = target.id;
+          return;
+        }
+      }
+
+      /*
+        ⚠️ TAGS ARE MATCHED BEFORE THE COLUMN PASS, AND WITHOUT THIS THE ROUND TRIP DESTROYS DATA.
+
+        Export writes a header of `Book Name (tag)`. The column pass below tests
+        `header.includes(col.name.toLowerCase())` — and `"book name (tag)"` DOES contain
+        `"book name"`, so the tag text would map onto the Book Name column and overwrite every
+        title. Silently, with a valid-looking import preview.
+
+        So the suffix is checked explicitly, exactly as the image block above checks for an image
+        word, and the parent column is identified by the prefix.
+      */
+      if (/\(tag\)\s*$/.test(header) && tagFieldList.length > 0) {
+        const named = tagFieldList.find((f) => header.startsWith(f.columnName.toLowerCase()));
+        const target = named ?? (tagFieldList.length === 1 ? tagFieldList[0] : undefined);
         if (target) {
           mapping[csvHeader] = target.id;
           return;

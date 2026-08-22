@@ -75,6 +75,31 @@ export type ColumnMeta = {
    */
   imageShape?: 'circle' | 'square';
 
+  /*
+    ── Row tags (N-3) ───────────────────────────────────────────────────────────
+    ⚠️ A TAG IS A COMPANION TO A COLUMN, EXACTLY LIKE AN IMAGE — not a column of its own.
+
+    The user expects 3–4 tagged rows per table, so a dedicated `Tags` column would be empty on
+    ~90% of rows and need hiding on mobile: verbatim the argument §29.6(d) used to reject a
+    dedicated image column. So the pill renders INSIDE the cell, above the image and text, and
+    `tagField` names the row field holding the free text.
+  */
+  /** Row field holding the tag text, e.g. `"col_1__tag"`. Absent means this column has no tags. */
+  tagField?: string;
+  /**
+   * Tag text -> a `BadgeColor` name.
+   *
+   * ⚠️ STORED, NOT COMPUTED, AND THAT IS THE WHOLE POINT. `assignBadgeColors` allocates by
+   * SORTED POSITION among distinct values, so adding "Best Value" would silently push
+   * "Recommended" to a different colour. Acceptable for a data badge; wrong for a repeated brand
+   * signal that a reader learns to recognise. Same shape as `badgeColors` above, and
+   * `resolveBadgeColor` already prefers a stored value over a computed one.
+   *
+   * ⚠️ A tag absent from this map renders `slate` — neutral, never unstyled — so tags work
+   * before any colour has been chosen.
+   */
+  tagColors?: Record<string, string>;
+
   /** @deprecated Unused — `image` was declared as a column type and never rendered (#29.1). */
   imageSize?: 'small' | 'medium' | 'large';
   /** @deprecated Unused. A missing image renders nothing, never a placeholder. */

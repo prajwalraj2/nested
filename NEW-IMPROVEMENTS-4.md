@@ -244,8 +244,8 @@ document and the code.
 | --- | --- | --- |
 | ~~**N-1**~~ | ~~Square image frame + admin row thumbnails + shared image resolver~~ | ✅ shipped 21 Aug |
 | ~~**N-2**~~ | ~~Row ordering~~ | ✅ shipped 22 Aug |
-| **N-3** | Row tags — companion field, stored colours, in-cell pill | ✅ |
-| **N-4** | Companion fields in CSV export | ✅ small — N-2 and N-3 both want it |
+| ~~**N-3**~~ | ~~Row tags~~ | ✅ shipped 22 Aug |
+| ~~**N-4**~~ | ~~Companion fields in CSV export~~ | ✅ shipped 22 Aug |
 | **N-5** | `reviewedAt` on `Domain`, badge on content pages, stale list | ✅ |
 
 ⚠️ **N-1 to N-4 are table-internal and low risk. N-5 touches the public rendering of every content
@@ -365,9 +365,28 @@ and may not be searchable.
 today, so a table exported and re-imported loses every picture — silently, because a missing image
 renders as nothing.
 
+### ⚠️ N-4 turned out to be narrower AND more dangerous than scoped
+
+**NARROWER: `exportTableToJson` needed no change.** It emits `data.rows` wholesale, so companion
+fields were always in it. Checked rather than assumed — the gap was CSV-only.
+
+**MORE DANGEROUS: fixing export alone would have destroyed data.** `autoMapColumns` had no tag path,
+so a header of `Book Name (tag)` would have fallen through to the column pass — where
+`"book name (tag)".includes("book name")` is TRUE — and mapped the tag onto the Book Name column,
+**overwriting every title on re-import.** Silently, with a valid-looking preview. The tag suffix is
+now matched BEFORE the column pass, exactly as the image word already was.
+
+⚠️ **THE HEADER IS ASCII, AND THAT IS NOT COSMETIC.** It was going to be `Book Name — tag`. A real
+export opened in Excel showed `Josef MÃ¼ller-Brockmann` — the file is being read as Latin-1 — so an
+em dash returns as `â€"`, the header stops matching and the field silently fails to import.
+`companionHeaderFor` is the single rule, used by export AND by the matcher, so the two cannot drift.
+
+⚠️ **ESCAPING NOW APPLIES TO HEADERS, NOT ONLY VALUES.** A column named `Tools, Free` would
+otherwise break every row beneath it.
+
 **Test:** export a table with images, tags and order; ⚠️ **re-import it and confirm all three
-survive**; the header names match what the import dropdown offers, so a round trip needs no manual
-remapping.
+survive AND that the names were not overwritten**; a value containing a comma survives; the header
+names match what the import dropdown offers, so a round trip needs no manual remapping.
 
 ---
 
@@ -409,7 +428,10 @@ objection to the mock.
 | `NEW-IMPROVEMENTS.md` | Items #1–#28, Phases A–J |
 | `NEW-IMPROVEMENTS-2.md` | Items #29–#35, Phases K–L — ⚠️ **Phase K is the table's own history; read it before changing table internals** |
 | `NEW-IMPROVEMENTS-3.md` | Item #36, Phase M |
-| `TABLE-GUIDE.md` | ⚠️ **The end-user manual. N-2, N-3 and N-4 all change it** — CSV rules, the column reference and the import walkthrough all need the new columns |
+| `TABLE-GUIDE.md` | The end-user manual. ✅ Now carries a pointer to the two guides below, plus a warning that its CSV section no longer describes every header in an export |
+| `guides/ROW-ORDERING-GUIDE.md` | ✅ **N-2 as an end-user guide** — admin steps, accepted CSV headers, blanks/gaps/ties, per-country ordering |
+| `guides/ROW-TAGS-GUIDE.md` | ✅ **N-3 as an end-user guide** — turning tags on, colours, the CSV header, and the typo trap |
+| `guides/README.md` | ⚠️ Records why the five older guides were NOT moved into the folder: **36 references to them from inside code comments**, which would break silently because they are prose rather than imports |
 | `TABLE-IMAGES-GUIDE.md` | Row images — N-1 touches presentation, not the pipeline |
 
 ---
