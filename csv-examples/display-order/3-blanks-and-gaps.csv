@@ -1,0 +1,7 @@
+Book Name,Link,Book Author,Description,Target Countries,Display Order
+Pinned first,https://example.com/a,Author A,Order 1 - top.,ALL,1
+Big number,https://example.com/b,Author B,Order 922 - still ABOVE every blank.,ALL,922
+No opinion,https://example.com/c,Author C,Blank order - falls to the bottom.,ALL,
+Also no opinion,https://example.com/d,Author D,Blank too - keeps file order among blanks.,ALL,
+Not a number,https://example.com/e,Author E,Order is text - treated as no opinion.,ALL,abc
+Gap of five,https://example.com/f,Author F,Order 5 - gaps are fine.,ALL,5

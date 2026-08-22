@@ -9,6 +9,8 @@ import {
   Plus,
   Search,
   Trash2,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -50,7 +52,10 @@ import {
   TableHeader,
   TableRow as TableRowUI,
 } from '@/components/ui/table';
-import { generateRowId, TARGET_COUNTRIES_COLUMN_ID } from '@/lib/table-utils';
+import { generateRowId, TARGET_COUNTRIES_COLUMN_ID,
+  sortRowsByDisplayOrder,
+  renumberDisplayOrder
+} from '@/lib/table-utils';
 import { RowImagePicker } from './RowImagePicker';
 import type { TableColumn, TableData, TableRow, TableSchema } from '@/types/table';
 
@@ -199,8 +204,14 @@ export function TableRowsEditor({ schema, data, images, onSave }: TableRowsEdito
    * whatever the user had typed. After a successful save the parent calls `router.refresh()`
    * and this component is re-mounted with the stored rows.
    */
+  /*
+    ⚠️ SEEDED IN DISPLAY ORDER, NOT STORED ORDER (N-2). The array as stored is whatever the CSV
+    import or the last edit left behind; `displayOrder` is what the public page sorts by. Showing
+    the raw array here would mean the admin list and the live page disagreed about row one — and
+    the move buttons below operate on positions, so they would move the wrong rows.
+  */
   const [rows, setRows] = useState<TableRow[]>(() =>
-    Array.isArray(data?.rows) ? data.rows : []
+    sortRowsByDisplayOrder(Array.isArray(data?.rows) ? data.rows : [])
   );
 
   const [isDirty, setIsDirty] = useState(false);
@@ -228,6 +239,38 @@ export function TableRowsEditor({ schema, data, images, onSave }: TableRowsEdito
       columns.some((col) => String(row[col.id] ?? '').toLowerCase().includes(term))
     );
   }, [rows, columns, search]);
+
+  /** Moving by visible position is wrong while the list is filtered — see the menu items. */
+  const isSearching = search.trim().length > 0;
+
+  /**
+   * Move one row up or down, and renumber the whole table (N-2).
+   *
+   * ⚠️ REORDERS THE ARRAY AND THEN RENUMBERS EVERY ROW — it does not swap two numbers. Swapping
+   * assumes the values are contiguous, and they are not: a CSV can arrive as 1, 5, 9 and deleting a
+   * row leaves a gap. See `renumberDisplayOrder` for the full argument; it is the same conclusion
+   * the roadmap tree and the changelog board reached.
+   *
+   * ⚠️ REFUSED WHILE A SEARCH IS ACTIVE. `visibleRows` is a FILTERED view, so "down" would mean
+   * "past the next row you can see" while the array moves it past a hidden one — the row would
+   * appear to jump several places, or not move at all. Rather than silently do the wrong thing, the
+   * items are disabled and the reason is on screen.
+   */
+  function moveRow(rowId: string, direction: 'up' | 'down') {
+    setRows((prev) => {
+      const index = prev.findIndex((row) => row.id === rowId);
+      if (index === -1) return prev;
+
+      const target = direction === 'up' ? index - 1 : index + 1;
+      // Already at the end it is being pushed towards — nothing to do, and not an error.
+      if (target < 0 || target >= prev.length) return prev;
+
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return renumberDisplayOrder(next);
+    });
+    setIsDirty(true);
+  }
 
   function applyRowChange(next: TableRow) {
     setRows((prev) => {
@@ -336,7 +379,14 @@ export function TableRowsEditor({ schema, data, images, onSave }: TableRowsEdito
 
           <TableBody>
             {visibleRows.length > 0 ? (
-              visibleRows.map((row) => (
+              visibleRows.map((row) => {
+                const rowIndex = rows.findIndex((r) => r.id === row.id);
+                return (
+                /*
+                  ⚠️ `rowIndex` IS THE POSITION IN THE FULL ARRAY, NOT IN `visibleRows`. The move
+                  handler works on the array, so an index from the filtered view would disable the
+                  wrong items — the first visible row is not necessarily the first row.
+                */
                 <TableRowUI key={row.id}>
                   {columns.map((column) => (
                     <TableCell key={column.id} className="max-w-[24rem] truncate">
@@ -377,6 +427,31 @@ export function TableRowsEditor({ schema, data, images, onSave }: TableRowsEdito
                           <Pencil className="size-4" aria-hidden="true" />
                           Edit row
                         </DropdownMenuItem>
+
+                        <DropdownMenuSeparator />
+
+                        {/*
+                          ⚠️ DISABLED AT THE ENDS AND WHILE SEARCHING, RATHER THAN HIDDEN. A menu
+                          whose items appear and disappear is hard to aim at, and a greyed row says
+                          why nothing happened. `isSearching` is the important one: the list is
+                          filtered, so moving by visible position would move the row past a row the
+                          admin cannot see.
+                        */}
+                        <DropdownMenuItem
+                          disabled={isSearching || rowIndex <= 0}
+                          onClick={() => moveRow(row.id, 'up')}
+                        >
+                          <ChevronUp className="size-4" aria-hidden="true" />
+                          Move up
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={isSearching || rowIndex >= rows.length - 1}
+                          onClick={() => moveRow(row.id, 'down')}
+                        >
+                          <ChevronDown className="size-4" aria-hidden="true" />
+                          Move down
+                        </DropdownMenuItem>
+
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           variant="destructive"
@@ -389,7 +464,8 @@ export function TableRowsEditor({ schema, data, images, onSave }: TableRowsEdito
                     </DropdownMenu>
                   </TableCell>
                 </TableRowUI>
-              ))
+                );
+              })
             ) : (
               <TableRowUI>
                 {/* +1 for the actions column, so the message spans the full width. */}

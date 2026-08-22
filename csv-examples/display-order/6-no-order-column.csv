@@ -1,0 +1,3 @@
+Book Name,Link,Book Author,Description,Target Countries
+Wipes the order,https://example.com/a,Author A,This file has NO Display Order column. See the README.,ALL
+Second row,https://example.com/b,Author B,All rows end up with no order at all.,ALL

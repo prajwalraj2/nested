@@ -1,0 +1,7 @@
+Book Name,Link,Book Author,Description,Target Countries,Display Order
+Zerodha Varsity,https://example.com/zerodha,ATNO,India: 1st. Invisible to US.,IN,1
+Groww Learn,https://example.com/groww,ATNO,India: 2nd. Invisible to US.,IN,2
+Upstox Academy,https://example.com/upstox,ATNO,India: 3rd. Invisible to US.,IN,3
+Robinhood Learn,https://example.com/robinhood,ATNO,US: 1st. Invisible to India.,US,1
+Schwab Insights,https://example.com/schwab,ATNO,US: 2nd. Invisible to India.,US,2
+Investopedia,https://example.com/investopedia,ATNO,Both countries. Numbered 3 - lands 3rd for IN and 3rd for US.,ALL,3
