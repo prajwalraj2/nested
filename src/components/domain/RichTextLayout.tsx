@@ -33,6 +33,14 @@ type Page = {
   slug: string;
   contentType: string;
   richTextContent?: RichTextContent | null;
+  /**
+   * The one-line description under the heading (#38).
+   *
+   * ⚠️ Comes from `Page.description` via `pageWithContentSelect`. `null` renders nothing, and a
+   * page with no description keeps its previous layout exactly — see the alignment note in
+   * `PageHeading`.
+   */
+  description?: string | null;
 };
 
 type RichTextLayoutProps = {
@@ -47,7 +55,13 @@ export function RichTextLayout({ page, domain }: RichTextLayoutProps) {
     <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
-        <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} spacing="loose" />
+        <PageHeading
+          reviewedAt={domain.reviewedAt}
+          title={page.title}
+          icon={page.icon}
+          description={page.description}
+          spacing="loose"
+        />
 
         {/*
           THIS CARD FOLLOWS THE THEME.

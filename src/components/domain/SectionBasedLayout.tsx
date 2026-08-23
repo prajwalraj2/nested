@@ -16,6 +16,12 @@ type Domain = {
   /** Icon id — used for the heading when this is the domain root. */
   icon?: string | null;
   /**
+   * The DOMAIN's one-line description (#38) — shown on its root page.
+   *
+   * ⚠️ NOT the `__main__` page's description. See `headingDescription` below.
+   */
+  description?: string | null;
+  /**
    * When a person last reviewed this domain (N-5).
    *
    * ⚠️ SECTION-BASED PAGES WERE ADDED TO THE BADGE AFTER THE FIRST PASS, on request, and the
@@ -42,6 +48,14 @@ type Page = {
   sections?: any; // JSON field containing section configuration
   /** Icon id — used for the heading when this is a nested section-based page. */
   icon?: string | null;
+  /**
+   * The one-line description under the heading (#38).
+   *
+   * ⚠️ Comes from `Page.description` via `pageWithContentSelect`. `null` renders nothing, and a
+   * page with no description keeps its previous layout exactly — see the alignment note in
+   * `PageHeading`.
+   */
+  description?: string | null;
 };
 
 type ChildPage = {
@@ -121,6 +135,17 @@ export function SectionBasedLayout({
   const isDomainRoot = !page || page.slug === '__main__';
   const title = isDomainRoot ? domain.name : page.title;
   const headingIcon = isDomainRoot ? domain.icon : page.icon;
+  /*
+    #38 / O-3. ⚠️ THE DESCRIPTION FOLLOWS THE SAME SPLIT AS THE TITLE AND THE ICON DIRECTLY ABOVE,
+    and for the same reason spelled out at length in the comment above them: on a domain root the
+    URL identifies the DOMAIN, so the domain's own fields are what the heading should show.
+
+    A concrete consequence worth knowing before it looks like a bug: setting a description on the
+    `__main__` PAGE in the admin does nothing visible on a direct domain's root. The field that
+    shows there lives on the DOMAIN, edited from the domains screen. That mirrors `__main__`'s
+    title, which has been ignored on domain roots since the fix described above.
+  */
+  const headingDescription = isDomainRoot ? domain.description : page.description;
 
   const sections: Section[] = page?.sections || [];
   
@@ -131,7 +156,12 @@ export function SectionBasedLayout({
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <PageHeading title={title} icon={headingIcon} reviewedAt={domain.reviewedAt} />
+        <PageHeading
+          title={title}
+          icon={headingIcon}
+          reviewedAt={domain.reviewedAt}
+          description={headingDescription}
+        />
       </div>
 
       {/* Main Content - Row-Based 3-Column Layout */}

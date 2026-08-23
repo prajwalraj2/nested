@@ -621,10 +621,10 @@ so it may already render there. Worth a look next time that page is touched — 
 | --- | --- | --- |
 | ~~**O-1**~~ | ~~Schema: 4 columns, one migration, and the roadmap data copy~~ | ✅ shipped 22 Aug — **both branches migrated** |
 | ~~**O-2**~~ | ~~Admin write paths — `PageForm`, `DomainForm`, and both APIs~~ | ✅ shipped 22 Aug |
-| **O-3** | `PageHeading` renders the description; the bottom-aligned layout | ✅ |
+| ~~**O-3**~~ | ~~`PageHeading` renders the description; the bottom-aligned layout~~ | ✅ shipped 23 Aug |
 | **O-4** | `metaDescription` into the meta chain | ✅ |
-| **O-5** | Retire `Roadmap.description` reads and writes | ✅ |
-| **O-6** | *Follow-up, separate commit:* drop the `Roadmap.description` column | after O-5 is verified |
+| **O-5** | Retire `Roadmap.description` reads and writes **+ drop the column** | ✅ |
+| ~~**O-6**~~ | ~~*Follow-up:* drop the column separately~~ | ⚡ **merged into O-5** — see below |
 
 ⚠️ **O-1 is the only migration, and it runs on BOTH Neon branches before the code deploys** —
 the standing rule at the top of this document.
@@ -868,6 +868,63 @@ A **separate commit and migration**, once the O-1 copy is confirmed on both bran
 ```sql
 ALTER TABLE "public"."Roadmap" DROP COLUMN "description";
 ```
+
+### ✅ O-3 as shipped, 23 Aug
+
+**10 `PageHeading` call sites**, all passing `description`, audited by script rather than re-reading:
+TableLayout ×4, RoadmapLayout ×2 (including the "Coming soon" placeholder), RichTextLayout,
+SectionBasedLayout, SubcategorySelector, and the `/domain` listing.
+
+⚠️ **TWO BUGS OF MINE, BOTH FOUND BY THE USER, BOTH THE SAME MISTAKE:** a new field that needed an
+existing conditional, and got a narrower test invented for it instead.
+
+1. **`SubcategorySelector` passed `page?.description`** instead of following the `isDomainRoot`
+   check sitting three lines above it — which was already used for exactly this decision, twice
+   (title and icon). Result: a **hierarchical** domain root showed no description while a **direct**
+   one did. Two kinds of domain root behaving differently from the same field.
+2. ⚠️ **`SubcategorySelector` DEFINES ITS OWN `DomainWithPages` THAT SHADOWS `services/types.ts`.**
+   The shared one is `Domain & {…}`, an intersection with Prisma's type, so it gains new columns for
+   free. The local one lists its fields, so it does not. **Identical name, opposite behaviour.**
+   TypeScript caught this one — unlike any of the API field lists.
+
+**`/domain` needed TWO constants, not a shorter one.** `DESCRIPTION` (~120 chars) feeds the search
+snippet and names the site, because a searcher has not arrived yet. `PAGE_DESCRIPTION` (63 chars) is
+read by someone already on the page, where "on ATNO" is redundant and half the length reads better
+under an `<h1>`. ⚠️ Shortening the single constant would have quietly weakened the search snippet —
+invisible until traffic drops. The same reasoning that made `description` and `metaDescription`
+separate fields, applied to a page with no row to hang them on.
+
+**Description colour: `text-foreground/70`, not a lighter grey.** ⚠️ "Brighter" only means "lighter"
+in dark mode; in light mode a lighter grey would LOSE contrast and read as disabled. Moving toward
+`--foreground` moves in opposite directions per theme, which is what was actually wanted:
+
+| | `--muted-foreground` | `text-foreground/70` |
+| --- | --- | --- |
+| light | oklch 0.556 | ≈ oklch 0.32 — **darker**, more contrast |
+| dark | oklch 0.708 | ≈ oklch 0.80 — **lighter**, more contrast |
+
+Verified in the built CSS as `color-mix(in oklab, var(--foreground) 70%, transparent)`. The review
+badge deliberately keeps `text-muted-foreground` — it is a footnote; the description is the page
+explaining itself.
+
+⚠️ **`items-end` ONLY WHEN A DESCRIPTION EXISTS**, and `pt-1.5` drops in that case — it exists to
+align a 36px control with a `text-3xl` cap height, which is the wrong correction once the group is
+bottom-aligned. All 1,236 description-less pages keep their exact previous appearance.
+
+⚠️ **`min-w-0` MOVED ONTO THE NEW COLUMN WRAPPER**, not just the `<h1>`. The wrapper is now the flex
+child, so it inherits `min-width: auto` — without it a long unbroken description pushes the buttons
+off the edge and the document scrolls sideways.
+
+### ⚡ O-6 merged into O-5
+
+The split existed to protect the three copied rows while the source still mattered. The user then
+**emptied `Roadmap.description` and deleted every `Roadmap` row on both branches**, so there is
+nothing left to protect and no reason for two migrations.
+
+⚠️ **Two side effects of that deletion, both live and both expected:** 5 PUBLISHED pages still carry
+`contentType: 'roadmap'` with no `Roadmap` row, so they render `RoadmapLayout`'s "Coming soon"
+placeholder — verified, no 500. And their intro lines were invisible between the column being
+emptied and O-3 landing, because the render still read the old field.
 
 ### Test matrix
 

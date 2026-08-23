@@ -58,6 +58,14 @@ type Page = {
   slug: string;
   contentType: string;
   content: any[];
+  /**
+   * The one-line description under the heading (#38).
+   *
+   * ⚠️ Comes from `Page.description` via `pageWithContentSelect`. `null` renders nothing, and a
+   * page with no description keeps its previous layout exactly — see the alignment note in
+   * `PageHeading`.
+   */
+  description?: string | null;
   subPages: any[];
 };
 
@@ -132,7 +140,12 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
           {/* Header */}
-          <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} />
+          <PageHeading
+            reviewedAt={domain.reviewedAt}
+            title={page.title}
+            icon={page.icon}
+            description={page.description}
+          />
 
           {/* Table skeleton */}
           <div className="rounded-lg border border-border overflow-hidden">
@@ -197,7 +210,12 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} />
+          <PageHeading
+            reviewedAt={domain.reviewedAt}
+            title={page.title}
+            icon={page.icon}
+            description={page.description}
+          />
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -217,7 +235,12 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} />
+          <PageHeading
+            reviewedAt={domain.reviewedAt}
+            title={page.title}
+            icon={page.icon}
+            description={page.description}
+          />
 
           <div className="rounded-lg p-6 border border-border">
             <div className="flex items-center justify-center py-12">
@@ -237,7 +260,12 @@ export function TableLayout({ page, domain }: TableLayoutProps) {
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
-        <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} />
+        <PageHeading
+            reviewedAt={domain.reviewedAt}
+            title={page.title}
+            icon={page.icon}
+            description={page.description}
+          />
 
         {/* Professional DataTable from DataTable.tsx */}
         <DataTable

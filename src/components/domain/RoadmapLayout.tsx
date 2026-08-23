@@ -52,7 +52,19 @@ export function RoadmapLayout({ page, domain, siblingRoles, currentPath, openTop
     return (
       <div className="min-h-screen">
         <div className="mx-auto max-w-5xl px-6 py-8">
-          <PageHeading reviewedAt={domain.reviewedAt} title={page.title} icon={page.icon} spacing="loose" />
+          {/*
+            ⚠️ THE DESCRIPTION BELONGS ON THE PLACEHOLDER TOO (#38). This branch reads as an
+            error state, which is exactly why it gets skipped — but it is a real, published
+            page, and a description explaining what the roadmap will cover is arguably more
+            useful here than on a finished one.
+          */}
+          <PageHeading
+            reviewedAt={domain.reviewedAt}
+            title={page.title}
+            icon={page.icon}
+            description={page.description}
+            spacing="loose"
+          />
           <div className="border-border rounded-lg border border-dashed py-16 text-center">
             <p className="font-medium">Coming soon</p>
             <p className="text-muted-foreground mx-auto mt-1 max-w-md text-sm">
@@ -104,7 +116,13 @@ export function RoadmapLayout({ page, domain, siblingRoles, currentPath, openTop
           purpose — the page is "Frontend" in the sidebar and breadcrumb, the roadmap can be
           "Frontend Developer" on the page itself.
         */}
-        <PageHeading reviewedAt={domain.reviewedAt} title={roadmap.title || page.title} icon={page.icon} share />
+        <PageHeading
+          reviewedAt={domain.reviewedAt}
+          title={roadmap.title || page.title}
+          icon={page.icon}
+          description={page.description}
+          share
+        />
 
         {roadmap.description && (
           <p className="text-muted-foreground -mt-6 mb-8 max-w-prose">{roadmap.description}</p>
