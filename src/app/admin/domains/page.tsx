@@ -359,6 +359,13 @@ async function fetchDomainsWithFilters(searchParams: SearchParams) {
         here rather than in the query.
       */
       reviewedAt: domain.reviewedAt,
+      /*
+        #38 / O-2 — and this is the SAME literal that dropped `reviewedAt` one phase ago.
+        `DomainForm` seeds its inputs from this object, so omitting either field means the
+        edit dialog opens with an empty description and saving deletes it.
+      */
+      description: domain.description,
+      metaDescription: domain.metaDescription,
       // Generate preview URL
       previewUrl: `/domain/${domain.slug}`
     }));

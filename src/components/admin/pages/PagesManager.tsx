@@ -71,6 +71,16 @@ type Page = {
   status?: PageStatus;
   /** Icon id, carried through to PageTree and PageForm. */
   icon?: string | null;
+  /**
+   * The one-line description under the <h1> (#38), and the authored search snippet.
+   *
+   * ⚠️ CARRIED HERE PURELY SO `PageForm` CAN SEED ITS INPUTS. Neither is rendered in this admin
+   * tree. They still have to travel the whole chain — API select → API rebuild → this type → the
+   * transform below → `editingPage` → the form — and dropping them at ANY link makes the input
+   * open empty, which means pressing Save deletes the value.
+   */
+  description?: string | null;
+  metaDescription?: string | null;
   parentId: string | null;
   domainId: string;
   targetCountries?: string[];
@@ -693,6 +703,10 @@ function buildPageHierarchy(flatPages: any[], domain: Domain | null): Page[] {
     status: page.status,
     // ⚠️ The field this transform dropped last time. See the warning above.
     icon: page.icon,
+    // #38 — and this is the same transform, one field-list later. Not rendered here; needed by
+    // PageForm. See the note on the type.
+    description: page.description,
+    metaDescription: page.metaDescription,
     parentId: page.parentId,
     domainId: page.domainId,
     targetCountries: page.targetCountries,

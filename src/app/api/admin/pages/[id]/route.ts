@@ -2,6 +2,9 @@ import { isValidIconId } from '@/lib/icon-manifest';
 import { NextRequest, NextResponse } from 'next/server';
 import { MAIN_PAGE_SLUG, PAGE_STATUSES, isMainPage, isPageStatus, resolvePageStatus } from '@/lib/page-status';
 import { prisma } from '@/lib/prisma';
+// #38 — one definition of "trim it, empty means null, 300 is the limit", shared by all four
+// write endpoints. See the header of src/lib/descriptions.ts.
+import { normaliseDescription, validateDescription } from '@/lib/descriptions';
 import { requireAdmin } from '@/lib/api-auth';
 import { invalidatePages } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
@@ -108,6 +111,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         contentType: page.contentType,
         status: page.status,
         icon: page.icon,
+        // #38 / O-2 — see the long note on the same rebuild in the collection route.
+        description: page.description,
+        metaDescription: page.metaDescription,
         parentId: page.parentId,
         domainId: page.domainId,
         targetCountries: page.targetCountries,
@@ -231,6 +237,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const { title, slug, contentType, parentId, targetCountries } = body;
 
+    // #38 / O-2. Rejects rather than truncating — see src/lib/descriptions.ts.
+    const descriptionError =
+      validateDescription(body.description, 'description') ??
+      validateDescription(body.metaDescription, 'metaDescription');
+    if (descriptionError) {
+      return NextResponse.json({ success: false, message: descriptionError }, { status: 400 });
+    }
+
     // Verify parent exists and prevent circular references
     if (parentId && parentId !== existingPage.parentId) {
       const parent = await prisma.page.findUnique({
@@ -325,6 +339,26 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           Remove button would silently do nothing.
         */
         icon: body.icon !== undefined ? body.icon : existingPage.icon,
+        /*
+          #38 / O-2. ⚠️ SAME `!== undefined` REASONING AS `icon` DIRECTLY ABOVE, and it matters
+          more here than it looks. `normaliseDescription` returns three things:
+
+            undefined  the key was absent         → leave the column alone
+            null       present but empty          → clear it (this is how the admin deletes one)
+            string     present, trimmed
+
+          A `??` would collapse the first two, so clearing a description in the UI would silently
+          do nothing — and re-opening the dialog would show the old text, making it look like the
+          save failed rather than like the clear was ignored.
+        */
+        description:
+          normaliseDescription(body.description) !== undefined
+            ? normaliseDescription(body.description)
+            : existingPage.description,
+        metaDescription:
+          normaliseDescription(body.metaDescription) !== undefined
+            ? normaliseDescription(body.metaDescription)
+            : existingPage.metaDescription,
         targetCountries: validTargetCountries
       },
       include: {
@@ -366,6 +400,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         contentType: updatedPage.contentType,
         status: updatedPage.status,
         icon: updatedPage.icon,
+        // #38 / O-2 — the client replaces its row with this response, so a miss here shows stale
+        // text until the next full reload.
+        description: updatedPage.description,
+        metaDescription: updatedPage.metaDescription,
         parentId: updatedPage.parentId,
         domainId: updatedPage.domainId,
         targetCountries: updatedPage.targetCountries,

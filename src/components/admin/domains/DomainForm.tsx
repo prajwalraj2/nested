@@ -13,6 +13,8 @@ import {
   DOMAIN_STATUS_LABELS,
 } from '@/lib/domain-status';
 import { IconPicker } from '@/components/admin/IconPicker';
+// Shared with PageForm so the counters, thresholds and help text cannot drift apart.
+import { DescriptionFields } from '@/components/admin/DescriptionFields';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -85,6 +87,9 @@ type DomainFormProps = {
     status?: DomainStatus;
     /** Icon id from public/icons/, or null to fall back to the emoji in the name. */
     icon?: string | null;
+    /** The domain root's one-line description and search snippet (#38). */
+    description?: string | null;
+    metaDescription?: string | null;
     /**
      * @deprecated Superseded by `status`. Optional, and only read as a fallback when
      * `status` is absent — callers already migrated to `status` do not pass it at all.
@@ -110,6 +115,13 @@ export function DomainForm({ categories, domain = null, onSuccess, onCancel }: D
   const [formData, setFormData] = useState({
     name: domain?.name || '',
     slug: domain?.slug || '',
+    /*
+      #38 — `?? ''` because a controlled <input> handed null becomes UNCONTROLLED: React warns,
+      and the field then holds text the state never sees, so it looks saved and is not submitted.
+      Converted back to null in `submitData`.
+    */
+    description: domain?.description ?? '',
+    metaDescription: domain?.metaDescription ?? '',
     pageType: domain?.pageType || 'direct',
     categoryId: domain?.categoryId || categories[0]?.id || '',
     orderInCategory: domain?.orderInCategory || 0,
@@ -250,6 +262,13 @@ export function DomainForm({ categories, domain = null, onSuccess, onCancel }: D
         name: formData.name.trim(),
         slug: formData.slug.trim(),
         orderInCategory: Number(formData.orderInCategory) || 0,
+        /*
+          #38. ⚠️ MUST OVERRIDE THE SPREAD ABOVE. `...formData` would send `''` for an empty
+          field; the server's normaliser maps that to null anyway, but the request should say what
+          it means ("clear this") rather than rely on a coincidence in the normaliser.
+        */
+        description: formData.description.trim() || null,
+        metaDescription: formData.metaDescription.trim() || null,
       };
 
       const url = isEditMode ? `/api/admin/domains/${domain.id}` : '/api/admin/domains';
@@ -495,6 +514,25 @@ export function DomainForm({ categories, domain = null, onSuccess, onCancel }: D
             : 'Optional. Without one, the emoji in the name is used.'}
         </p>
       </div>
+
+      {/*
+        ── Descriptions (#38) ──
+
+        ⚠️ THESE DESCRIBE THE DOMAIN'S **ROOT PAGE** (`/domain/photography`), NOT the `/domain`
+        listing. The listing is a single page with no row to hang a column on, so its description
+        is a code constant — see decision (g) in NEW-IMPROVEMENTS-4.md. Worth stating here because
+        "the domain page" means two different things and that has already caused one round of
+        confusion.
+      */}
+      <DescriptionFields
+        idPrefix="domain"
+        subject="domain"
+        description={formData.description}
+        metaDescription={formData.metaDescription}
+        onDescriptionChange={(value) => handleChange('description', value)}
+        onMetaDescriptionChange={(value) => handleChange('metaDescription', value)}
+        disabled={isLoading}
+      />
 
       {/*
         ── Status ──
