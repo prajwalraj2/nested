@@ -52,7 +52,6 @@ export async function GET(request: NextRequest) {
           select: {
             id: true,
             title: true,
-            description: true,
             updatedAt: true,
             // ⚠️ A COUNT, NOT THE NODES. This screen only reports "how many topics"; loading
             // the nodes would pull every `htmlContent` blob in the domain to render a number.
@@ -122,7 +121,8 @@ export async function POST(request: NextRequest) {
     if (!guard.ok) return guard.response;
 
     const body = await request.json();
-    const { pageId, title, description } = body ?? {};
+    // #38 / O-5 — `description` no longer accepted here; it lives on Page.description.
+    const { pageId, title } = body ?? {};
 
     if (!pageId || typeof pageId !== 'string') {
       return NextResponse.json({ error: 'pageId is required' }, { status: 400 });
@@ -173,9 +173,8 @@ export async function POST(request: NextRequest) {
           shape. This is the #28 discipline applied by default rather than after a bug.
         */
         title: (typeof title === 'string' && title.trim()) || page.title,
-        description: typeof description === 'string' && description.trim() ? description.trim() : null,
       },
-      select: { id: true, title: true, description: true, updatedAt: true },
+      select: { id: true, title: true, updatedAt: true },
     });
 
     return NextResponse.json({ success: true, roadmap }, { status: 201 });

@@ -288,10 +288,15 @@ export function RoadmapEditor({ pageId }: Props) {
 }
 
 /**
- * The roadmap's own title and description, shown when no topic is selected.
+ * The roadmap's own title, shown when no topic is selected.
  *
- * ⚠️ `description` is PLAIN TEXT and feeds the public meta description — markup here would be
- * rendered as literal characters in search results.
+ * ⚠️ THE "INTRO LINE" FIELD WAS REMOVED HERE IN #38 / O-5, AND ITS REPLACEMENT IS ON THE PAGE, NOT
+ * THE ROADMAP. `Roadmap.description` did the same job as `Page.description` for exactly one content
+ * type, so keeping both would mean two boxes writing two columns that render in the same place —
+ * an author edits one, the page shows the other, and nothing errors.
+ *
+ * To set a roadmap page's intro line now: **Pages → edit the page → Description.** Same field every
+ * other content type uses.
  */
 function RoadmapMetaForm({
   roadmap,
@@ -304,10 +309,9 @@ function RoadmapMetaForm({
 }) {
   const current = resolveRoadmapSettings(roadmap.settings);
   const [title, setTitle] = useState(roadmap.title);
-  const [description, setDescription] = useState(roadmap.description ?? '');
   const [saving, setSaving] = useState(false);
 
-  const dirty = title !== roadmap.title || description !== (roadmap.description ?? '');
+  const dirty = title !== roadmap.title;
 
   async function save() {
     setSaving(true);
@@ -321,7 +325,11 @@ function RoadmapMetaForm({
           with it. That is the shallow-write trap `align-table-settings.mjs` was written to
           repair in K-2, and it costs nothing to avoid here.
         */
-        body: JSON.stringify({ title, description, settings: current }),
+        /*
+            #38 / O-5 — `description` is gone from this body. The PATCH route only writes keys it
+            receives, so omitting it leaves the (now unused) column alone rather than blanking it.
+          */
+          body: JSON.stringify({ title, settings: current }),
       });
       await onSaved();
     } finally {
@@ -347,17 +355,11 @@ function RoadmapMetaForm({
         </p>
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="roadmap-description">Intro line</Label>
-        <Input
-          id="roadmap-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-        <p className="text-muted-foreground text-xs">
-          Plain text, no HTML — it also becomes this page&rsquo;s search-result description.
-        </p>
-      </div>
+      {/*
+        #38 / O-5 — the "Intro line" field was here. It now lives on the PAGE, alongside every
+        other content type's description: Pages → edit the page → Description. See the note on
+        this component.
+      */}
 
       {/*
         A roadmap-wide LAYOUT selector lived here while `clustered` and `branching` were being

@@ -124,9 +124,17 @@ export function RoadmapLayout({ page, domain, siblingRoles, currentPath, openTop
           share
         />
 
-        {roadmap.description && (
-          <p className="text-muted-foreground -mt-6 mb-8 max-w-prose">{roadmap.description}</p>
-        )}
+        {/*
+          #38 / O-5 — `roadmap.description` was rendered here, and its removal DELETES A HACK worth
+          noting: it carried `-mt-6`, a negative margin fighting the bottom margin `PageHeading`
+          owns, to drag itself back up under the title. Two components disagreeing about the same
+          gap, resolved with a magic number.
+
+          The description now renders INSIDE `PageHeading` (see the `description` prop passed
+          above), so there is nothing to fight and no number to keep in sync. This is the same
+          argument that created `PageHeading` in the first place — six hand-written headings had
+          drifted four ways.
+        */}
 
         <RoadmapView
           tree={tree}

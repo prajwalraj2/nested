@@ -442,24 +442,17 @@ model Roadmap {
   /// wants to be longer.
   title String
 
-  /// @deprecated ⚠️⚠️ SUPERSEDED BY `Page.description` (#38). BEING REMOVED IN PHASE O-6. ⚠️⚠️
-  ///
-  /// One-line intro under the title — the same idea as `Page.description`, built for one page type
-  /// before it was built for all of them.
-  ///
-  /// ⚠️ **DO NOT ADD NEW READS OR WRITES.** The O-1 migration has already COPIED every non-empty
-  /// value in this column into `Page.description`, so both hold the same data right now. Reading
-  /// this one means two fields for one concept: an author edits the `Page` box, this column keeps
-  /// its stale value, and whichever read path you added shows the old text. Nothing errors.
-  ///
-  /// ⚠️ IT STILL EXISTS ONLY AS A SAFETY NET. The copy and the drop were deliberately split across
-  /// two migrations so this data survives if the O-1 `UPDATE` silently matched zero rows. Once O-5
-  /// has removed the remaining reads and the copy is confirmed on **both** Neon branches, O-6 drops
-  /// the column.
-  ///
-  /// ⚠️ PLAIN TEXT, NOT HTML — it also feeds the meta description, and markup there would be
-  /// rendered as literal characters in search results.
-  description String?
+  /*
+    ⚠️ `description` WAS HERE AND IS GONE (#38, Phase O-5). Do not re-add it.
+
+    A roadmap's intro line is `Page.description`, the same field every other content type uses.
+    This column existed because the feature was built for one page type before it was built for
+    all of them, and keeping both would have meant two boxes writing two columns that render in
+    the same place — an author edits one, the page shows the other, and nothing errors.
+
+    The O-1 migration copied every non-empty value into `Page.description` before this drop, and
+    the copy was verified row by row on the development branch.
+  */
 
   /// { defaultExpanded: boolean, showProgress: boolean, ... }
   ///

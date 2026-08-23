@@ -622,8 +622,8 @@ so it may already render there. Worth a look next time that page is touched — 
 | ~~**O-1**~~ | ~~Schema: 4 columns, one migration, and the roadmap data copy~~ | ✅ shipped 22 Aug — **both branches migrated** |
 | ~~**O-2**~~ | ~~Admin write paths — `PageForm`, `DomainForm`, and both APIs~~ | ✅ shipped 22 Aug |
 | ~~**O-3**~~ | ~~`PageHeading` renders the description; the bottom-aligned layout~~ | ✅ shipped 23 Aug |
-| **O-4** | `metaDescription` into the meta chain | ✅ |
-| **O-5** | Retire `Roadmap.description` reads and writes **+ drop the column** | ✅ |
+| ~~**O-4**~~ | ~~`metaDescription` into the meta chain~~ | ✅ shipped 23 Aug |
+| ~~**O-5**~~ | ~~Retire `Roadmap.description` reads and writes **+ drop the column**~~ | ✅ shipped 23 Aug — ⚠️ **second migration of the phase** |
 | ~~**O-6**~~ | ~~*Follow-up:* drop the column separately~~ | ⚡ **merged into O-5** — see below |
 
 ⚠️ **O-1 is the only migration, and it runs on BOTH Neon branches before the code deploys** —
@@ -925,6 +925,58 @@ nothing left to protect and no reason for two migrations.
 `contentType: 'roadmap'` with no `Roadmap` row, so they render `RoadmapLayout`'s "Coming soon"
 placeholder — verified, no 500. And their intro lines were invisible between the column being
 emptied and O-3 landing, because the render still read the old field.
+
+### ✅ O-4 and O-5 as shipped, 23 Aug
+
+**The resolved chain, in one table** — this is the thing to look up rather than re-derive:
+
+| `metaDescription` | `description` | `<meta name="description">` |
+| --- | --- | --- |
+| set | anything | **`metaDescription`**, verbatim, no floor |
+| empty | **≥ 40 chars** | the **`description`**, borrowed |
+| empty | ≤ 39 chars | the generated template |
+| empty | empty | the generated template |
+
+⚠️ **THE FLOOR IS EXACTLY 40, AFTER TRIMMING** — `META_BORROW_FLOOR` in `lib/descriptions.ts`. Worth
+stating numerically because "about fifty" is the natural guess and 40–50 is a live band.
+
+⚠️ **`metaDescription` HAS NO FLOOR; THE BORROWED `description` DOES.** Deleting that asymmetry is
+the most likely future "cleanup" and it would be wrong in both directions:
+
+- Adding a floor to `metaDescription` overrides a deliberate choice. A 15-character snippet someone
+  typed on purpose is the answer, and a field that silently ignores you is worse than no field.
+- Removing the floor from `description` borrows text written for a different job. The real value
+  `"Data analyst roadmpa"` is a fine heading line and a terrible search result.
+
+⚠️ **WHY BORROWING AT ALL, since it was questioned:** the templates it displaces are near-identical
+across ~690 table pages (`"{title} in {domain} - a curated, comparable list of options on ATNO."`).
+Google largely ignores boilerplate descriptions and writes its own from page content, so the real
+comparison is *a distinctive human sentence* against *one of 690 clones* — not 54 characters against
+93. Plus, with 1,236 pages to write for, one line paying twice is much of what makes the work worth
+doing. The alternative (strictly independent fields) was offered and declined.
+
+**One `metaDescription` reaches three tags**, verified in `view-source`: `description`,
+`og:description` and `twitter:description`. That wiring already existed; O-4 only added the branches.
+
+**O-5 touched nine files.** The public render, the admin "Intro line" field, both roadmap API
+routes, three types, the service select, and the schema.
+
+⚠️ **REMOVING THE RENDER DELETED A HACK, and that is the argument for having done it.** The old
+`<p>` carried `-mt-6` — a negative margin fighting the bottom margin `PageHeading` owns, to drag
+itself back up under the title. Two components disagreeing about one gap, settled with a magic
+number. The description now renders *inside* `PageHeading`, so there is nothing to fight and no
+number to keep in sync.
+
+⚠️ **A COMMENT HAD BECOME A LIE AND WAS CORRECTED.** The roadmap template branch still said a
+roadmap's own description "IS BETTER THAN THIS TEMPLATE AND IS NOT READ HERE YET", framed as pending
+work for L-8. It was resolved, not pending — and a stale ⚠️ comment is worse than none, because the
+next person budgets time for it.
+
+**A tombstone was left in `schema.prisma`** where the field was, so it does not get re-added by
+someone solving the same problem again.
+
+⚠️ **`prisma migrate diff` was used to confirm the hand-written `DROP COLUMN` matched exactly what
+Prisma derives from the schema** — not assumed. Same check as O-1.
 
 ### Test matrix
 

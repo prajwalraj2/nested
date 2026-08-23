@@ -82,7 +82,6 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
           select: {
             id: true,
             title: true,
-            description: true,
             settings: true,
             updatedAt: true,
             nodes: {
@@ -121,7 +120,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 /**
  * PATCH /api/admin/roadmaps/[pageId] — the roadmap's own fields.
  *
- * Body may contain any of `title`, `description`, `settings`. Absent keys are left alone.
+ * Body may contain any of `title`, `settings`. Absent keys are left alone.
+ *
+ * ⚠️ `description` WAS ACCEPTED HERE UNTIL #38 / O-5. A page's intro line is now
+ * `Page.description`, written through `PUT /api/admin/pages/[id]` like every other content
+ * type's. A stale client still sending `description` is silently ignored rather than 400d —
+ * the key is simply not read.
  */
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
@@ -149,7 +153,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
       `in` rather than a truthiness test, so an explicit `null` or `""` is honoured.
     */
-    const data: { title?: string; description?: string | null; settings?: unknown } = {};
+    const data: { title?: string; settings?: unknown } = {};
 
     if ('title' in body) {
       const title = typeof body.title === 'string' ? body.title.trim() : '';
@@ -157,10 +161,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ error: 'Roadmap title cannot be empty' }, { status: 400 });
       }
       data.title = title;
-    }
-    if ('description' in body) {
-      const d = typeof body.description === 'string' ? body.description.trim() : '';
-      data.description = d || null;
     }
     if ('settings' in body) {
       data.settings = body.settings ?? undefined;
@@ -173,11 +173,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const roadmap = await prisma.roadmap.update({
       where: { id: existing.id },
       data: data as never,
-      select: { id: true, title: true, description: true, settings: true, updatedAt: true },
+      select: { id: true, title: true, settings: true, updatedAt: true },
     });
 
-    // The roadmap's title and description reach the public page and its meta description, both
-    // of which sit behind cached reads. See the header note in src/lib/cache-invalidation.ts.
+    // The roadmap's title reaches the public page and its meta description, both of which sit
+    // behind cached reads. See the header note in src/lib/cache-invalidation.ts.
     invalidatePages();
 
     return NextResponse.json({ success: true, roadmap });

@@ -115,7 +115,7 @@ export type PageWithContent = {
 export type RoadmapWithNodes = {
   id: string;
   title: string;
-  description: string | null;
+  /* #38 / O-5 — `description` removed. It lives on `Page.description` now, for every content type. */
   settings: any;
   updatedAt: Date;
   nodes: RoadmapNodeBasic[];
