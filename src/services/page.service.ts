@@ -22,6 +22,13 @@ const pageWithContentSelect = {
   icon: true,
   slug: true,
   contentType: true,
+  /*
+    #38 / O-3. ⚠️ THIS IS THE SELECT THE PUBLIC PAGE READS. Omit either field here and the
+    description simply never renders — no error, no warning, and the admin still shows the value
+    saved correctly, which makes it look like a render bug rather than a missing column.
+  */
+  description: true,
+  metaDescription: true,
   sections: true,
   parentId: true,
   domainId: true,

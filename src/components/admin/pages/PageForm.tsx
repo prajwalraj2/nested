@@ -9,6 +9,8 @@ import { AlertTriangle, Globe, Loader2 } from 'lucide-react';
 // before G-3c. Removed. `getCountryOptions()` returns the display-ready list.
 import { ALL_COUNTRIES, getCountryOptions } from '@/lib/countries';
 import { IconPicker } from '@/components/admin/IconPicker';
+// Shared with DomainForm so the counters, thresholds and help text cannot drift apart.
+import { DescriptionFields } from '@/components/admin/DescriptionFields';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -84,6 +86,17 @@ type Page = {
   status?: PageStatus;
   /** Icon id from public/icons/, or null to fall back to the emoji in the title. */
   icon?: string | null;
+  /**
+   * The one-line description and the search snippet (#38).
+   *
+   * ⚠️ THE LAST LINK IN A SIX-STEP CHAIN, and the only one TypeScript catches. The others —
+   * the API select, the API rebuild, `PagesManager`'s type, and `PagesManager`'s transform —
+   * all fail silently: `description` simply arrives `undefined`, the input renders empty, and
+   * saving writes that empty value back. This type erroring was the *only* automatic warning
+   * in the whole path.
+   */
+  description?: string | null;
+  metaDescription?: string | null;
   createdAt: Date;
   children: Page[];
   depth: number;
@@ -197,6 +210,16 @@ export function PageForm({
     status: editingPage?.status ?? ('PUBLISHED' as PageStatus),
     // Null means "use the emoji already in the title" — true of 1,200 of 1,216 pages today.
     icon: editingPage?.icon ?? null,
+    /*
+      #38 — held as `''` rather than `null` in form state, deliberately.
+
+      ⚠️ A CONTROLLED `<input>` GIVEN `null` OR `undefined` BECOMES UNCONTROLLED. React warns, and
+      the field then keeps whatever the user types without the state ever knowing — so the value
+      looks right on screen and is missing from the submit. `?? ''` at the boundary, converted
+      back to null on the way out (see `submitData`).
+    */
+    description: editingPage?.description ?? '',
+    metaDescription: editingPage?.metaDescription ?? '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -337,6 +360,16 @@ export function PageForm({
         targetCountries: formData.targetCountries,
         status: formData.status,
         icon: formData.icon,
+        /*
+          #38. ⚠️ SENT AS `null` WHEN EMPTY, NOT AS `''`.
+
+          `normaliseDescription` on the server already maps `''` to null, so either would land the
+          same value — but the three-way contract there distinguishes ABSENT from EMPTY, and being
+          explicit here means the request says what it means: "clear this". Sending `''` would rely
+          on a coincidence in the server's normaliser rather than on the contract.
+        */
+        description: formData.description.trim() || null,
+        metaDescription: formData.metaDescription.trim() || null,
       };
 
       const url = isEditMode ? `/api/admin/pages/${editingPage.id}` : '/api/admin/pages';
@@ -565,6 +598,23 @@ export function PageForm({
             : 'Optional. Without one, the emoji in the title is used.'}
         </p>
       </div>
+
+      {/*
+        ── Descriptions (#38) ──
+
+        Placed after the icon and before the status, so the fields that describe WHAT the page is
+        sit together, and the fields that control whether anyone can see it come last. Both are
+        optional, which is why they are below the required title/slug rather than beside them.
+      */}
+      <DescriptionFields
+        idPrefix="page"
+        subject="page"
+        description={formData.description}
+        metaDescription={formData.metaDescription}
+        onDescriptionChange={(value) => handleChange('description', value)}
+        onMetaDescriptionChange={(value) => handleChange('metaDescription', value)}
+        disabled={isLoading}
+      />
 
       {/*
         ── Status ──

@@ -72,6 +72,13 @@ const getDomainBySlugFromDB = unstable_cache(
         targetCountries: true,
         orderInCategory: true,
         categoryId: true,
+        /*
+          #38 / O-2. ⚠️ AN EXPLICIT `select`, so these must be listed. `getWithPages` next door
+          uses `include` and picks up new columns automatically — which is exactly why this one is
+          easy to miss: the feature works on the pages that go through the other function.
+        */
+        description: true,
+        metaDescription: true,
       },
     });
 

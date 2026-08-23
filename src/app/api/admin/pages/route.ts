@@ -5,6 +5,9 @@ import { PAGE_STATUSES, isPageStatus, resolvePageStatus } from '@/lib/page-statu
 // See src/lib/api-auth.ts for the 401-vs-403 and isActive reasoning.
 import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
+// #38 — one definition of "trim it, empty means null, 300 is the limit", shared by all four
+// write endpoints. See the header of src/lib/descriptions.ts.
+import { normaliseDescription, validateDescription } from '@/lib/descriptions';
 import { invalidatePages } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 // Finding #22.4 — one shared parent-chain traversal, replacing the local copy that had
@@ -74,6 +77,10 @@ export async function GET(request: NextRequest) {
         contentType: true,
         status: true,
         icon: true,
+        // #38 / O-2. ⚠️ Needed HERE because PageForm seeds its inputs from this list — see the
+        // warning on the rebuild below.
+        description: true,
+        metaDescription: true,
         parentId: true,
         domainId: true,
         targetCountries: true,
@@ -94,6 +101,19 @@ export async function GET(request: NextRequest) {
       contentType: page.contentType,
       status: page.status,
       icon: page.icon,
+      /*
+        ⚠️ THE CHAIN THIS FEEDS, AND WHY A MISS HERE IS DESTRUCTIVE RATHER THAN MERELY INCOMPLETE:
+
+          GET /api/admin/pages  →  this rebuild  →  PagesManager.Page  →  editingPage
+                                →  PageForm's useState  →  PUT
+
+        A field missing from this literal arrives at `PageForm` as `undefined`, the input renders
+        EMPTY, and saving writes that empty value back — so opening the edit dialog and pressing
+        Save DELETES the description. That is not hypothetical: the `icon` note two lines up, and
+        the `status` post-mortem in PagesManager, are the same bug twice.
+      */
+      description: page.description,
+      metaDescription: page.metaDescription,
       parentId: page.parentId,
       domainId: page.domainId,
       targetCountries: page.targetCountries,
@@ -146,6 +166,14 @@ export async function POST(request: NextRequest) {
     }
 
     const { title, slug, contentType, domainId, parentId, targetCountries } = body;
+
+    // #38 / O-2. Both optional; absent or empty means null. See src/lib/descriptions.ts.
+    const descriptionError =
+      validateDescription(body.description, 'description') ??
+      validateDescription(body.metaDescription, 'metaDescription');
+    if (descriptionError) {
+      return NextResponse.json({ success: false, message: descriptionError }, { status: 400 });
+    }
 
     // Verify domain exists and get its info
     const domain = await prisma.domain.findUnique({
@@ -252,6 +280,13 @@ export async function POST(request: NextRequest) {
         status: resolvePageStatus(body),
         // Optional; null means "use the emoji in the title".
         icon: body.icon ?? null,
+        /*
+          #38 / O-2. ⚠️ `?? null` rather than passing `undefined` through: on CREATE there is no
+          existing value to preserve, so "absent" and "empty" are the same thing, and being
+          explicit keeps the created row's shape identical to what a later PUT would produce.
+        */
+        description: normaliseDescription(body.description) ?? null,
+        metaDescription: normaliseDescription(body.metaDescription) ?? null,
         targetCountries: validTargetCountries
       },
       select: {
@@ -261,6 +296,9 @@ export async function POST(request: NextRequest) {
         contentType: true,
         status: true,
         icon: true,
+        // #38 / O-2 — the created row is spread into the response, so the client sees them.
+        description: true,
+        metaDescription: true,
         parentId: true,
         domainId: true,
         targetCountries: true,

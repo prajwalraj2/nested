@@ -1,6 +1,8 @@
 import { isValidIconId } from '@/lib/icon-manifest';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+// #38 — shared with the pages routes so the limit and the trim rule cannot drift.
+import { normaliseDescription, validateDescription } from '@/lib/descriptions';
 import { requireAdmin } from '@/lib/api-auth';
 import { invalidateDomains } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
@@ -154,6 +156,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const { name, slug, pageType, categoryId, orderInCategory, isPublished, targetCountries } = body;
 
+    // #38 / O-2 — rejects rather than truncating. See src/lib/descriptions.ts.
+    const descriptionError =
+      validateDescription(body.description, 'description') ??
+      validateDescription(body.metaDescription, 'metaDescription');
+    if (descriptionError) {
+      return NextResponse.json({ success: false, message: descriptionError }, { status: 400 });
+    }
+
     // Check if slug is taken by another domain
     if (slug !== existingDomain.slug) {
       const slugConflict = await prisma.domain.findFirst({
@@ -248,6 +258,27 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           Remove button would silently do nothing.
         */
         icon: body.icon !== undefined ? body.icon : existingDomain.icon,
+        /*
+          #38 / O-2. ⚠️ THESE TWO **DO** BELONG IN THIS LIST — unlike `reviewedAt` below, and the
+          difference is worth being precise about, because the note underneath says the opposite
+          about a field two lines away.
+
+          `reviewedAt` is written by a DIFFERENT action ("Mark reviewed") than the one this PUT
+          serves. Listing it here would mean a name edit could clobber a value the name edit knows
+          nothing about — so it gets its own narrow PATCH branch.
+
+          `description` and `metaDescription` are edited BY THIS FORM, in the same submit as the
+          name. They arrive in this body, and the `!== undefined` guard means a caller that omits
+          them still leaves the columns alone. Same pattern as `icon` directly above.
+        */
+        description:
+          normaliseDescription(body.description) !== undefined
+            ? normaliseDescription(body.description)
+            : existingDomain.description,
+        metaDescription:
+          normaliseDescription(body.metaDescription) !== undefined
+            ? normaliseDescription(body.metaDescription)
+            : existingDomain.metaDescription,
         targetCountries: validTargetCountries
         /*
           ⚠⚠ DO NOT ADD `reviewedAt` TO THIS LIST. ⚠⚠
@@ -295,6 +326,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         pageType: updatedDomain.pageType,
         status: updatedDomain.status,
         icon: updatedDomain.icon,
+        // #38 / O-2 — the client swaps its row for this response.
+        description: updatedDomain.description,
+        metaDescription: updatedDomain.metaDescription,
         isPublished: updatedDomain.isPublished,
         orderInCategory: updatedDomain.orderInCategory,
         targetCountries: updatedDomain.targetCountries,

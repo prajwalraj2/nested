@@ -161,6 +161,14 @@ type Domain = {
   previewUrl: string;
   /** When a person last reviewed this domain's pages (N-5). `null` = never. */
   reviewedAt: Date | string | null;
+  /**
+   * The domain root's description and search snippet (#38).
+   *
+   * ⚠️ NOT RENDERED IN THIS TABLE — carried only so `DomainForm` can seed its inputs. Same
+   * pass-through role as `PagesManager.Page.description`.
+   */
+  description?: string | null;
+  metaDescription?: string | null;
 };
 
 type DomainsTableProps = {
@@ -583,6 +591,13 @@ export function DomainsTable({ domains, categories }: DomainsTableProps) {
                   shape that cannot rot.
                 */
                 icon: domainToEdit.icon,
+                /*
+                  #38 — and this is the FOURTH new column to pass through this literal. The
+                  warning above is not historical: omit these and the edit dialog opens with
+                  an empty description, so saving deletes it.
+                */
+                description: domainToEdit.description,
+                metaDescription: domainToEdit.metaDescription,
                 // `['ALL']` is the "visible everywhere" default — see the country
                 // targeting in #8. A domain with no explicit list must not become invisible.
                 targetCountries: domainToEdit.targetCountries || ['ALL'],

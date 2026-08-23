@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 // See src/lib/api-auth.ts for the 401-vs-403 and isActive reasoning.
 import { requireAdmin } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
+// #38 — shared with the pages routes so the limit and the trim rule cannot drift.
+import { normaliseDescription, validateDescription } from '@/lib/descriptions';
 import { invalidateDomains } from '@/lib/cache-invalidation';
 import { SUPPORTED_COUNTRIES, ALL_COUNTRIES } from '@/lib/countries';
 import {
@@ -108,6 +110,10 @@ export async function GET(request: NextRequest) {
       pageType: domain.pageType,
       status: domain.status,
       icon: domain.icon,
+      // #38 / O-2 — DomainForm seeds its inputs from this list, so a miss here means opening the
+      // edit dialog and saving wipes the description.
+      description: domain.description,
+      metaDescription: domain.metaDescription,
       isPublished: domain.isPublished,
       orderInCategory: domain.orderInCategory,
       targetCountries: domain.targetCountries,
@@ -161,6 +167,14 @@ export async function POST(request: NextRequest) {
     }
 
     const { name, slug, pageType, categoryId, orderInCategory, isPublished, targetCountries } = body;
+
+    // #38 / O-2 — rejects rather than truncating. See src/lib/descriptions.ts.
+    const descriptionError =
+      validateDescription(body.description, 'description') ??
+      validateDescription(body.metaDescription, 'metaDescription');
+    if (descriptionError) {
+      return NextResponse.json({ success: false, message: descriptionError }, { status: 400 });
+    }
 
     // Check if slug is already taken
     const existingDomain = await prisma.domain.findUnique({
@@ -226,6 +240,10 @@ export async function POST(request: NextRequest) {
         isPublished: resolveStatus(body) === 'PUBLISHED',
         // Optional; null means "use the emoji in the name".
         icon: body.icon ?? null,
+        // #38 / O-2. On CREATE, "absent" and "empty" are the same thing — there is no existing
+        // value to preserve — so both collapse to null.
+        description: normaliseDescription(body.description) ?? null,
+        metaDescription: normaliseDescription(body.metaDescription) ?? null,
         targetCountries: validTargetCountries
       },
       include: {

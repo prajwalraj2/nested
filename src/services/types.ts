@@ -66,6 +66,10 @@ export type DomainBasic = {
   targetCountries: string[];
   orderInCategory: number;
   categoryId: string | null;
+  /** The one-line description under the domain root's <h1> (#38). */
+  description?: string | null;
+  /** Authored search snippet for the domain root (#38). */
+  metaDescription?: string | null;
 };
 
 // ============================================
@@ -85,6 +89,10 @@ export type PageWithContent = {
   icon?: string | null;
   slug: string;
   contentType: string;
+  /** The one-line description under the <h1> (#38). `null` renders nothing. */
+  description?: string | null;
+  /** Authored search snippet (#38). `null` falls back through the chain in buildPageDescription. */
+  metaDescription?: string | null;
   sections?: any; // JSON field for section configuration
   parentId: string | null;
   domainId: string;

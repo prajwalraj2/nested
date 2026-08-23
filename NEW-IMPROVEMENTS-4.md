@@ -1,7 +1,7 @@
 # NEW-IMPROVEMENTS-4
 
-Item **#37** onward, and **Phase N** — table row control (ordering, tags, image presentation) and
-review dates on content pages.
+Items **#37–#38**, and **Phases N–O** — table row control (ordering, tags, image presentation),
+review dates on content pages, and page descriptions.
 
 Items #1–#28 and Phases A–J are in `NEW-IMPROVEMENTS.md`.
 Items #29–#35 and Phases K–L are in `NEW-IMPROVEMENTS-2.md`.
@@ -11,6 +11,12 @@ Item #36 and Phase M are in `NEW-IMPROVEMENTS-3.md`.
 > before the code deploys, and is stated explicitly in the record each time. Phase N adds one column
 > to one model and two internal fields inside existing JSON — the JSON changes need no migration,
 > which makes it *easier* to forget that the `Domain` change does.
+>
+> ⚠️ **Phase O adds four columns across two models, plus a data-copying `UPDATE` inside the same
+> migration** (O-1). The `UPDATE` is the part to watch: it is the only place in either phase where a
+> migration moves existing rows rather than just widening a table, so a failure there is silent
+> rather than loud. The matching `DROP COLUMN` is deliberately held back to **O-6**, a separate
+> migration, so the source data still exists if the copy went wrong.
 
 ---
 
@@ -478,6 +484,445 @@ point of the feature — but it is worth knowing before it looks like a bug.
 | **Automatic tag colours** | `assignBadgeColors` re-allocates when a value is added, which is wrong for a brand signal. See decision (h) |
 | **Option B for the image frame** | A 36px box with a 28px picture. One number, once A has been looked at |
 | **Per-page review dates** | Superseded by the domain-level field. Revisit only if a single page ever needs to disagree with its domain |
+
+---
+
+---
+
+## 🟢 #38 — Page descriptions, and authored meta descriptions
+
+**Raised 22 Aug 2026.** A one-line description under the heading of every content page, and — as a
+separate field — an authored meta description to replace the generated one.
+
+Recorded as its own item rather than folded into #37 because it is a **data-shape** change touching
+two models and roughly twenty explicit field lists, and because three quarters of it already existed
+in the codebase in pieces that nobody had joined up.
+
+### 38.1 — What exists today
+
+Measured on 22 Aug 2026, not recalled.
+
+| | |
+| --- | --- |
+| **Pages that would want a line** | **1,236** — `table` 689 · `rich_text` 419 · `subcategory_list` 77 · `section_based` 46 · `roadmap` 5 |
+| **Domains that would want one** | **43** |
+| ⚠️ **`Roadmap.description`** | **This feature already exists, for one page type.** Author-written, plain text, rendered on the page **and** feeding the meta description |
+| **Roadmaps carrying one** | **3 of 3.** Lengths **20, 36, 53** characters |
+| ⚠️ **Under the 40-char meta floor** | **2 of 3** — so they already fall through to the generated template |
+| **`/domain` listing** | Already has a static `DESCRIPTION` constant. Used for meta; ⚠️ **never rendered on the page** |
+| **`DomainCategory.description`** | Exists, unused for this purpose. ⚠️ Left alone by decision — see (h) |
+| **`buildPageDescription()`** | Already a fallback chain: roadmap intro → scraped rich-text prose → contentType template |
+| **`Page.description`** | ❌ does not exist |
+| **`Domain.description`** | ❌ does not exist |
+
+⚠️ **The 20/36/53 measurement is the most useful number here.** It is the only evidence in the
+codebase of how long these lines get when a human actually writes one, and the answer is *short* —
+median 36 characters. That is fine for a line under a heading and far too short for a search
+snippet, which is the entire reason the two fields are separate rather than one.
+
+### 38.2 — What was asked for
+
+1. A short description on `/domain`, individual domain pages, table, rich-text, roadmap and
+   subcategory pages
+2. Static for the `/domain` listing; dynamic (database) for everything else
+3. Placed under the `<h1>`, per the Figma mockup — with the review badge and Share bottom-aligned
+   to it
+
+### 38.3 — Decisions
+
+**(a) Two fields, not one.** `description` (rendered) and `metaDescription` (search) are separate on
+both models.
+
+⚠️ **This doubles the copy burden to ~2,560 lines, and was chosen with that known.** The mitigation
+is that **both are optional with independent fallbacks**, so `metaDescription` only needs writing
+where the generated template is actually weak — realistically a fraction of pages, not all of them.
+
+**(b) ⚠️ "Domain page" meant two different things, and that caused a real miscommunication.**
+Recorded because the same confusion will recur:
+
+| | Which page | How many | Column? |
+| --- | --- | --- | --- |
+| `/domain` | the **listing** — all 43 domains grouped by category | **1** | ❌ no row to hang one on |
+| `/domain/photography` | an **individual domain root** | **43** | ✅ yes |
+
+"Static, no database change" was only ever about the **listing**. The 43 individual domain roots get
+real columns.
+
+**(c) The fallback chains.**
+
+```
+description        missing → render nothing                    (same contract as reviewedAt)
+metaDescription    missing → description (if ≥ 40 chars)
+                          → scraped rich-text prose (if ≥ 40 chars)
+                          → the contentType template
+```
+
+⚠️ **`description` is a MIDDLE RUNG, not an independent field.** A page where only the on-page line
+was written still gets a human-written meta description rather than a template. The 40-character
+floor already exists in `buildPageDescription` and already guards exactly this case — two of the
+three roadmap descriptions fail it today, which is the floor working, not failing.
+
+**(d) One `metaDescription` feeds three tags, not one.** Verified in `generateMetadata`:
+
+| Tag | Reached? |
+| --- | --- |
+| `description` | ✅ |
+| `og:description` — via `buildOpenGraph({ description })` | ✅ **same string** |
+| `twitter:description` — via `buildTwitter({ description })` | ✅ **same string** |
+| `<title>`, `og:title`, `og:image`, `canonical`, `robots` | ✗ untouched |
+
+**(e) No `metaTitle`, no per-page OG image, no `keywords`.**
+
+- **`metaTitle`** — the composed `"{page} · {domain} · ATNO"` is already correct on all 1,236 pages.
+  An override only earns its keep where the H1 and the search target genuinely differ, and you
+  cannot know which pages those are without search data. Revisit with evidence.
+- **Per-page OG image** — a real gap (every page shares with the same generic image) but a feature
+  of its own, not a text field.
+- **`keywords`** — ignored by Google since 2009.
+
+**(f) ⚠️ `Roadmap.description` is retired, not left in place.** Roadmaps are Pages, so keeping both
+would mean two fields for one concept — an author edits one box and the page shows the other, with
+nothing erroring. Three rows to move.
+
+⚠️ **The drop is DELIBERATELY SPLIT INTO A SECOND MIGRATION.** O-1 adds the columns and copies the
+data; the code stops reading and writing the old field in O-5; the column is dropped in a **separate
+follow-up** once the copy is confirmed on both branches. A one-shot destructive migration would
+delete the only copy of the source data in the same breath as creating the destination.
+
+**(g) The `/domain` listing string stays a code constant, NOT an environment variable.** Four
+reasons, and the last is the one that would bite:
+
+1. Env vars are for values that differ per environment or are secret. This is neither — the same
+   string in dev, preview and production, three places to keep in sync, and silent drift when they
+   diverge.
+2. It still needs a redeploy. Vercel env changes do not apply to already-built pages, so it buys no
+   agility over a constant.
+3. It vanishes from the repository. `DESCRIPTION` is currently typed, diffable and reviewable in
+   `src/app/domain/page.tsx`; as an env var nobody reading the code can see what the page says, and
+   copy edits get no git history.
+4. ⚠️ **A missing env var fails silently** — `process.env.X` is `undefined`, so the page renders
+   nothing or the literal word "undefined". A constant cannot be missing.
+
+⚠️ **The right eventual home is a small admin-editable `SiteSetting` table**, matching the standing
+"everything via the admin panel" rule. **Four** site-wide strings now want one — the `/domain`
+description, footer text, `hello@atno.io`, and `[jurisdiction to be confirmed]`. Four justifies a
+settings phase; one does not, and building a settings screen inside a page-description feature is
+how features get tangled.
+
+**(h) `DomainCategory.description` is left exactly as it is**, on request. ⚠️ It does appear to be
+read on the `/domain` listing (there is a hardcoded `'Miscellaneous domains'` fallback beside it),
+so it may already render there. Worth a look next time that page is touched — not now.
+
+---
+
+## Phase O — Page descriptions (#38) — PLAN (agreed 22 Aug 2026, not started)
+
+| Step | What | Ships alone? |
+| --- | --- | --- |
+| ~~**O-1**~~ | ~~Schema: 4 columns, one migration, and the roadmap data copy~~ | ✅ shipped 22 Aug — **both branches migrated** |
+| ~~**O-2**~~ | ~~Admin write paths — `PageForm`, `DomainForm`, and both APIs~~ | ✅ shipped 22 Aug |
+| **O-3** | `PageHeading` renders the description; the bottom-aligned layout | ✅ |
+| **O-4** | `metaDescription` into the meta chain | ✅ |
+| **O-5** | Retire `Roadmap.description` reads and writes | ✅ |
+| **O-6** | *Follow-up, separate commit:* drop the `Roadmap.description` column | after O-5 is verified |
+
+⚠️ **O-1 is the only migration, and it runs on BOTH Neon branches before the code deploys** —
+the standing rule at the top of this document.
+
+⚠️ **THIS FEATURE IS MOSTLY A FIELD-LIST THREADING EXERCISE**, which is the bug class that has now
+bitten **twelve** times in this codebase. The checklist in O-2 is the deliverable, not a formality:
+every one of those sites fails *silently* when missed — no type error, no runtime error, just a
+description that does not appear or does not save.
+
+### O-1 — Schema and migration
+
+```prisma
+model Page {
+  /// The one-line description shown under the <h1> (#38).
+  ///
+  /// ⚠️ PLAIN TEXT, NOT HTML. It is also the middle rung of the meta-description chain, and
+  /// markup in a meta tag renders as literal characters in search results.
+  ///
+  /// ⚠️ NULL RENDERS NOTHING — the same contract as `Domain.reviewedAt`. 1,236 pages start null.
+  description String?
+
+  /// The authored search-result description (#38). Overrides the generated one.
+  ///
+  /// ⚠️ NULL IS NORMAL AND EXPECTED. Absent, `buildPageDescription` falls back through
+  /// `description` → scraped prose → template. Only write this where the template is weak.
+  metaDescription String?
+}
+
+model Domain {
+  /// Shown under the <h1> on this domain's root page (#38). Same contract as `Page.description`.
+  description String?
+  /// Overrides the domain root's generated meta description (#38).
+  metaDescription String?
+}
+```
+
+Migration `add_page_and_domain_descriptions`:
+
+```sql
+ALTER TABLE "public"."Page"   ADD COLUMN "description"     TEXT;
+ALTER TABLE "public"."Page"   ADD COLUMN "metaDescription" TEXT;
+ALTER TABLE "public"."Domain" ADD COLUMN "description"     TEXT;
+ALTER TABLE "public"."Domain" ADD COLUMN "metaDescription" TEXT;
+
+-- Decision (f): move the 3 existing roadmap intro lines to their pages.
+-- ⚠️ The source column is NOT dropped here — see (f) and O-6.
+UPDATE "public"."Page" p
+SET    "description" = btrim(r."description")
+FROM   "public"."Roadmap" r
+WHERE  r."pageId" = p."id"
+  AND  r."description" IS NOT NULL
+  AND  btrim(r."description") <> '';
+```
+
+⚠️ **The copy targets `description`, not `metaDescription`.** Its live role is an on-page intro
+line. Two of the three are under the 40-char floor and already fall through to the template, so
+their search snippets do not change; the third ("A detailed roadmap for Full Stack Enginnering
+roadmpa") loses its authored snippet, which — given it contains two typos — is not a loss.
+
+### O-2 — Admin write paths, and ⚠️ THE FIELD-LIST CHECKLIST
+
+**Both new `Page` fields must be added at every one of these sites.** Each fails silently.
+
+| # | File | What |
+| --- | --- | --- |
+| 1 | `services/page.service.ts` | `pageWithContentSelect` — ⚠️ **an explicit `select`; the render path dies here first** |
+| 2 | `services/types.ts` | `PageWithContent` / `PageBasic` |
+| 3 | `api/admin/pages/route.ts` | GET `select` |
+| 4 | `api/admin/pages/route.ts` | GET response rebuild |
+| 5 | `api/admin/pages/route.ts` | POST body destructure + `data` |
+| 6 | `api/admin/pages/[id]/route.ts` | the three GET `select`s |
+| 7 | `api/admin/pages/[id]/route.ts` | GET response rebuild |
+| 8 | `api/admin/pages/[id]/route.ts` | PUT destructure |
+| 9 | `api/admin/pages/[id]/route.ts` | PUT `data` block |
+| 10 | `api/admin/pages/[id]/route.ts` | PUT response rebuild |
+| 11 | `components/admin/pages/PageForm.tsx` | `formData` initial state + two fields |
+
+And for `Domain`:
+
+| # | File | What |
+| --- | --- | --- |
+| 12 | `services/types.ts` | `DomainBasic` |
+| 13 | `services/domain.service.ts` | `getDomainBySlugFromDB`'s explicit `select` |
+| 14 | `api/admin/domains/route.ts` | GET/POST lists |
+| 15 | `api/admin/domains/[id]/route.ts` | PUT destructure + `data` + response — ⚠️ **the file that already carries the `DO NOT ADD reviewedAt` warning; these two DO belong in that list** |
+| 16 | `app/admin/domains/page.tsx` | `transformedDomains` — the site of the eleventh instance |
+| 17 | `components/admin/domains/DomainForm.tsx` | `formData` + two fields |
+
+✅ **Safe by construction, no change needed** — verified, not assumed:
+
+- `pageForComponents` and `domainForComponents` in `app/domain/[...slug]/page.tsx` both use `...spread`
+- `DomainService.getWithPages` uses `include`, so `Domain` columns arrive automatically
+- `DomainWithPages = Domain & {…}`, an intersection with Prisma's own type
+
+**Editor fields:** a plain `Input` for `description`, a `Textarea` for `metaDescription`, each with
+a live character count. Green **40–160** for `metaDescription` (below 40 it will be ignored, above
+~160 Google truncates); `description` gets a soft hint at ~120 and no hard limit. Hard validation
+cap **300** on both, server-side. Hint text copies the wording already used in `RoadmapEditor`:
+*"Plain text, no HTML."*
+
+### ✅ O-1 and O-2 as shipped, 22 Aug
+
+**O-1 verified, not assumed.** The copy was checked row by row rather than trusted:
+
+```
+MATCH  "Data Analyst Roadmap"  "Data analyst roadmpa"
+MATCH  "roadmap11"             "justtttt roadmap intro line beginner"
+MATCH  "Roadmap"               "A detailed roadmap for Full Stack Enginnering roadmpa"
+Page.description 3/1236 · Page.metaDescription 0 · Domain.* 0 · empty strings 0
+```
+
+⚠️ **`prisma migrate deploy` DOES NOT REGENERATE THE CLIENT.** The first verification run failed
+with `Unknown field 'description' for select statement on model 'Page'` — the columns existed in the
+database and not in the typed client. `npx prisma generate` is a separate step, and its absence
+looks exactly like a failed migration.
+
+⚠️ **Verified on `ep-patient-boat` (dev) only.** `ep-bold-meadow` (production) ran the identical SQL
+and reported success, but its numbers were never read — and it may hold a different number of
+roadmaps, which is the one thing an `UPDATE ... WHERE` can get wrong silently.
+
+**O-2 added two shared files rather than inlining:**
+
+| File | Why it is shared rather than duplicated |
+| --- | --- |
+| `src/lib/descriptions.ts` | Four write endpoints need "trim it, empty means null, 300 is the limit". Drift here is invisible — a value one endpoint accepts and another rejects reads as an intermittent bug, not a disagreement |
+| `src/components/admin/DescriptionFields.tsx` | The same field pair in both forms. `PageHeading` exists *because* identical markup in six places drifted four ways |
+
+⚠️ **THE PLAN'S CHECKLIST WAS SHORT BY ONE.** `DomainsTable` rebuilds the object it passes to
+`DomainForm`, at the literal already commented *"the third time an explicit field list has silently
+dropped a new column"*. These two are the **fourth** column through it. **18 sites, not 17** — and
+the audit that caught it was a script, not a re-read.
+
+**Three contract details that are easy to "simplify" into bugs:**
+
+1. ⚠️ **`normaliseDescription` has THREE outcomes.** `undefined` = key absent, leave the column
+   alone. `null` = present but empty, clear it. A string = trimmed. Collapsing the first two with
+   `??` means clearing a description in the UI silently does nothing.
+2. ⚠️ **Form state holds `''`, never `null`.** A controlled `<input>` given `null` becomes
+   *uncontrolled*: React warns, and the field then keeps text the state never sees — so it looks
+   saved and is missing from the submit. Converted back to `null` in `submitData`.
+3. ⚠️ **The HTML check is deliberately narrow** — `<` followed by a letter or slash. It rejects
+   `<p>Best books</p>` and allows `Tools for < $10/month`. Both cases are tested.
+
+⚠️ **`description` and `metaDescription` DO belong in the domains PUT field list**, unlike
+`reviewedAt` two lines away in the same object — and the difference is now written there. Anything
+edited *by this form* belongs in the list; anything written by a *different action* needs its own
+narrow PATCH.
+
+---
+
+### O-3 — Render, and the bottom-aligned layout
+
+`PageHeading` gains `description?: string | null`, and the outer flex alignment becomes conditional:
+
+```tsx
+<div className={cn('flex justify-between gap-4', description ? 'items-end' : 'items-start')}>
+  <div className="flex min-w-0 flex-col">
+    <h1 className="flex min-w-0 items-center gap-3 text-3xl font-bold text-foreground">
+      <ItemIcon icon={icon} size={32} />
+      <span className="min-w-0">{title}</span>
+    </h1>
+    {description && (
+      <p className="text-muted-foreground mt-2 max-w-prose text-sm">{description}</p>
+    )}
+  </div>
+
+  {(actions || share || reviewLabel) && (
+    <div className={cn('flex shrink-0 items-center gap-3', !description && 'pt-1.5')}>
+      …
+    </div>
+  )}
+</div>
+```
+
+⚠️ **`items-end` ONLY WHEN A DESCRIPTION EXISTS**, per the mockup — and `pt-1.5` drops in that case
+because it exists to optically align the button with a `text-3xl` cap height, which is the wrong
+correction once the group is bottom-aligned. All 1,236 pages start with no description, so **today's
+appearance is unchanged until a line is written**.
+
+⚠️ `min-w-0` on the new column wrapper. Without it the flex `min-width: auto` trap returns and a
+long unbroken description pushes the button group off the edge — the same bug fixed at document
+level in `app/domain/layout.tsx`.
+
+Threaded into: `TableLayout` (4 call sites), `RichTextLayout` (1), `RoadmapLayout` (2),
+`SectionBasedLayout` (1), `SubcategorySelector` (1), and `app/domain/page.tsx` (the listing, passing
+its existing `DESCRIPTION` constant).
+
+⚠️ **`SubcategorySelector` GETS A DESCRIPTION BUT STILL GETS NO REVIEW BADGE.** Not an
+inconsistency: a description *explains* a page, which a chooser can usefully do; a review badge
+*claims the content was checked*, which is a claim about content a chooser does not hold.
+
+⚠️ **Domain roots read `domain.description`, nested pages read `page.description`** — matching the
+existing rule that a domain root's heading is `domain.name` and not the `__main__` page's title. See
+the long note in `SectionBasedLayout` about that drift.
+
+### O-4 — The meta chain
+
+`buildPageDescription` gains a new branch **0**, above the roadmap branch:
+
+```ts
+const authored = page.metaDescription?.trim();
+if (authored) return truncate(authored);          // ⚠️ NO 40-char floor — see below
+
+const onPage = page.description?.trim();
+if (onPage && onPage.length >= 40) return truncate(onPage);
+```
+
+⚠️ **`metaDescription` HAS NO FLOOR; `description` DOES.** They are different promises.
+`metaDescription` is someone deliberately writing a search snippet — if they chose 25 characters,
+that is the choice, and silently overriding it makes the field untrustworthy. `description` was
+written for a different purpose and is only *borrowed* for search, so the floor protects against
+borrowing something unsuitable.
+
+The domain root's branch in `generateMetadata` gets the same treatment, replacing the hardcoded
+`Curated tools, resources and channels for {domain}…` template.
+
+### O-5 — Retire `Roadmap.description`
+
+Reads and writes removed from **8 files**, measured:
+
+| File | Sites |
+| --- | --- |
+| `services/page.service.ts` | the roadmap `select` |
+| `api/admin/roadmaps/route.ts` | 4 — select, destructure, create, response select |
+| `api/admin/roadmaps/[pageId]/route.ts` | 4 — select, doc comment, `data` type, PATCH branch |
+| `components/admin/roadmaps/RoadmapEditor.tsx` | ~6 — state, dirty check, request body, label, input, hint |
+| `components/admin/roadmaps/types.ts` | the type |
+| `components/domain/RoadmapLayout.tsx` | the render — ⚠️ **deletes a `-mt-6` negative-margin hack** |
+| `app/domain/[...slug]/page.tsx` | `buildPageDescription` branch 0 |
+
+⚠️ **The `-mt-6` disappearing is a feature of this step.** `RoadmapLayout` currently renders its
+description *after* `PageHeading` and drags it back up under the title with a negative margin,
+fighting the margin `PageHeading` owns. Moving the description inside `PageHeading` removes the
+fight — which is the same "six hand-written copies had drifted four ways" argument that created
+`PageHeading` in the first place.
+
+### O-6 — Follow-up: drop the column
+
+A **separate commit and migration**, once the O-1 copy is confirmed on both branches:
+
+```sql
+ALTER TABLE "public"."Roadmap" DROP COLUMN "description";
+```
+
+### Test matrix
+
+**Inert-migration check (do this first):**
+
+1. ⚠️ After O-1, **every page looks exactly as it does today** — 1,236 nulls, nothing renders, no
+   layout shift. This is the check that the migration is visually inert.
+2. ⚠️ **The 3 roadmap pages still show their intro line** — now from `Page.description`, and
+   **without the `-mt-6`**, so confirm the spacing under the heading is right rather than merely
+   present.
+
+**Render:**
+
+3. A table page with a description → line under the `<h1>`, **⟳ Reviewed + Share bottom-aligned to
+   it** per the mockup.
+4. The same page with the description cleared → layout returns exactly to today's (buttons back to
+   `items-start` + `pt-1.5`).
+5. ⚠️ A **long** description (250 chars) → wraps at `max-w-prose`, does **not** push Share off the
+   edge, and the page does not scroll horizontally.
+6. ⚠️ A description on a page with a **two-line wrapping title** → no overlap, no collision with
+   the button group.
+7. Below `sm`: description shows, review badge hides (its existing `sm:flex`), no cramping.
+8. A domain root → reads `Domain.description`. A nested page under it → reads `Page.description`.
+   Setting one must not change the other.
+9. `/domain` listing → renders the existing constant. Subcategory page → description, **no badge**.
+
+**Meta — check `view-source`, not just the page:**
+
+10. `metaDescription` set → appears in `description`, `og:description` **and**
+    `twitter:description`. All three.
+11. `metaDescription` cleared, `description` ≥ 40 chars → the on-page line becomes the meta.
+12. `metaDescription` cleared, `description` **under** 40 chars → falls through to the template.
+    ⚠️ This is the floor working; it is not a bug.
+13. A 20-char `metaDescription` → **used verbatim**, no floor. The asymmetry with 12 is deliberate.
+14. A rich-text page with no fields set → still scrapes its prose, unchanged.
+
+**Save paths — the field-list bug:**
+
+15. ⚠️ Set both fields on a page, save, **reopen the edit dialog** — both must still be there. This
+    is the check that catches a missing rebuild site, and it is the exact symptom that made the
+    icon look broken in Phase J.
+16. ⚠️ Set a domain description, then edit the domain's **name** and save → the description
+    survives. Same shape as the `reviewedAt` PUT check.
+17. ⚠️ Set a page description, then change the page's **status or icon** → description survives.
+18. Create a **new** page and a **new** domain with descriptions → they save.
+
+### Deferred out of Phase O
+
+| | |
+| --- | --- |
+| **`metaTitle` per page** | The composed title is already right on 1,236 pages. Needs search data to justify — see (e) |
+| **Per-page OG image** | A real gap, but an upload/generation feature rather than a text field |
+| **`SiteSetting` table** | ⚠️ **Four** site-wide strings now want it. Its own small phase — see (g) |
+| **Descriptions on `/domain` grid cards** | Declined for now; domain pages only |
+| **`DomainCategory.description`** | Left exactly as-is — see (h) |
 
 ---
 

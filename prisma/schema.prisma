@@ -79,6 +79,39 @@ model Domain {
   /// `isValidIconId()` from `src/lib/icon-manifest.ts`.
   icon String?
 
+  /// The one-line description shown under the <h1> on this domain's ROOT page (#38, Phase O-1).
+  ///
+  /// ⚠️ THIS IS THE INDIVIDUAL DOMAIN PAGE (`/domain/photography`), NOT THE LISTING (`/domain`).
+  /// The listing is a single page with no row to hang a column on, so its description stays a code
+  /// constant — see decision (g) in NEW-IMPROVEMENTS-4.md for why it is not an env var either.
+  ///
+  /// ⚠️ PLAIN TEXT, NOT HTML. It is also the middle rung of the meta-description chain (below
+  /// `metaDescription`, above the generated template), and markup in a meta tag renders as literal
+  /// characters in search results.
+  ///
+  /// ⚠️ NULL RENDERS NOTHING — the same contract as `reviewedAt` below. All 43 domains start null,
+  /// so adding this column changes nothing visible until a line is written.
+  ///
+  /// ⚠️ Read on the domain root, NOT the `__main__` page's description. The root's heading already
+  /// uses `Domain.name` rather than `__main__`'s title, for reasons documented at length in
+  /// `SectionBasedLayout` — the description follows the heading it belongs to.
+  description String?
+
+  /// Overrides the domain root's GENERATED meta description (#38, Phase O-1).
+  ///
+  /// Without this, the root emits a hardcoded template: "Curated tools, resources and channels
+  /// for {domain}. Hand-picked and organised on ATNO."
+  ///
+  /// ⚠️ ONE FIELD, THREE TAGS. It reaches `description`, `og:description` AND
+  /// `twitter:description` — `generateMetadata` passes one string into `buildOpenGraph` and
+  /// `buildTwitter`. Verified, not assumed.
+  ///
+  /// ⚠️ NO MINIMUM LENGTH, DELIBERATELY — and this is the one asymmetry with `description` above.
+  /// A short value here is someone deliberately writing a search snippet; silently overriding
+  /// their 25-character choice would make the field untrustworthy. `description` DOES get a
+  /// 40-character floor when borrowed for search, because it was written for a different purpose.
+  metaDescription String?
+
   // Category relationship
   category   DomainCategory? @relation(fields: [categoryId], references: [id])
   categoryId String?
@@ -203,6 +236,34 @@ model Page {
   /// a 3.1× reuse factor — so "YouTube Channels" under a dozen domains all reference the single
   /// `youtube` icon. That is why this is an id rather than an uploaded file per row.
   icon String?
+
+  /// The one-line description shown under the <h1> (#38, Phase O-1).
+  ///
+  /// ⚠️ PLAIN TEXT, NOT HTML — see the identical note on `Domain.description`.
+  ///
+  /// ⚠️ NULL RENDERS NOTHING. All 1,236 pages start null, so this column is visually inert until
+  /// a line is written — which is the first thing to verify after the migration.
+  ///
+  /// ⚠️ THIS REPLACES `Roadmap.description`, which was the same idea built for one page type only.
+  /// The O-1 migration COPIES the 3 existing roadmap intro lines into this column; the old column
+  /// is dropped separately in O-6, so the source survives if the copy went wrong. Do not add a
+  /// second read of `Roadmap.description` — two fields for one concept is how an author edits one
+  /// box and the page shows the other, with nothing erroring.
+  description String?
+
+  /// Overrides this page's GENERATED meta description (#38, Phase O-1).
+  ///
+  /// The chain in `buildPageDescription`, in order:
+  ///
+  ///   metaDescription  →  description (if ≥ 40 chars)  →  scraped rich-text prose  →  template
+  ///
+  /// ⚠️ NULL IS NORMAL AND EXPECTED, not an omission. Only write this where the generated template
+  /// is actually weak; the fallback chain handles the rest. Treating it as required would mean
+  /// 1,236 lines of copy nobody needs.
+  ///
+  /// ⚠️ ONE FIELD, THREE TAGS — `description`, `og:description`, `twitter:description`. See the
+  /// note on `Domain.metaDescription`.
+  metaDescription String?
 
   /// Lifecycle state — the field every read path should filter on.
   ///
@@ -381,7 +442,20 @@ model Roadmap {
   /// wants to be longer.
   title String
 
-  /// One-line intro under the title.
+  /// @deprecated ⚠️⚠️ SUPERSEDED BY `Page.description` (#38). BEING REMOVED IN PHASE O-6. ⚠️⚠️
+  ///
+  /// One-line intro under the title — the same idea as `Page.description`, built for one page type
+  /// before it was built for all of them.
+  ///
+  /// ⚠️ **DO NOT ADD NEW READS OR WRITES.** The O-1 migration has already COPIED every non-empty
+  /// value in this column into `Page.description`, so both hold the same data right now. Reading
+  /// this one means two fields for one concept: an author edits the `Page` box, this column keeps
+  /// its stale value, and whichever read path you added shows the old text. Nothing errors.
+  ///
+  /// ⚠️ IT STILL EXISTS ONLY AS A SAFETY NET. The copy and the drop were deliberately split across
+  /// two migrations so this data survives if the O-1 `UPDATE` silently matched zero rows. Once O-5
+  /// has removed the remaining reads and the copy is confirmed on **both** Neon branches, O-6 drops
+  /// the column.
   ///
   /// ⚠️ PLAIN TEXT, NOT HTML — it also feeds the meta description, and markup there would be
   /// rendered as literal characters in search results.
