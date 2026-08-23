@@ -7,6 +7,8 @@
 
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+// #38 — the one place the "is this long enough to borrow for search" number lives.
+import { META_BORROW_FLOOR } from '@/lib/descriptions';
 import { SubcategorySelector } from '@/components/domain/SubcategorySelector';
 import { SectionBasedLayout } from '@/components/domain/SectionBasedLayout';
 import { NarrativeLayout } from '@/components/domain/NarrativeLayout';
@@ -133,9 +135,27 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   // --------------------------------------------------------------------------
   if (restSlug.length === 0) {
     const path = `/domain/${domain.slug}`;
-    const description = truncate(
-      `Curated tools, resources and channels for ${domainName}. Hand-picked and organised on ATNO.`
-    );
+    /*
+      #38 / O-4 — the same three-rung chain the nested-page branch uses, so a domain root and a
+      page under it cannot disagree about which field wins.
+
+        domain.metaDescription   used verbatim, no floor — a deliberate choice
+        domain.description       borrowed only at >= META_BORROW_FLOOR
+        the template             what every domain got before this
+
+      ⚠️ IT IS THE DOMAIN'S FIELDS, NOT THE `__main__` PAGE'S — matching the heading rule in
+      `SectionBasedLayout` and `SubcategorySelector`. Setting a description on `__main__` changes
+      neither the heading nor the meta tag on a domain root, which is surprising exactly once.
+    */
+    const authoredDomainMeta = domain.metaDescription?.trim();
+    const domainOnPage = domain.description?.trim();
+    const description = authoredDomainMeta
+      ? truncate(authoredDomainMeta)
+      : domainOnPage && domainOnPage.length >= META_BORROW_FLOOR
+        ? truncate(domainOnPage)
+        : truncate(
+            `Curated tools, resources and channels for ${domainName}. Hand-picked and organised on ATNO.`
+          );
 
     return {
       // The `template` in src/app/layout.tsx turns this into
@@ -261,31 +281,52 @@ function buildRobots(indexable: boolean): Metadata['robots'] {
 function buildPageDescription(
   page: {
     contentType: string;
+    /** #38 — the authored search snippet. Wins over everything below it. */
+    metaDescription?: string | null;
+    /** #38 — the on-page line. Borrowed for search only when it is long enough to serve. */
+    description?: string | null;
     richTextContent?: { htmlContent: string } | null;
-    roadmap?: { description: string | null } | null;
   },
   pageTitle: string,
   domainName: string
 ): string {
   /*
-    0. A roadmap's own intro line (L-8).
+    0a. `metaDescription` — somebody deliberately writing a search snippet (#38, O-4).
 
-    ⚠️ CHECKED BEFORE THE RICH-TEXT BRANCH, AND BEFORE THE TEMPLATE, because it is the only one
-    of the three that a human wrote *as a summary*. The rich-text branch below scrapes prose that
-    happens to be at the top of a page; the template is generated. This field exists to describe
-    the page in one line, which is exactly what a meta description is.
-
-    ⚠️ It is PLAIN TEXT by contract (see the field's note in schema.prisma and the editor's
-    hint), so it needs no `htmlToText` pass — and running one would silently mangle a legitimate
-    `<` or `&` typed by the author.
-
-    The 40-character floor is the same guard the rich-text branch uses: a three-word intro is
-    worse in a search result than a full generated sentence.
+    ⚠️ NO LENGTH FLOOR ON THIS ONE, unlike every branch below it, and that asymmetry is the whole
+    design rather than an oversight. This field exists for the case where the generated description
+    is wrong; if an author chose 25 characters, overriding them would make the field untrustworthy —
+    and a field you cannot trust to be used is worse than no field.
   */
-  const intro = page.roadmap?.description?.trim();
-  if (intro && intro.length >= 40) {
-    return truncate(intro);
+  const authored = page.metaDescription?.trim();
+  if (authored) {
+    return truncate(authored);
   }
+
+  /*
+    0b. The on-page `description`, BORROWED (#38, O-4).
+
+    ⚠️ THIS ONE DOES GET THE FLOOR, because it was not written for search. It was written to sit
+    under a heading, where 36 characters is a good length — that was the measured median of the only
+    three author-written descriptions that existed before this feature. As a search snippet, the
+    real value "Data analyst roadmpa" is worse than the generated template it would replace.
+
+    So: use it when it is substantial enough to serve two purposes, fall through when it is not.
+  */
+  const onPage = page.description?.trim();
+  if (onPage && onPage.length >= META_BORROW_FLOOR) {
+    return truncate(onPage);
+  }
+
+  /*
+    ⚠️ `Roadmap.description` USED TO BE CHECKED HERE, ABOVE EVERYTHING, and it is gone as of
+    #38 / O-5. It was an author-written intro line for exactly one content type — the same job
+    `Page.description` now does for all of them — so the two would have been rival sources for one
+    piece of text, with an author editing whichever box they found first.
+
+    Branches 0a and 0b above replace it, and they apply to every page type rather than to roadmaps
+    alone.
+  */
 
   // 1. Real prose, if this page has any.
   const html = page.richTextContent?.htmlContent;
@@ -305,11 +346,11 @@ function buildPageDescription(
         `${pageTitle} in ${domainName} - a curated, comparable list of options on ATNO.`
       );
     /*
-      ⚠️ A ROADMAP'S OWN `description` IS BETTER THAN THIS TEMPLATE AND IS NOT READ HERE YET.
-      `Roadmap.description` is a one-line intro written by the author — real prose, exactly the
-      kind of thing branch 1 above prefers over a template. Wiring it up needs the relation
-      added to `pageWithContentSelect` in page.service.ts, which is L-8's job. Until then a
-      roadmap gets this template, which is correct but generic.
+      ⚠️ THIS COMMENT USED TO SAY a roadmap's own `description` was better than this template and
+      "not read here yet". It is resolved rather than still pending: `Roadmap.description` no longer
+      exists (#38 / O-5), and an author-written line for a roadmap page now arrives through branches
+      0a/0b above like every other content type's. A roadmap reaches this template only when nobody
+      has written either field — which is the same condition as every other case here.
     */
     case 'roadmap':
       return truncate(

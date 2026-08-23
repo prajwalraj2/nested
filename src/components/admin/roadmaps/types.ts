@@ -26,7 +26,6 @@ export type MoveDirection = 'up' | 'down' | 'in' | 'out';
 export type RoadmapMeta = {
   id: string;
   title: string;
-  description: string | null;
   /** Arbitrary JSON from the database — always read it through `resolveRoadmapSettings`. */
   settings: unknown;
   updatedAt: string;

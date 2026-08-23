@@ -74,7 +74,6 @@ const pageWithContentSelect = {
     select: {
       id: true,
       title: true,
-      description: true,
       settings: true,
       updatedAt: true,
       nodes: {
