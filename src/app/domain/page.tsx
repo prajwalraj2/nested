@@ -46,6 +46,24 @@ const DESCRIPTION =
   'Browse every domain on ATNO — curated tools, resources and channels across design, development, AI, ecommerce and more.';
 
 /**
+ * The line shown UNDER THE HEADING on this page (#38, O-3).
+ *
+ * ⚠️ A SECOND CONSTANT RATHER THAN A SHORTER `DESCRIPTION`, and the reason is the same one that
+ * made `Page.description` and `Page.metaDescription` two fields instead of one: the two strings
+ * have different jobs and different ideal lengths.
+ *
+ *   DESCRIPTION       ~120 chars, for a search result. Names the site ("on ATNO") because a
+ *                     searcher has not arrived yet and needs to know whose page this is.
+ *   PAGE_DESCRIPTION  ~60 chars, for someone already looking at the page. Naming the site here is
+ *                     redundant, and the length that reads well under an <h1> is roughly half what
+ *                     reads well in a SERP.
+ *
+ * Shortening the one constant to suit the page would have quietly weakened the search snippet —
+ * the kind of trade that is invisible until traffic drops.
+ */
+const PAGE_DESCRIPTION = 'Curated tools, resources and channels for every field we cover.';
+
+/**
  * Used for both the `<title>` and the Open Graph / Twitter title, so the search
  * result and the chat-app link preview say the same thing.
  *
@@ -207,7 +225,23 @@ export default async function DomainIndexPage() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Page Heading */}
-        <PageHeading title="Domains" />
+        {/*
+          #38 / O-3. ⚠️ `PAGE_DESCRIPTION`, NOT `DESCRIPTION` — two constants on purpose. The
+          meta one names the site for a searcher who has not arrived; this one is read by someone
+          already here, where "on ATNO" is redundant and half the length reads better. See the
+          note on both constants above.
+
+          ⚠️ A CONSTANT, NOT A DATABASE COLUMN, and deliberately not an environment variable.
+          There is exactly ONE of this page, so a column would be a table with one row; and an
+          env var would still need a redeploy to change while disappearing from the repo and
+          failing silently as `undefined`. The eventual home is an admin-editable settings
+          table, once there are enough site-wide strings to justify one — see decision (g) in
+          NEW-IMPROVEMENTS-4.md #38.
+
+          ⚠️ No review badge here: this lists EVERY domain, so there is no single review date
+          to show.
+        */}
+        <PageHeading title="Domains" description={PAGE_DESCRIPTION} />
         
         {/* 3-Column Grid Layout - Row-based rendering for alignment */}
         {/*

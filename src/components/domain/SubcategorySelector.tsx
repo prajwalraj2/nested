@@ -14,6 +14,15 @@ type DomainWithPages = {
   icon?: string | null;
   slug: string;
   pageType: string;
+  /**
+   * The DOMAIN's own description (#38) — shown when this component renders a domain ROOT.
+   *
+   * ⚠️ A LOCAL TYPE THAT SHADOWS `services/types.ts`'s `DomainWithPages`, which is an
+   * intersection with Prisma's `Domain` and therefore picks up new columns for free. This one
+   * lists its fields, so it does not — and the name being identical is exactly why that is easy
+   * to miss. TypeScript did catch it here, unlike the field lists in the API routes.
+   */
+  description?: string | null;
   pages: PageWithContent[];
 };
 
@@ -24,6 +33,8 @@ type PageWithContent = {
   icon?: string | null;
   slug: string;
   contentType: string;
+  /** The one-line description under the heading (#38). `null` renders nothing. */
+  description?: string | null;
   content: any[];
   subPages: any[];
 };
@@ -79,6 +90,18 @@ export function SubcategorySelector({ domain, page }: {
   const isDomainRoot = !page;
   const title = isDomainRoot ? domain.name : page.title;
   const headingIcon = isDomainRoot ? domain.icon : page.icon;
+  /*
+    ⚠️ THE DESCRIPTION FOLLOWS THE SAME RULE AS THE TITLE AND ICON ABOVE — and it did not, at
+    first. O-3 originally passed `page?.description` here, which meant a HIERARCHICAL domain's root
+    (`/domain/webdev`) showed no description even with one set on the domain, while a DIRECT
+    domain's root showed it correctly. Two kinds of domain root behaving differently, from the same
+    field, for no reason a user could infer.
+
+    The tell was that `isDomainRoot` already existed three lines up and was already being used for
+    exactly this decision twice. A new field that needs the same split should reuse the existing
+    one rather than invent a narrower test.
+  */
+  const headingDescription = isDomainRoot ? domain.description : page.description;
 
   // Organize pages into row groups (each with 3 columns of up to 5 pages)
   const rowGroups = organizePagesIntoRows(subcategories);
@@ -87,7 +110,13 @@ export function SubcategorySelector({ domain, page }: {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <PageHeading title={title} icon={headingIcon} />
+        {/*
+          ⚠️ A DESCRIPTION BUT STILL NO REVIEW BADGE (#38), and that is the line rather than an
+          oversight. A description EXPLAINS a page, which a chooser can usefully do. A review
+          badge CLAIMS THE CONTENT WAS CHECKED — a claim about content this page does not hold,
+          since it only lists links to pages that hold their own.
+        */}
+        <PageHeading title={title} icon={headingIcon} description={headingDescription} />
       </div>
 
       {/* 3-Column Grid Layout */}
