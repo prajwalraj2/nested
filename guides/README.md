@@ -2,10 +2,27 @@
 
 End-user guides — how to *use* a feature, not how it is built.
 
+## The structure guides
+
+These three cover the whole content hierarchy, and they are best read in this order — each one
+assumes the one above it.
+
 | Guide | Covers |
 | --- | --- |
-| `ROW-ORDERING-GUIDE.md` | Display Order — deciding which row appears first, including per country |
-| `ROW-TAGS-GUIDE.md` | Row tags — the coloured pill on individual rows, and its colours |
+| `CATEGORY-GUIDE.md` | Categories — the 3-column menu grid, the Active gate, why delete usually refuses |
+| `DOMAIN-GUIDE.md` | Domains — Direct vs Hierarchical, status, target countries, descriptions, review dates, the cascade on delete |
+| `PAGE-GUIDE.md` | Pages — content types, `__main__`, parents and nesting, recursive delete |
+
+```
+Category  →  Domain  →  Page  →  content (table / rich text / roadmap / sections)
+```
+
+## Feature guides
+
+| Guide | Covers |
+| --- | --- |
+| `ROW-ORDERING-GUIDE.md` | Display Order — deciding which table row appears first, including per country |
+| `ROW-TAGS-GUIDE.md` | Row tags — the coloured pill on individual table rows, and its colours |
 
 ## What belongs here
 
@@ -15,6 +32,11 @@ maintaining the code.
 
 The reasoning behind a feature lives in `NEW-IMPROVEMENTS-*.md`; a guide only says *why* where the
 reason changes what you should do.
+
+⚠️ **Every ⚠️ in these guides marks something verified against the code, not remembered.** Where a
+guide states a number — the 40-character borrowing floor, the 300-character limit, the 90-day review
+window — that number was read out of the source. If you change one in the code, search the guides
+for it.
 
 ## ⚠️ The older guides are still at the repository root, deliberately
 
